@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* ThingsDiaryClient in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000003 /* ThingsDiaryClient */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		2D9E84B4307D31C200885CFA /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000001 /* ThingsDiaryClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = "thingsdiary-mac";
 			packageProductDependencies = (
+				A10000000000000000000003 /* ThingsDiaryClient */,
 			);
 			productName = "thingsdiary-mac";
 			productReference = 2D9E84A4307D31C000885CFA /* thingsdiary-mac.app */;
@@ -197,6 +203,9 @@
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2D9E84A5307D31C000885CFA /* Products */;
+			packageReferences = (
+				A10000000000000000000002 /* XCLocalSwiftPackageReference "../client-swift" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -563,6 +572,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A10000000000000000000002 /* XCLocalSwiftPackageReference "../client-swift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../client-swift";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10000000000000000000003 /* ThingsDiaryClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ThingsDiaryClient;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 2D9E849C307D31C000885CFA /* Project object */;
 }
