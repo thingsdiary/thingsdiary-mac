@@ -349,20 +349,15 @@ private struct EntriesView: View {
 					} label: {
 						HStack {
 							Label("New Entry", systemImage: "square.and.pencil")
-							Spacer(minLength: 0)
+							Spacer(minLength: 8)
+							Text("⌘N")
+								.font(.caption)
+								.foregroundStyle(.tertiary)
 						}
 						.padding(.horizontal, 7)
-						.padding(.vertical, 6)
-						.frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+						.padding(.vertical, 5)
+						.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
 						.contentShape(.rect)
-						.background {
-							RoundedRectangle(cornerRadius: 7, style: .continuous)
-								.fill(Color.accentColor.opacity(0.12))
-						}
-						.overlay {
-							RoundedRectangle(cornerRadius: 7, style: .continuous)
-								.stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
-						}
 					}
 					.accessibilityIdentifier("entry.create")
 					.buttonStyle(.plain)
