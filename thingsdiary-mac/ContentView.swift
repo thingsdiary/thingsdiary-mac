@@ -317,6 +317,7 @@ private struct EntriesView: View {
 	@State private var topicEntryPreviewable = true
 	@State private var topicDefaultTemplateID: String?
 	@State private var topicsExpanded = true
+	@State private var topicsHeaderHovered = false
 	@State private var pendingEntryAction: PendingEntryAction?
 	@State private var targetedDropDestination: EntryDropDestination?
 	@State private var dropTargetFrames: [EntryDropDestination: CGRect] = [:]
@@ -383,24 +384,71 @@ private struct EntriesView: View {
 					Divider()
 						.padding(.vertical, 4)
 
-					Button {
-						withAnimation(.snappy(duration: 0.18)) {
-							topicsExpanded.toggle()
+					HStack(spacing: 8) {
+						if model.topics.isEmpty {
+							HStack(spacing: 8) {
+								Image(systemName: "tag")
+									.frame(width: 16)
+									.foregroundStyle(.tint)
+								Text("Topics")
+								Spacer(minLength: 6)
+							}
+							.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+						} else {
+							Button {
+								toggleTopics()
+							} label: {
+								HStack(spacing: 8) {
+									Image(systemName: "tag")
+										.frame(width: 16)
+										.foregroundStyle(.tint)
+									Text("Topics")
+										.foregroundStyle(.primary)
+									Spacer(minLength: 6)
+								}
+								.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+								.contentShape(.rect)
+							}
+							.buttonStyle(.plain)
+							.accessibilityIdentifier("topics.toggle")
+							.accessibilityLabel(topicsExpanded ? "Collapse Topics" : "Expand Topics")
+							.accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
+							.help(topicsExpanded ? "Collapse Topics" : "Expand Topics")
 						}
-					} label: {
-						HStack(spacing: 5) {
-							Image(systemName: topicsExpanded ? "chevron.down" : "chevron.right")
-								.font(.caption2.weight(.semibold))
-							Text("Topics")
-								.font(.caption)
-								.foregroundStyle(.secondary)
-							Spacer()
+
+						Button {
+							beginCreatingTopic()
+						} label: {
+							Image(systemName: "plus")
+								.frame(width: 18, height: 20)
+								.opacity(topicsHeaderHovered || model.topics.isEmpty ? 1 : 0)
 						}
-						.contentShape(.rect)
+						.buttonStyle(.plain)
+						.allowsHitTesting(topicsHeaderHovered || model.topics.isEmpty)
+						.accessibilityIdentifier("topic.create")
+						.accessibilityLabel("New Topic")
+						.help("New Topic")
+
+						if !model.topics.isEmpty {
+							Button {
+								toggleTopics()
+							} label: {
+								Image(systemName: topicsExpanded ? "chevron.down" : "chevron.right")
+									.font(.caption.weight(.semibold))
+									.frame(width: 18, height: 20)
+							}
+							.buttonStyle(.plain)
+							.accessibilityIdentifier("topics.chevron")
+							.accessibilityLabel(topicsExpanded ? "Collapse Topics" : "Expand Topics")
+							.accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
+							.help(topicsExpanded ? "Collapse Topics" : "Expand Topics")
+						}
 					}
-					.buttonStyle(.plain)
-					.accessibilityIdentifier("topics.toggle")
-					.accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
+					.padding(.horizontal, 7)
+					.padding(.vertical, 5)
+					.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+					.contentShape(.rect)
+					.onHover { topicsHeaderHovered = $0 }
 
 					if topicsExpanded {
 						ForEach(model.topics) { topic in
@@ -410,24 +458,11 @@ private struct EntriesView: View {
 								destination: .topic(topic.id),
 								identifier: "sidebar.topic.\(topic.id)",
 								color: topicColorValue(topic.color),
+								showsCount: false,
 								dropDestination: .topic(topic.id),
 								doubleClick: { beginEditing(topic) }
 							)
 						}
-
-						Button {
-							topicTitle = ""
-							topicDescription = ""
-							topicColor = topicColors[0]
-							topicEntryPreviewable = true
-							topicDefaultTemplateID = nil
-							editingTopic = nil
-							showingTopicCreator = true
-						} label: {
-							Label("New Topic", systemImage: "plus")
-						}
-						.accessibilityIdentifier("topic.create")
-						.buttonStyle(.plain)
 					}
 
 					Divider()
@@ -798,6 +833,7 @@ private struct EntriesView: View {
 		destination: DiaryNavigationSelection,
 		identifier: String,
 		color: Color? = nil,
+		showsCount: Bool = true,
 		dropDestination: EntryDropDestination? = nil,
 		doubleClick: (() -> Void)? = nil
 	) -> some View {
@@ -807,9 +843,12 @@ private struct EntriesView: View {
 		return Button {
 			selection = destination
 		} label: {
-			HStack {
+			HStack(spacing: 8) {
 				if let color {
-					Circle().fill(color).frame(width: 8, height: 8)
+					Circle()
+						.fill(color)
+						.frame(width: 8, height: 8)
+						.frame(width: 16)
 				} else {
 					Image(systemName: systemImage)
 						.frame(width: 16)
@@ -821,7 +860,7 @@ private struct EntriesView: View {
 					Image(systemName: dropDestination == .trash ? "trash.fill" : "arrow.down.circle.fill")
 						.foregroundStyle(dropTint)
 						.opacity(isDropTargeted ? 1 : 0)
-					if count(for: destination) > 0 {
+					if showsCount && count(for: destination) > 0 {
 						Text(count(for: destination), format: .number)
 							.font(.caption.monospacedDigit())
 							.foregroundStyle(.secondary)
@@ -1092,6 +1131,22 @@ private struct EntriesView: View {
 
 	private func topicColorValue(_ hex: String) -> Color {
 		Color(topicHex: hex) ?? .secondary
+	}
+
+	private func toggleTopics() {
+		withAnimation(.snappy(duration: 0.18)) {
+			topicsExpanded.toggle()
+		}
+	}
+
+	private func beginCreatingTopic() {
+		topicTitle = ""
+		topicDescription = ""
+		topicColor = topicColors[0]
+		topicEntryPreviewable = true
+		topicDefaultTemplateID = nil
+		editingTopic = nil
+		showingTopicCreator = true
 	}
 
 	private func beginEditing(_ topic: ThingsDiaryTopic) {

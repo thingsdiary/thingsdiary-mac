@@ -113,16 +113,18 @@ final class DiaryWorkspaceUITests: XCTestCase {
 	func testTopicsHeaderCollapsesAndExpandsItsRows() {
 		let app = launchWorkspace()
 		let header = app.buttons["topics.toggle"]
+		let chevron = app.buttons["topics.chevron"]
 		let topic = app.buttons["sidebar.topic.fixture-topic"]
 
 		XCTAssertTrue(header.waitForExistence(timeout: 2))
+		XCTAssertTrue(chevron.exists)
 		XCTAssertTrue(topic.exists)
 
 		header.click()
 		XCTAssertFalse(topic.waitForExistence(timeout: 1))
 		XCTAssertEqual(header.value as? String, "Collapsed")
 
-		header.click()
+		chevron.click()
 		XCTAssertTrue(topic.waitForExistence(timeout: 2))
 		XCTAssertEqual(header.value as? String, "Expanded")
 	}
