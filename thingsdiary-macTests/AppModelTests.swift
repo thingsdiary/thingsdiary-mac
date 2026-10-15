@@ -32,6 +32,41 @@ func successfulRegistrationShowsKeys() async throws {
 }
 
 @MainActor
+@Test("Registration validates email and password before calling the server")
+func registrationValidatesCredentials() async {
+    let client = StubAppClient(result: .success([]))
+    let model = ThingsDiaryAppModel(client: client)
+    model.login = "not-an-email"
+    model.password = "short"
+
+    await model.register()
+
+    #expect(model.screen == .error(
+        "Enter a valid email and a password with at least 8 characters."
+    ))
+    #expect(await client.receivedRegistrationSecretKey == nil)
+}
+
+@MainActor
+@Test("Registration explains that the account already exists")
+func registrationExplainsDuplicateAccount() async {
+    let client = StubAppClient(
+        result: .success([]),
+        registrationResult: .failure(ThingsDiaryClientError.httpStatus(
+            409,
+            body: Data(#"{"error_code":"account_already_exists"}"#.utf8)
+        ))
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    model.login = "person@example.test"
+    model.password = "password"
+
+    await model.register()
+
+    #expect(model.screen == .error("An account with this email already exists."))
+}
+
+@MainActor
 @Test("Continuing after registration hides the secret key and loads diaries")
 func registrationContinuesToDiaries() async {
     let diary = ThingsDiaryDiary(

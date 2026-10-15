@@ -113,6 +113,10 @@ private struct RegistrationView: View {
             SecureField("Password", text: $model.password)
                 .textContentType(.newPassword)
 
+            Text("Use a valid email address and at least 8 password characters.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             HStack {
                 Button("Create Account") {
                     Task {
@@ -477,7 +481,7 @@ private struct ErrorView: View {
 
     var body: some View {
         ContentUnavailableView {
-            Label("Could Not Load Diaries", systemImage: "exclamationmark.triangle")
+            Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
         } description: {
             Text(message)
         } actions: {

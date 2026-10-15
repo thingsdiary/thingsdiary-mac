@@ -276,8 +276,8 @@ final class ThingsDiaryAppModel {
     }
 
     var canRegister: Bool {
-        !login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        isValidEmail(login)
+            && password.trimmingCharacters(in: .whitespacesAndNewlines).count >= 8
     }
 
     init(
@@ -793,11 +793,11 @@ final class ThingsDiaryAppModel {
     }
 
     func register() async {
-        guard !login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
+        guard canRegister else {
             password = ""
-            screen = .error("Enter login and password to register.")
+            screen = .error(
+                "Enter a valid email and a password with at least 8 characters."
+            )
             return
         }
 
@@ -822,8 +822,14 @@ final class ThingsDiaryAppModel {
                 secretKey: secretKey,
                 publicKeys: publicKeys
             ))
+        } catch let ThingsDiaryClientError.httpStatus(status, _) where status == 409 {
+            screen = .error("An account with this email already exists.")
+        } catch let ThingsDiaryClientError.httpStatus(status, body) {
+            let reason = Self.serverErrorReason(from: body)
+            screen = .error(reason.map { "Registration failed: \($0)" }
+                ?? "Registration failed with HTTP \(status).")
         } catch {
-            screen = .error("Could not register. Check the account details and try again.")
+            screen = .error("Could not reach the registration server. Try again.")
         }
     }
 
@@ -861,5 +867,23 @@ final class ThingsDiaryAppModel {
 
     func retry() {
         screen = .login
+    }
+
+    private func isValidEmail(_ value: String) -> Bool {
+        let email = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return email.range(
+            of: #"^[^@\s]+@[^@\s]+\.[^@\s]+$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func serverErrorReason(from body: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let reason = object["error_reason"] as? String,
+              !reason.isEmpty
+        else {
+            return nil
+        }
+        return reason
     }
 }
