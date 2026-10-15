@@ -23,11 +23,42 @@ func filtersEntryList() {
     #expect(visibleEntries(entries, section: .notes, query: "", sort: .oldest) == [other, active])
 }
 
+@Test("Diary navigation filters active notes by topic")
+func filtersDiaryNavigationByTopic() {
+    let matching = listEntry(
+        id: "matching",
+        content: "Project note",
+        topicID: "topic-1",
+        updatedAt: 3
+    )
+    let anotherTopic = listEntry(
+        id: "another",
+        content: "Another project",
+        topicID: "topic-2",
+        updatedAt: 2
+    )
+    let archived = listEntry(
+        id: "archived",
+        content: "Archived project",
+        archived: true,
+        topicID: "topic-1",
+        updatedAt: 1
+    )
+
+    #expect(visibleEntries(
+        [archived, anotherTopic, matching],
+        selection: .topic("topic-1"),
+        query: "project",
+        sort: .newest
+    ) == [matching])
+}
+
 private func listEntry(
     id: String,
     content: String,
     archived: Bool = false,
     bookmarked: Bool = false,
+    topicID: String? = nil,
     deletedAt: TimeInterval? = nil,
     updatedAt: TimeInterval
 ) -> ThingsDiaryEntry {
@@ -35,6 +66,7 @@ private func listEntry(
         id: id,
         diaryID: "diary-1",
         content: content,
+        topicID: topicID,
         archived: archived,
         bookmarked: bookmarked,
         createdAt: Date(timeIntervalSince1970: 1),

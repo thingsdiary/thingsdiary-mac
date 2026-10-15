@@ -17,6 +17,14 @@ nonisolated enum EntrySort: String, CaseIterable, Identifiable {
     var id: Self { self }
 }
 
+nonisolated enum DiaryNavigationSelection: Hashable {
+    case notes
+    case bookmarks
+    case topic(String)
+    case archive
+    case trash
+}
+
 nonisolated func visibleEntries(
     _ entries: [ThingsDiaryEntry],
     section: EntrySection,
@@ -51,4 +59,28 @@ nonisolated func visibleEntries(
                     : left.updatedAt < right.updatedAt
             }
         }
+}
+
+nonisolated func visibleEntries(
+    _ entries: [ThingsDiaryEntry],
+    selection: DiaryNavigationSelection,
+    query: String,
+    sort: EntrySort
+) -> [ThingsDiaryEntry] {
+    let section = switch selection {
+    case .notes, .topic:
+        EntrySection.notes
+    case .bookmarks:
+        EntrySection.bookmarks
+    case .archive:
+        EntrySection.archive
+    case .trash:
+        EntrySection.trash
+    }
+
+    let sectionEntries = visibleEntries(entries, section: section, query: query, sort: sort)
+    guard case let .topic(topicID) = selection else {
+        return sectionEntries
+    }
+    return sectionEntries.filter { $0.topicID == topicID }
 }
