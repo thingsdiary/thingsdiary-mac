@@ -25,6 +25,29 @@ nonisolated enum DiaryNavigationSelection: Hashable {
     case trash
 }
 
+nonisolated enum EntryAction: Equatable {
+    case toggleBookmark
+    case toggleArchive
+    case duplicate
+    case moveToTopic
+    case moveToTrash
+    case restore
+    case deletePermanently
+}
+
+nonisolated func availableEntryActions(for entry: ThingsDiaryEntry) -> [EntryAction] {
+    if entry.deletedAt != nil {
+        return [.restore, .deletePermanently]
+    }
+    return [
+        .toggleBookmark,
+        .toggleArchive,
+        .duplicate,
+        .moveToTopic,
+        .moveToTrash,
+    ]
+}
+
 nonisolated func visibleEntries(
     _ entries: [ThingsDiaryEntry],
     section: EntrySection,

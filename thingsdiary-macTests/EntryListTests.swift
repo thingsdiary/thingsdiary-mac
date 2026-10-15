@@ -53,6 +53,29 @@ func filtersDiaryNavigationByTopic() {
     ) == [matching])
 }
 
+@Test("Entry actions match the note lifecycle state")
+func entryActionsMatchLifecycleState() {
+    let active = listEntry(id: "active", content: "Active", updatedAt: 2)
+    let deleted = listEntry(
+        id: "deleted",
+        content: "Deleted",
+        deletedAt: 3,
+        updatedAt: 3
+    )
+
+    #expect(availableEntryActions(for: active) == [
+        .toggleBookmark,
+        .toggleArchive,
+        .duplicate,
+        .moveToTopic,
+        .moveToTrash,
+    ])
+    #expect(availableEntryActions(for: deleted) == [
+        .restore,
+        .deletePermanently,
+    ])
+}
+
 private func listEntry(
     id: String,
     content: String,

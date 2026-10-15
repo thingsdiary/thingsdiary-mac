@@ -250,6 +250,7 @@ private struct EntriesView: View {
     @State private var selectedEntryID: String?
     @State private var draftContent = ""
     @State private var showingTopicsAndTemplates = false
+    @State private var showingTopicCreator = false
     @State private var editingTopic: ThingsDiaryTopic?
     @State private var topicTitle = ""
     @State private var topicDescription = ""
@@ -276,27 +277,41 @@ private struct EntriesView: View {
             List(selection: $selection) {
                 Section {
                     Label("Notes", systemImage: "note.text")
-                        .tag(DiaryNavigationSelection.notes)
+                        .tag(Optional(DiaryNavigationSelection.notes))
                         .badge(count(for: .notes))
                     Label("Bookmarks", systemImage: "bookmark")
-                        .tag(DiaryNavigationSelection.bookmarks)
+                        .tag(Optional(DiaryNavigationSelection.bookmarks))
                         .badge(count(for: .bookmarks))
                 }
 
-                Section("Topics") {
+                Section {
                     ForEach(model.topics) { topic in
                         Label(topic.title, systemImage: "tag")
-                            .tag(DiaryNavigationSelection.topic(topic.id))
+                            .tag(Optional(DiaryNavigationSelection.topic(topic.id)))
                             .badge(count(for: .topic(topic.id)))
+                    }
+                } header: {
+                    HStack {
+                        Text("Topics")
+                        Spacer()
+                        Button {
+                            topicTitle = ""
+                            topicDescription = ""
+                            showingTopicCreator = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("New Topic")
                     }
                 }
 
                 Section {
                     Label("Archive", systemImage: "archivebox")
-                        .tag(DiaryNavigationSelection.archive)
+                        .tag(Optional(DiaryNavigationSelection.archive))
                         .badge(count(for: .archive))
                     Label("Trash", systemImage: "trash")
-                        .tag(DiaryNavigationSelection.trash)
+                        .tag(Optional(DiaryNavigationSelection.trash))
                         .badge(count(for: .trash))
                 }
             }
@@ -356,36 +371,7 @@ private struct EntriesView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            if entry.deletedAt != nil {
-                                Button("Restore", systemImage: "arrow.uturn.backward") {
-                                    Task { await model.restoreEntry(entry) }
-                                }
-                                Button("Delete Permanently", systemImage: "trash.slash", role: .destructive) {
-                                    Task { await model.deleteEntryPermanently(entry) }
-                                }
-                            } else {
-                                Button(entry.bookmarked ? "Remove Bookmark" : "Bookmark",
-                                       systemImage: entry.bookmarked ? "bookmark.slash" : "bookmark") {
-                                    Task { await model.toggleBookmark(entry) }
-                                }
-                                Button(entry.archived ? "Restore from Archive" : "Archive",
-                                       systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox") {
-                                    Task { await model.toggleArchive(entry) }
-                                }
-                                Button("Duplicate", systemImage: "plus.square.on.square") {
-                                    Task { await model.duplicateEntry(entry) }
-                                }
-                                Menu("Move to Topic") {
-                                    Button("Unfiled") { Task { await model.moveEntry(entry, toTopicID: nil) } }
-                                    ForEach(model.topics) { topic in
-                                        Button(topic.title) { Task { await model.moveEntry(entry, toTopicID: topic.id) } }
-                                    }
-                                }
-                                Divider()
-                                Button("Move to Trash", systemImage: "trash", role: .destructive) {
-                                    Task { await model.moveToTrash(entry) }
-                                }
-                            }
+                            entryActions(for: entry)
                         }
                     }
                 }
@@ -420,59 +406,32 @@ private struct EntriesView: View {
             .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
         } detail: {
             if let selectedEntry {
-                VStack(spacing: 0) {
-                    TextEditor(text: $draftContent)
-                        .disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
-                        .padding()
-                    HStack {
-                        if selectedEntry.deletedAt != nil {
-                            Button("Restore") {
-                                Task {
-                                    await model.restoreEntry(selectedEntry)
-                                    selectedEntryID = nil
+                TextEditor(text: $draftContent)
+                    .disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .primaryAction) {
+                            Menu {
+                                entryActions(for: selectedEntry)
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
+                            .help("Note Actions")
+
+                            if selectedEntry.deletedAt == nil && !selectedEntry.archived {
+                                Button("Save") {
+                                    let entry = selectedEntry
+                                    let content = draftContent
+                                    Task {
+                                        await model.updateEntry(entry, content: content)
+                                    }
                                 }
+                                .keyboardShortcut("s", modifiers: .command)
+                                .disabled(!canSave(selectedEntry))
                             }
-                            Button("Delete Permanently", role: .destructive) {
-                                Task {
-                                    await model.deleteEntryPermanently(selectedEntry)
-                                    selectedEntryID = nil
-                                }
-                            }
-                        } else {
-                            Button(selectedEntry.bookmarked ? "Remove Bookmark" : "Bookmark") {
-                                Task { await model.toggleBookmark(selectedEntry) }
-                            }
-                            Button(selectedEntry.archived ? "Restore from Archive" : "Archive") {
-                                Task {
-                                    await model.toggleArchive(selectedEntry)
-                                    selectedEntryID = nil
-                                }
-                            }
-                            Button("Move to Trash", role: .destructive) {
-                                Task {
-                                    await model.moveToTrash(selectedEntry)
-                                    selectedEntryID = nil
-                                }
-                            }
-                        }
-                        Spacer()
-                        if selectedEntry.deletedAt == nil && !selectedEntry.archived {
-                            Button("Save") {
-                                let entry = selectedEntry
-                                let content = draftContent
-                                Task {
-                                    await model.updateEntry(entry, content: content)
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(draftContent.trimmingCharacters(
-                                in: .whitespacesAndNewlines
-                            ).isEmpty)
                         }
                     }
-                    .padding()
-                }
-                .navigationTitle("Edit Note")
             } else {
                 ContentUnavailableView {
                     Label(diary.title, systemImage: "book.closed")
@@ -490,6 +449,118 @@ private struct EntriesView: View {
         .sheet(isPresented: $showingTopicsAndTemplates) {
             topicsAndTemplatesSheet
         }
+        .sheet(isPresented: $showingTopicCreator) {
+            topicCreatorSheet
+        }
+    }
+
+    private func canSave(_ entry: ThingsDiaryEntry) -> Bool {
+        !draftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && draftContent != entry.content
+    }
+
+    private func entryActions(for entry: ThingsDiaryEntry) -> some View {
+        EntryActionsMenuContent(entry: entry, topics: model.topics) { action, topicID in
+            perform(action, on: entry, topicID: topicID)
+        }
+    }
+
+    private func perform(
+        _ action: EntryAction,
+        on entry: ThingsDiaryEntry,
+        topicID: String?
+    ) {
+        let clearsSelection = shouldClearSelection(
+            after: action,
+            entry: entry,
+            topicID: topicID
+        )
+        Task {
+            switch action {
+            case .toggleBookmark:
+                await model.toggleBookmark(entry)
+            case .toggleArchive:
+                await model.toggleArchive(entry)
+            case .duplicate:
+                await model.duplicateEntry(entry)
+            case .moveToTopic:
+                await model.moveEntry(entry, toTopicID: topicID)
+            case .moveToTrash:
+                await model.moveToTrash(entry)
+            case .restore:
+                await model.restoreEntry(entry)
+            case .deletePermanently:
+                await model.deleteEntryPermanently(entry)
+            }
+
+            if clearsSelection {
+                selectedEntryID = nil
+            }
+        }
+    }
+
+    private func shouldClearSelection(
+        after action: EntryAction,
+        entry: ThingsDiaryEntry,
+        topicID: String?
+    ) -> Bool {
+        guard selectedEntryID == entry.id else { return false }
+        switch action {
+        case .toggleBookmark:
+            return activeSelection == .bookmarks
+        case .toggleArchive, .moveToTrash, .restore, .deletePermanently:
+            return true
+        case .moveToTopic:
+            guard case let .topic(selectedTopicID) = activeSelection else {
+                return false
+            }
+            return selectedTopicID != topicID
+        case .duplicate:
+            return false
+        }
+    }
+
+    private var topicCreatorSheet: some View {
+        NavigationStack {
+            Form {
+                TextField("Title", text: $topicTitle)
+                TextField("Description", text: $topicDescription, axis: .vertical)
+                    .lineLimit(2 ... 5)
+            }
+            .formStyle(.grouped)
+            .navigationTitle("New Topic")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingTopicCreator = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        let title = topicTitle
+                        let description = topicDescription
+                        let existingTopicIDs = Set(model.topics.map(\.id))
+                        Task {
+                            await model.createTopic(
+                                title: title,
+                                description: description,
+                                color: ""
+                            )
+                            if let createdTopic = model.topics.first(where: {
+                                !existingTopicIDs.contains($0.id)
+                            }) {
+                                selection = .topic(createdTopic.id)
+                                showingTopicCreator = false
+                            }
+                        }
+                    }
+                    .disabled(topicTitle.trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ).isEmpty)
+                }
+            }
+        }
+        .frame(minWidth: 420, minHeight: 240)
     }
 
     private var selectionTitle: String {
@@ -572,6 +643,79 @@ private struct EntriesView: View {
             }
         }
         .frame(minWidth: 460, minHeight: 520)
+    }
+}
+
+private struct EntryActionsMenuContent: View {
+    let entry: ThingsDiaryEntry
+    let topics: [ThingsDiaryTopic]
+    let perform: (EntryAction, String?) -> Void
+
+    var body: some View {
+        let actions = availableEntryActions(for: entry)
+
+        if actions.contains(.restore) {
+            Button("Restore", systemImage: "arrow.uturn.backward") {
+                perform(.restore, nil)
+            }
+        }
+
+        if actions.contains(.toggleBookmark) {
+            Button(
+                entry.bookmarked ? "Remove Bookmark" : "Bookmark",
+                systemImage: entry.bookmarked ? "bookmark.slash" : "bookmark"
+            ) {
+                perform(.toggleBookmark, nil)
+            }
+        }
+
+        if actions.contains(.toggleArchive) {
+            Button(
+                entry.archived ? "Restore from Archive" : "Archive",
+                systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox"
+            ) {
+                perform(.toggleArchive, nil)
+            }
+        }
+
+        if actions.contains(.moveToTopic) {
+            Menu("Move to Topic", systemImage: "tag") {
+                Button("Unfiled") {
+                    perform(.moveToTopic, nil)
+                }
+                ForEach(topics) { topic in
+                    Button(topic.title) {
+                        perform(.moveToTopic, topic.id)
+                    }
+                }
+            }
+        }
+
+        if actions.contains(.duplicate) {
+            Button("Duplicate", systemImage: "plus.square.on.square") {
+                perform(.duplicate, nil)
+            }
+        }
+
+        if actions.contains(.moveToTrash) || actions.contains(.deletePermanently) {
+            Divider()
+        }
+
+        if actions.contains(.moveToTrash) {
+            Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                perform(.moveToTrash, nil)
+            }
+        }
+
+        if actions.contains(.deletePermanently) {
+            Button(
+                "Delete Permanently",
+                systemImage: "trash.slash",
+                role: .destructive
+            ) {
+                perform(.deletePermanently, nil)
+            }
+        }
     }
 }
 
