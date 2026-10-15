@@ -329,6 +329,7 @@ private struct EntriesView: View {
 	}
 
 	private var activeSelection: DiaryNavigationSelection { selection ?? .entries }
+	private var selectionIsEmpty: Bool { count(for: activeSelection) == 0 }
 
 	private var selectedEntry: ThingsDiaryEntry? {
 		entries.first { $0.id == selectedEntryID }
@@ -459,67 +460,20 @@ private struct EntriesView: View {
 			}
 			.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
 		} content: {
-			VStack(spacing: 0) {
-				HStack {
-					Text(selectionTitle)
-						.font(.headline)
-						.accessibilityIdentifier("entry-list.title")
-						.accessibilityLabel(selectionTitle)
-					Spacer()
-					Menu {
-						Picker("Sort", selection: $sort) {
-							ForEach(EntrySort.allCases) { sort in
-								Text(sort.rawValue).tag(sort)
-							}
-						}
-					} label: {
-						Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
-					}
-				}
-				.padding(.horizontal)
-				.padding(.vertical, 8)
-				.background(.background)
-				.zIndex(1)
-				.accessibilityIdentifier("entry-list.header")
-
-				Divider()
-
-				if displayedEntries.isEmpty {
-					ContentUnavailableView(
-						emptyStateTitle,
-						systemImage: emptyStateSystemImage,
-						description: Text(emptyStateDescription)
-					)
+			Group {
+				if selectionIsEmpty {
+					emptyStateView
 				} else {
-					ScrollView {
-						LazyVStack(spacing: 0) {
-							ForEach(displayedEntries) { entry in
-								entryListRow(entry)
-									.padding(.horizontal)
-									.frame(maxWidth: .infinity, alignment: .leading)
-									.background(.background)
-									.opacity(draggedEntryID == entry.id ? 0.45 : 1)
-									.contentShape(.interaction, Rectangle())
-									.onTapGesture {
-										selectedEntryID = entry.id
-										draftContent = entry.content
-									}
-									.highPriorityGesture(entryDragGesture(for: entry))
-									.accessibilityElement(children: .combine)
-									.accessibilityIdentifier("entry.\(entry.id)")
-									.accessibilityAddTraits(.isButton)
-									.contextMenu {
-										entryActions(for: entry)
-									}
+					VStack(spacing: 0) {
+						entryListHeader
+						Divider()
 
-								Divider()
-									.padding(.leading)
-							}
+						if displayedEntries.isEmpty {
+							emptyStateView
+						} else {
+							entryListScrollView
 						}
 					}
-					.clipped()
-					.background(.background)
-					.accessibilityIdentifier("entry-list.scroll")
 				}
 			}
 			.background(.background)
@@ -630,6 +584,87 @@ private struct EntriesView: View {
 		} message: {
 			Text("All entries in Trash will be deleted permanently. This cannot be undone.")
 		}
+	}
+
+	private var entryListHeader: some View {
+		HStack {
+			Text(selectionTitle)
+				.font(.headline)
+				.accessibilityIdentifier("entry-list.title")
+				.accessibilityLabel(selectionTitle)
+			Spacer()
+			Menu {
+				Picker("Sort", selection: $sort) {
+					ForEach(EntrySort.allCases) { sort in
+						Text(sort.rawValue).tag(sort)
+					}
+				}
+			} label: {
+				Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
+			}
+		}
+		.padding(.horizontal)
+		.padding(.vertical, 8)
+		.background(.background)
+		.zIndex(1)
+		.accessibilityIdentifier("entry-list.header")
+	}
+
+	private var emptyStateView: some View {
+		ContentUnavailableView {
+			Label(emptyStateTitle, systemImage: emptyStateSystemImage)
+		} description: {
+			Text(emptyStateDescription)
+		} actions: {
+			if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+				if activeSelection == .entries {
+					Button("New Entry", systemImage: "square.and.pencil") {
+						newEntryContent = ""
+						showingEntryCreator = true
+					}
+					.buttonStyle(.borderedProminent)
+				} else if activeSelection == .bookmarks || isTopicSelected {
+					Button("Browse Entries") {
+						selection = .entries
+					}
+					.buttonStyle(.bordered)
+				}
+			}
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.accessibilityIdentifier("entry-list.empty-state")
+	}
+
+	private var entryListScrollView: some View {
+		ScrollView {
+			LazyVStack(spacing: 0) {
+				ForEach(displayedEntries) { entry in
+					entryListRow(entry)
+						.padding(.horizontal)
+						.frame(maxWidth: .infinity, alignment: .leading)
+						.background(.background)
+						.opacity(draggedEntryID == entry.id ? 0.45 : 1)
+						.contentShape(.interaction, Rectangle())
+						.onTapGesture {
+							selectedEntryID = entry.id
+							draftContent = entry.content
+						}
+						.highPriorityGesture(entryDragGesture(for: entry))
+						.accessibilityElement(children: .combine)
+						.accessibilityIdentifier("entry.\(entry.id)")
+						.accessibilityAddTraits(.isButton)
+						.contextMenu {
+							entryActions(for: entry)
+						}
+
+					Divider()
+						.padding(.leading)
+				}
+			}
+		}
+		.clipped()
+		.background(.background)
+		.accessibilityIdentifier("entry-list.scroll")
 	}
 
 	private var pendingEntry: ThingsDiaryEntry? {
@@ -1011,27 +1046,46 @@ private struct EntriesView: View {
 	}
 
 	private var emptyStateTitle: String {
-		switch activeSelection {
+		if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+			return "No Results"
+		}
+		return switch activeSelection {
+		case .entries: "No Entries Yet"
+		case .bookmarks: "No Bookmarks Yet"
+		case .topic: "No Entries in This Topic"
 		case .archive: "Archive is empty"
 		case .trash: "Trash is empty"
-		default: "No \(selectionTitle)"
 		}
 	}
 
 	private var emptyStateDescription: String {
-		switch activeSelection {
-		case .archive: "Archived entries appear here."
+		if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+			return "Try another search term."
+		}
+		return switch activeSelection {
+		case .entries: "Create your first entry to start writing in this diary."
+		case .bookmarks: "Bookmark entries you want to find quickly."
+		case .topic: "Move an existing entry into this topic to keep related writing together."
+		case .archive: "Archive entries you want to keep without showing in your main list."
 		case .trash: "Deleted entries appear here until permanently removed."
-		default: query.isEmpty ? "Create an entry to get started." : "No entries match your search."
 		}
 	}
 
 	private var emptyStateSystemImage: String {
 		switch activeSelection {
+		case .bookmarks: "bookmark"
+		case .topic: "tag"
 		case .archive: "archivebox"
 		case .trash: "trash"
-		default: "note.text"
+		case .entries: "note.text"
 		}
+	}
+
+	private var isTopicSelected: Bool {
+		if case .topic = activeSelection {
+			return true
+		}
+		return false
 	}
 
 	private let topicColors = [

@@ -12,7 +12,9 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let app = launchWorkspace()
 
 		app.buttons["sidebar.bookmarks"].click()
-		XCTAssertTrue(app.staticTexts["No Bookmarks"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.staticTexts["No Bookmarks Yet"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.descendants(matching: .any)["entry-list.empty-state"].exists)
+		XCTAssertFalse(app.descendants(matching: .any)["entry-list.header"].exists)
 
 		app.buttons["sidebar.archive"].click()
 		XCTAssertTrue(app.descendants(matching: .any)["entry.fixture-archived-entry"].waitForExistence(timeout: 2))
@@ -29,6 +31,19 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(header.waitForExistence(timeout: 2))
 		XCTAssertTrue(rows.waitForExistence(timeout: 2))
 		XCTAssertFalse(header.frame.intersects(rows.frame))
+	}
+
+	func testEmptyTopicExplainsHowToAddEntriesWithoutListControls() {
+		let app = launchWorkspace()
+
+		app.buttons["sidebar.topic.fixture-topic"].click()
+
+		XCTAssertTrue(app.staticTexts["No Entries in This Topic"].waitForExistence(timeout: 2))
+		XCTAssertTrue(
+			app.staticTexts["Move an existing entry into this topic to keep related writing together."].exists
+		)
+		XCTAssertTrue(app.buttons["Browse Entries"].exists)
+		XCTAssertFalse(app.descendants(matching: .any)["entry-list.header"].exists)
 	}
 
 	func testDiariesPickerCanBeCancelledWithoutLeavingWorkspace() {
