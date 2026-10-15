@@ -22,6 +22,8 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
     func login(login: String, password: String, secretKey: String) async throws
     func diaries() async throws -> [ThingsDiaryDiary]
     func entries(diaryID: String) async throws -> [ThingsDiaryEntry]
+    func topics(diaryID: String) async throws -> [ThingsDiaryTopic]
+    func templates(diaryID: String) async throws -> [ThingsDiaryTemplate]
     func createEntry(
         diaryID: String,
         params: ThingsDiaryEntryParams
@@ -30,15 +32,63 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
         _ entry: ThingsDiaryEntry,
         params: ThingsDiaryEntryParams
     ) async throws -> ThingsDiaryEntry
+    func createTopic(
+        diaryID: String,
+        params: ThingsDiaryTopicParams
+    ) async throws -> ThingsDiaryTopic
+    func updateTopic(
+        _ topic: ThingsDiaryTopic,
+        params: ThingsDiaryTopicParams
+    ) async throws -> ThingsDiaryTopic
+    func createTemplate(
+        diaryID: String,
+        params: ThingsDiaryTemplateParams
+    ) async throws -> ThingsDiaryTemplate
+    func updateTemplate(
+        _ template: ThingsDiaryTemplate,
+        params: ThingsDiaryTemplateParams
+    ) async throws -> ThingsDiaryTemplate
 }
 
 extension ThingsDiaryAppClient {
+    func topics(diaryID: String) async throws -> [ThingsDiaryTopic] { [] }
+
+    func templates(diaryID: String) async throws -> [ThingsDiaryTemplate] { [] }
+
     func createEntry(
         diaryID: String,
         entryID: String,
         params: ThingsDiaryEntryParams
     ) async throws -> ThingsDiaryEntry {
         try await createEntry(diaryID: diaryID, params: params)
+    }
+
+    func createTopic(
+        diaryID: String,
+        params: ThingsDiaryTopicParams
+    ) async throws -> ThingsDiaryTopic {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
+
+    func updateTopic(
+        _ topic: ThingsDiaryTopic,
+        params: ThingsDiaryTopicParams
+    ) async throws -> ThingsDiaryTopic {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
+
+    func createTemplate(
+        diaryID: String,
+        params: ThingsDiaryTemplateParams
+    ) async throws -> ThingsDiaryTemplate {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
+
+    func updateTemplate(
+        _ template: ThingsDiaryTemplate,
+        params: ThingsDiaryTemplateParams
+    ) async throws -> ThingsDiaryTemplate {
+        throw DiaryStoreError.unsupportedRemoteEntry
     }
 }
 
@@ -83,6 +133,14 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
         try await client.allEntries(diaryID: diaryID)
     }
 
+    func topics(diaryID: String) async throws -> [ThingsDiaryTopic] {
+        try await client.allTopics(diaryID: diaryID)
+    }
+
+    func templates(diaryID: String) async throws -> [ThingsDiaryTemplate] {
+        try await client.allTemplates(diaryID: diaryID)
+    }
+
     func createEntry(
         diaryID: String,
         params: ThingsDiaryEntryParams
@@ -107,6 +165,34 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
         params: ThingsDiaryEntryParams
     ) async throws -> ThingsDiaryEntry {
         try await client.updateEntry(entry, params: params)
+    }
+
+    func createTopic(
+        diaryID: String,
+        params: ThingsDiaryTopicParams
+    ) async throws -> ThingsDiaryTopic {
+        try await client.createTopic(diaryID: diaryID, params: params)
+    }
+
+    func updateTopic(
+        _ topic: ThingsDiaryTopic,
+        params: ThingsDiaryTopicParams
+    ) async throws -> ThingsDiaryTopic {
+        try await client.updateTopic(topic, params: params)
+    }
+
+    func createTemplate(
+        diaryID: String,
+        params: ThingsDiaryTemplateParams
+    ) async throws -> ThingsDiaryTemplate {
+        try await client.createTemplate(diaryID: diaryID, params: params)
+    }
+
+    func updateTemplate(
+        _ template: ThingsDiaryTemplate,
+        params: ThingsDiaryTemplateParams
+    ) async throws -> ThingsDiaryTemplate {
+        try await client.updateTemplate(template, params: params)
     }
 
     func getDiaryChanges(
@@ -148,6 +234,14 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
     ) async throws -> ThingsDiaryEntry {
         try await client.restoreEntry(diaryID: diaryID, entryID: entryID)
     }
+
+    func getTopic(diaryID: String, topicID: String) async throws -> ThingsDiaryTopic {
+        try await client.getTopic(diaryID: diaryID, topicID: topicID)
+    }
+
+    func getTemplate(diaryID: String, templateID: String) async throws -> ThingsDiaryTemplate {
+        try await client.getTemplate(diaryID: diaryID, templateID: templateID)
+    }
 }
 
 enum ThingsDiaryAppScreen: Equatable {
@@ -167,6 +261,8 @@ final class ThingsDiaryAppModel {
     var password = ""
     var secretKey = ""
     private(set) var screen: ThingsDiaryAppScreen = .login
+    private(set) var topics: [ThingsDiaryTopic] = []
+    private(set) var templates: [ThingsDiaryTemplate] = []
 
     private let client: any ThingsDiaryAppClient
     private let store: DiaryStore?
@@ -220,6 +316,8 @@ final class ThingsDiaryAppModel {
 
     func showDiaries() {
         diarySelectionID = nil
+        topics = []
+        templates = []
         screen = .diaries(loadedDiaries)
     }
 
@@ -228,12 +326,26 @@ final class ThingsDiaryAppModel {
         diarySelectionID = selectionID
         screen = .loading
         do {
-            let entries = try await client.entries(diaryID: diary.id)
+            async let entriesRequest = client.entries(diaryID: diary.id)
+            async let topicsRequest = client.topics(diaryID: diary.id)
+            async let templatesRequest = client.templates(diaryID: diary.id)
+            let (entries, topics, templates) = try await (
+                entriesRequest,
+                topicsRequest,
+                templatesRequest
+            )
             guard diarySelectionID == selectionID else {
                 return
             }
+            self.topics = topics
+            self.templates = templates
             if let store {
-                try await store.replaceSelectedDiary(diary, entries: entries)
+                try await store.replaceSelectedDiary(
+                    diary,
+                    entries: entries,
+                    topics: topics,
+                    templates: templates
+                )
                 try await store.synchronize(with: client)
             }
             let displayedEntries: [ThingsDiaryEntry]
@@ -252,6 +364,8 @@ final class ThingsDiaryAppModel {
             }
             if let store,
                await store.selectedDiary()?.id == diary.id {
+                topics = await store.topics(diaryID: diary.id)
+                templates = await store.templates(diaryID: diary.id)
                 screen = .entries(
                     diary: diary,
                     entries: await store.entries(diaryID: diary.id)
@@ -344,6 +458,95 @@ final class ThingsDiaryAppModel {
                 previewHidden: entry.previewHidden
             )
         )
+    }
+
+    func moveEntry(_ entry: ThingsDiaryEntry, toTopicID topicID: String?) async {
+        await saveEntry(
+            entry,
+            params: ThingsDiaryEntryParams(
+                content: entry.content,
+                topicID: topicID,
+                archived: entry.archived,
+                bookmarked: entry.bookmarked,
+                previewHidden: entry.previewHidden
+            )
+        )
+    }
+
+    func createTopic(title: String, description: String, color: String) async {
+        guard case let .entries(diary, _) = screen else { return }
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        do {
+            let topic = try await client.createTopic(
+                diaryID: diary.id,
+                params: ThingsDiaryTopicParams(
+                    title: title,
+                    description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                    color: color
+                )
+            )
+            try await store?.upsertTopic(topic)
+            topics.append(topic)
+        } catch {
+            screen = .error("Could not create the topic.")
+        }
+    }
+
+    func updateTopic(
+        _ topic: ThingsDiaryTopic,
+        title: String,
+        description: String,
+        color: String
+    ) async {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+        do {
+            let updated = try await client.updateTopic(
+                topic,
+                params: ThingsDiaryTopicParams(
+                    title: title,
+                    description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                    color: color,
+                    defaultTemplateID: topic.defaultTemplateID
+                )
+            )
+            try await store?.upsertTopic(updated)
+            topics = topics.map { $0.id == updated.id ? updated : $0 }
+        } catch {
+            screen = .error("Could not update the topic.")
+        }
+    }
+
+    func createTemplate(content: String) async {
+        guard case let .entries(diary, _) = screen else { return }
+        let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        do {
+            let template = try await client.createTemplate(
+                diaryID: diary.id,
+                params: ThingsDiaryTemplateParams(content: content)
+            )
+            try await store?.upsertTemplate(template)
+            templates.append(template)
+        } catch {
+            screen = .error("Could not create the template.")
+        }
+    }
+
+    func updateTemplate(_ template: ThingsDiaryTemplate, content: String) async {
+        let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else { return }
+        do {
+            let updated = try await client.updateTemplate(
+                template,
+                params: ThingsDiaryTemplateParams(content: content)
+            )
+            try await store?.upsertTemplate(updated)
+            templates = templates.map { $0.id == updated.id ? updated : $0 }
+        } catch {
+            screen = .error("Could not update the template.")
+        }
     }
 
     func toggleBookmark(_ entry: ThingsDiaryEntry) async {

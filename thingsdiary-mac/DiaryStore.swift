@@ -61,6 +61,8 @@ nonisolated protocol DiaryStoreRemote: Sendable {
         diaryID: String,
         entryID: String
     ) async throws -> ThingsDiaryEntry
+    func getTopic(diaryID: String, topicID: String) async throws -> ThingsDiaryTopic
+    func getTemplate(diaryID: String, templateID: String) async throws -> ThingsDiaryTemplate
 }
 
 extension DiaryStoreRemote {
@@ -94,6 +96,14 @@ extension DiaryStoreRemote {
     ) async throws -> ThingsDiaryEntry {
         throw DiaryStoreError.unsupportedRemoteEntry
     }
+
+    func getTopic(diaryID: String, topicID: String) async throws -> ThingsDiaryTopic {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
+
+    func getTemplate(diaryID: String, templateID: String) async throws -> ThingsDiaryTemplate {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
 }
 
 nonisolated enum DiaryStoreError: Error {
@@ -124,7 +134,9 @@ actor DiaryStore {
 
     func replaceSelectedDiary(
         _ diary: ThingsDiaryDiary,
-        entries: [ThingsDiaryEntry]
+        entries: [ThingsDiaryEntry],
+        topics: [ThingsDiaryTopic] = [],
+        templates: [ThingsDiaryTemplate] = []
     ) throws {
         var entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         for pendingWrite in state.pendingEntryWrites where pendingWrite.entry.diaryID == diary.id {
@@ -133,6 +145,8 @@ actor DiaryStore {
         let nextState = StoredState(
             selectedDiary: StoredDiary(diary),
             entries: entriesByID.values.map(StoredEntry.init),
+            topics: topics.map(StoredTopic.init),
+            templates: templates.map(StoredTemplate.init),
             pendingEntryWrites: state.pendingEntryWrites,
             checkpoints: state.checkpoints,
             entryConflicts: state.entryConflicts
@@ -149,6 +163,30 @@ actor DiaryStore {
         state.entries
             .filter { $0.diaryID == diaryID }
             .map(\.value)
+    }
+
+    func topics(diaryID: String) -> [ThingsDiaryTopic] {
+        state.topics.filter { $0.diaryID == diaryID }.map(\.value)
+    }
+
+    func templates(diaryID: String) -> [ThingsDiaryTemplate] {
+        state.templates.filter { $0.diaryID == diaryID }.map(\.value)
+    }
+
+    func upsertTopic(_ topic: ThingsDiaryTopic) throws {
+        var nextState = state
+        nextState.topics.removeAll { $0.id == topic.id }
+        nextState.topics.append(StoredTopic(topic))
+        try persist(nextState)
+        state = nextState
+    }
+
+    func upsertTemplate(_ template: ThingsDiaryTemplate) throws {
+        var nextState = state
+        nextState.templates.removeAll { $0.id == template.id }
+        nextState.templates.append(StoredTemplate(template))
+        try persist(nextState)
+        state = nextState
     }
 
     func savePendingEntry(_ write: PendingEntryWrite) throws {
@@ -239,7 +277,8 @@ actor DiaryStore {
             var nextState = state
             var nextCheckpoint = checkpoint
             for change in page.changes where !nextCheckpoint.contains(change) {
-                if change.entityType == .entry {
+                switch change.entityType {
+                case .entry:
                     switch change.operation {
                     case .created, .updated, .softDeleted:
                         let serverEntry = try await remote.getEntry(
@@ -251,6 +290,32 @@ actor DiaryStore {
                     case .removed:
                         nextState.entries.removeAll { $0.id == change.entityID }
                     }
+                case .topic:
+                    switch change.operation {
+                    case .created, .updated, .softDeleted:
+                        let topic = try await remote.getTopic(
+                            diaryID: diaryID,
+                            topicID: change.entityID
+                        )
+                        nextState.topics.removeAll { $0.id == topic.id }
+                        nextState.topics.append(StoredTopic(topic))
+                    case .removed:
+                        nextState.topics.removeAll { $0.id == change.entityID }
+                    }
+                case .template:
+                    switch change.operation {
+                    case .created, .updated, .softDeleted:
+                        let template = try await remote.getTemplate(
+                            diaryID: diaryID,
+                            templateID: change.entityID
+                        )
+                        nextState.templates.removeAll { $0.id == template.id }
+                        nextState.templates.append(StoredTemplate(template))
+                    case .removed:
+                        nextState.templates.removeAll { $0.id == change.entityID }
+                    }
+                case .diary:
+                    break
                 }
                 nextCheckpoint.record(change)
             }
@@ -310,6 +375,8 @@ actor DiaryStore {
 private nonisolated struct StoredState: Codable {
     var selectedDiary: StoredDiary?
     var entries: [StoredEntry]
+    var topics: [StoredTopic]
+    var templates: [StoredTemplate]
     var pendingEntryWrites: [StoredPendingEntryWrite]
     var checkpoints: [String: StoredCheckpoint]
     var entryConflicts: [StoredEntryConflict]
@@ -317,25 +384,32 @@ private nonisolated struct StoredState: Codable {
     init(
         selectedDiary: StoredDiary? = nil,
         entries: [StoredEntry] = [],
+        topics: [StoredTopic] = [],
+        templates: [StoredTemplate] = [],
         pendingEntryWrites: [StoredPendingEntryWrite] = [],
         checkpoints: [String: StoredCheckpoint] = [:],
         entryConflicts: [StoredEntryConflict] = []
     ) {
         self.selectedDiary = selectedDiary
         self.entries = entries
+        self.topics = topics
+        self.templates = templates
         self.pendingEntryWrites = pendingEntryWrites
         self.checkpoints = checkpoints
         self.entryConflicts = entryConflicts
     }
 
     private enum CodingKeys: String, CodingKey {
-        case selectedDiary, entries, pendingEntryWrites, checkpoints, entryConflicts
+        case selectedDiary, entries, topics, templates
+        case pendingEntryWrites, checkpoints, entryConflicts
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selectedDiary = try container.decodeIfPresent(StoredDiary.self, forKey: .selectedDiary)
         entries = try container.decodeIfPresent([StoredEntry].self, forKey: .entries) ?? []
+        topics = try container.decodeIfPresent([StoredTopic].self, forKey: .topics) ?? []
+        templates = try container.decodeIfPresent([StoredTemplate].self, forKey: .templates) ?? []
         pendingEntryWrites = try container.decodeIfPresent(
             [StoredPendingEntryWrite].self,
             forKey: .pendingEntryWrites
@@ -452,6 +526,79 @@ private nonisolated struct StoredEntry: Codable {
             archived: archived,
             bookmarked: bookmarked,
             previewHidden: previewHidden,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            deletedAt: deletedAt,
+            version: version
+        )
+    }
+}
+
+private nonisolated struct StoredTopic: Codable {
+    let id: String
+    let diaryID: String
+    let title: String
+    let description: String
+    let color: String
+    let defaultTemplateID: String?
+    let createdAt: Date
+    let updatedAt: Date
+    let deletedAt: Date?
+    let version: UInt64
+
+    init(_ topic: ThingsDiaryTopic) {
+        id = topic.id
+        diaryID = topic.diaryID
+        title = topic.title
+        description = topic.description
+        color = topic.color
+        defaultTemplateID = topic.defaultTemplateID
+        createdAt = topic.createdAt
+        updatedAt = topic.updatedAt
+        deletedAt = topic.deletedAt
+        version = topic.version
+    }
+
+    var value: ThingsDiaryTopic {
+        ThingsDiaryTopic(
+            id: id,
+            diaryID: diaryID,
+            title: title,
+            description: description,
+            color: color,
+            defaultTemplateID: defaultTemplateID,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            deletedAt: deletedAt,
+            version: version
+        )
+    }
+}
+
+private nonisolated struct StoredTemplate: Codable {
+    let id: String
+    let diaryID: String
+    let content: String
+    let createdAt: Date
+    let updatedAt: Date
+    let deletedAt: Date?
+    let version: UInt64
+
+    init(_ template: ThingsDiaryTemplate) {
+        id = template.id
+        diaryID = template.diaryID
+        content = template.content
+        createdAt = template.createdAt
+        updatedAt = template.updatedAt
+        deletedAt = template.deletedAt
+        version = template.version
+    }
+
+    var value: ThingsDiaryTemplate {
+        ThingsDiaryTemplate(
+            id: id,
+            diaryID: diaryID,
+            content: content,
             createdAt: createdAt,
             updatedAt: updatedAt,
             deletedAt: deletedAt,

@@ -187,9 +187,18 @@ private struct EntriesView: View {
     @State private var newEntryContent = ""
     @State private var selectedEntry: ThingsDiaryEntry?
     @State private var draftContent = ""
+    @State private var selectedTopicID: String?
+    @State private var showingTopicsAndTemplates = false
+    @State private var editingTopic: ThingsDiaryTopic?
+    @State private var topicTitle = ""
+    @State private var topicDescription = ""
+    @State private var topicColor = ""
+    @State private var editingTemplate: ThingsDiaryTemplate?
+    @State private var templateContent = ""
 
     private var displayedEntries: [ThingsDiaryEntry] {
         visibleEntries(entries, section: section, query: query, sort: sort)
+            .filter { selectedTopicID == nil || $0.topicID == selectedTopicID }
     }
 
     var body: some View {
@@ -197,6 +206,13 @@ private struct EntriesView: View {
             Group {
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
+                        Picker("Topic", selection: $selectedTopicID) {
+                            Text("All").tag(String?.none)
+                            ForEach(model.topics) { topic in
+                                Text(topic.title).tag(Optional(topic.id))
+                            }
+                        }
+
                         Picker("Section", selection: $section) {
                             ForEach(EntrySection.allCases) { section in
                                 Text(section.rawValue).tag(section)
@@ -283,6 +299,17 @@ private struct EntriesView: View {
                                         }
                                     }
 
+                                    Menu("Move to Topic") {
+                                        Button("Unfiled") {
+                                            Task { await model.moveEntry(entry, toTopicID: nil) }
+                                        }
+                                        ForEach(model.topics) { topic in
+                                            Button(topic.title) {
+                                                Task { await model.moveEntry(entry, toTopicID: topic.id) }
+                                            }
+                                        }
+                                    }
+
                                     Divider()
 
                                     Button("Move to Trash", systemImage: "trash", role: .destructive) {
@@ -297,6 +324,14 @@ private struct EntriesView: View {
                 }
 
                 HStack {
+                    Menu("Use Template") {
+                        ForEach(model.templates) { template in
+                            Button(template.content.isEmpty ? "Empty Template" : String(template.content.prefix(40))) {
+                                newEntryContent = template.content
+                            }
+                        }
+                    }
+
                     TextField("New note", text: $newEntryContent, axis: .vertical)
                         .lineLimit(1 ... 4)
 
@@ -317,6 +352,10 @@ private struct EntriesView: View {
             .searchable(text: $query)
             .toolbar {
                 Button("Diaries", action: model.showDiaries)
+                Button("Topics & Templates") { showingTopicsAndTemplates = true }
+            }
+            .sheet(isPresented: $showingTopicsAndTemplates) {
+                topicsAndTemplatesSheet
             }
             .sheet(item: $selectedEntry) { entry in
                 NavigationStack {
@@ -343,6 +382,78 @@ private struct EntriesView: View {
                 .frame(minWidth: 420, minHeight: 300)
             }
         }
+    }
+
+    private var topicsAndTemplatesSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Topics") {
+                    ForEach(model.topics) { topic in
+                        Button(topic.title) {
+                            editingTopic = topic
+                            topicTitle = topic.title
+                            topicDescription = topic.description
+                            topicColor = topic.color
+                        }
+                    }
+                    TextField("Title", text: $topicTitle)
+                    TextField("Description", text: $topicDescription)
+                    TextField("Color", text: $topicColor)
+                    Button(editingTopic == nil ? "Create Topic" : "Save Topic") {
+                        let topic = editingTopic
+                        let title = topicTitle, description = topicDescription, color = topicColor
+                        Task {
+                            if let topic {
+                                await model.updateTopic(topic, title: title, description: description, color: color)
+                            } else {
+                                await model.createTopic(title: title, description: description, color: color)
+                            }
+                            editingTopic = nil
+                            topicTitle = ""
+                            topicDescription = ""
+                            topicColor = ""
+                        }
+                    }
+                    if editingTopic != nil {
+                        Button("New Topic") { editingTopic = nil; topicTitle = ""; topicDescription = ""; topicColor = "" }
+                    }
+                }
+
+                Section("Templates") {
+                    ForEach(model.templates) { template in
+                        Button(template.content.isEmpty ? "Empty Template" : String(template.content.prefix(40))) {
+                            editingTemplate = template
+                            templateContent = template.content
+                        }
+                    }
+                    TextEditor(text: $templateContent)
+                        .frame(minHeight: 100)
+                    Button(editingTemplate == nil ? "Create Template" : "Save Template") {
+                        let template = editingTemplate
+                        let content = templateContent
+                        Task {
+                            if let template {
+                                await model.updateTemplate(template, content: content)
+                            } else {
+                                await model.createTemplate(content: content)
+                            }
+                            editingTemplate = nil
+                            templateContent = ""
+                        }
+                    }
+                    if editingTemplate != nil {
+                        Button("New Template") { editingTemplate = nil; templateContent = "" }
+                    }
+                }
+            }
+            .navigationTitle("Topics & Templates")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showingTopicsAndTemplates = false }
+                }
+            }
+        }
+        .frame(minWidth: 460, minHeight: 520)
     }
 }
 

@@ -129,6 +129,126 @@ func selectingDiaryLoadsEntries() async {
 }
 
 @MainActor
+@Test("Selecting a diary loads its topics and templates")
+func selectingDiaryLoadsTopicsAndTemplates() async {
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let topic = ThingsDiaryTopic(
+        id: "topic-1",
+        diaryID: selectedDiary.id,
+        title: "Work",
+        description: "Work notes",
+        color: "blue",
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 2),
+        version: 3
+    )
+    let template = ThingsDiaryTemplate(
+        id: "template-1",
+        diaryID: selectedDiary.id,
+        content: "# Heading",
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 2),
+        version: 3
+    )
+    let client = StubAppClient(
+        result: .success([selectedDiary]),
+        topicsResult: .success([topic]),
+        templatesResult: .success([template])
+    )
+    let model = ThingsDiaryAppModel(client: client)
+
+    await model.selectDiary(selectedDiary)
+
+    #expect(model.topics == [topic])
+    #expect(model.templates == [template])
+    #expect(await client.receivedTopicsDiaryID == selectedDiary.id)
+    #expect(await client.receivedTemplatesDiaryID == selectedDiary.id)
+}
+
+@MainActor
+@Test("Creating and updating a topic sends its parameters to the client")
+func createsAndUpdatesTopic() async {
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let created = topic(id: "topic-1", diaryID: selectedDiary.id, title: "Work")
+    let updated = topic(id: "topic-1", diaryID: selectedDiary.id, title: "Projects")
+    let client = StubAppClient(
+        result: .success([selectedDiary]),
+        createTopicResult: .success(created),
+        updateTopicResult: .success(updated)
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    await model.selectDiary(selectedDiary)
+
+    await model.createTopic(title: "Work", description: "Work notes", color: "blue")
+    await model.updateTopic(created, title: "Projects", description: "Project notes", color: "green")
+
+    #expect(model.topics == [updated])
+    #expect(await client.receivedCreateTopicParams == ThingsDiaryTopicParams(
+        title: "Work",
+        description: "Work notes",
+        color: "blue"
+    ))
+    #expect(await client.receivedUpdateTopicParams == ThingsDiaryTopicParams(
+        title: "Projects",
+        description: "Project notes",
+        color: "green"
+    ))
+}
+
+@MainActor
+@Test("Creating and updating a template sends its content to the client")
+func createsAndUpdatesTemplate() async {
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let created = template(id: "template-1", diaryID: selectedDiary.id, content: "# New")
+    let updated = template(id: "template-1", diaryID: selectedDiary.id, content: "# Updated")
+    let client = StubAppClient(
+        result: .success([selectedDiary]),
+        createTemplateResult: .success(created),
+        updateTemplateResult: .success(updated)
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    await model.selectDiary(selectedDiary)
+
+    await model.createTemplate(content: "# New")
+    await model.updateTemplate(created, content: "# Updated")
+
+    #expect(model.templates == [updated])
+    #expect(await client.receivedCreateTemplateParams == ThingsDiaryTemplateParams(content: "# New"))
+    #expect(await client.receivedUpdateTemplateParams == ThingsDiaryTemplateParams(content: "# Updated"))
+}
+
+@MainActor
+@Test("Moving a note to a topic updates its topic assignment")
+func movesEntryToTopic() async {
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let original = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Categorize me")
+    let updated = ThingsDiaryEntry(
+        id: original.id,
+        diaryID: original.diaryID,
+        content: original.content,
+        topicID: "topic-1",
+        createdAt: original.createdAt,
+        updatedAt: original.updatedAt,
+        version: original.version + 1
+    )
+    let client = StubAppClient(
+        result: .success([selectedDiary]),
+        entriesResult: .success([original]),
+        updateEntryResult: .success(updated)
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    await model.selectDiary(selectedDiary)
+
+    await model.moveEntry(original, toTopicID: "topic-1")
+
+    #expect(model.screen == .entries(diary: selectedDiary, entries: [updated]))
+    #expect(await client.receivedUpdateParams == ThingsDiaryEntryParams(
+        content: original.content,
+        topicID: "topic-1"
+    ))
+}
+
+@MainActor
 @Test("User can return from entries to the loaded diary list")
 func returnsToLoadedDiaries() async {
     let diary = diary(id: "diary-1", title: "Personal")
@@ -552,6 +672,30 @@ private func entry(id: String, diaryID: String, content: String) -> ThingsDiaryE
     )
 }
 
+private func topic(id: String, diaryID: String, title: String) -> ThingsDiaryTopic {
+    ThingsDiaryTopic(
+        id: id,
+        diaryID: diaryID,
+        title: title,
+        description: "",
+        color: "blue",
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 2),
+        version: 3
+    )
+}
+
+private func template(id: String, diaryID: String, content: String) -> ThingsDiaryTemplate {
+    ThingsDiaryTemplate(
+        id: id,
+        diaryID: diaryID,
+        content: content,
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 2),
+        version: 3
+    )
+}
+
 private actor DelayedEntriesAppClient: ThingsDiaryAppClient {
     let storedDiaries: [ThingsDiaryDiary]
     let storedEntries: [String: [ThingsDiaryEntry]]
@@ -610,6 +754,12 @@ private actor StubAppClient: ThingsDiaryAppClient {
     let entriesResult: Result<[ThingsDiaryEntry], Error>
     let createEntryResult: Result<ThingsDiaryEntry, Error>?
     let updateEntryResult: Result<ThingsDiaryEntry, Error>?
+    let topicsResult: Result<[ThingsDiaryTopic], Error>
+    let templatesResult: Result<[ThingsDiaryTemplate], Error>
+    let createTopicResult: Result<ThingsDiaryTopic, Error>?
+    let updateTopicResult: Result<ThingsDiaryTopic, Error>?
+    let createTemplateResult: Result<ThingsDiaryTemplate, Error>?
+    let updateTemplateResult: Result<ThingsDiaryTemplate, Error>?
     private(set) var receivedLogin: String?
     private(set) var receivedPassword: String?
     private(set) var receivedSecretKey: String?
@@ -617,6 +767,12 @@ private actor StubAppClient: ThingsDiaryAppClient {
     private(set) var receivedEntriesDiaryID: String?
     private(set) var receivedUpdateParams: ThingsDiaryEntryParams?
     private(set) var receivedCreateParams: ThingsDiaryEntryParams?
+    private(set) var receivedTopicsDiaryID: String?
+    private(set) var receivedTemplatesDiaryID: String?
+    private(set) var receivedCreateTopicParams: ThingsDiaryTopicParams?
+    private(set) var receivedUpdateTopicParams: ThingsDiaryTopicParams?
+    private(set) var receivedCreateTemplateParams: ThingsDiaryTemplateParams?
+    private(set) var receivedUpdateTemplateParams: ThingsDiaryTemplateParams?
 
     init(
         result: Result<[ThingsDiaryDiary], Error>,
@@ -625,13 +781,25 @@ private actor StubAppClient: ThingsDiaryAppClient {
         ),
         entriesResult: Result<[ThingsDiaryEntry], Error> = .success([]),
         createEntryResult: Result<ThingsDiaryEntry, Error>? = nil,
-        updateEntryResult: Result<ThingsDiaryEntry, Error>? = nil
+        updateEntryResult: Result<ThingsDiaryEntry, Error>? = nil,
+        topicsResult: Result<[ThingsDiaryTopic], Error> = .success([]),
+        templatesResult: Result<[ThingsDiaryTemplate], Error> = .success([]),
+        createTopicResult: Result<ThingsDiaryTopic, Error>? = nil,
+        updateTopicResult: Result<ThingsDiaryTopic, Error>? = nil,
+        createTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil,
+        updateTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil
     ) {
         self.result = result
         self.registrationResult = registrationResult
         self.entriesResult = entriesResult
         self.createEntryResult = createEntryResult
         self.updateEntryResult = updateEntryResult
+        self.topicsResult = topicsResult
+        self.templatesResult = templatesResult
+        self.createTopicResult = createTopicResult
+        self.updateTopicResult = updateTopicResult
+        self.createTemplateResult = createTemplateResult
+        self.updateTemplateResult = updateTemplateResult
     }
 
     func register(
@@ -660,6 +828,40 @@ private actor StubAppClient: ThingsDiaryAppClient {
     func entries(diaryID: String) async throws -> [ThingsDiaryEntry] {
         receivedEntriesDiaryID = diaryID
         return try entriesResult.get()
+    }
+
+    func topics(diaryID: String) async throws -> [ThingsDiaryTopic] {
+        receivedTopicsDiaryID = diaryID
+        return try topicsResult.get()
+    }
+
+    func templates(diaryID: String) async throws -> [ThingsDiaryTemplate] {
+        receivedTemplatesDiaryID = diaryID
+        return try templatesResult.get()
+    }
+
+    func createTopic(diaryID: String, params: ThingsDiaryTopicParams) async throws -> ThingsDiaryTopic {
+        receivedCreateTopicParams = params
+        guard let createTopicResult else { throw TestFailure.rejected }
+        return try createTopicResult.get()
+    }
+
+    func updateTopic(_ topic: ThingsDiaryTopic, params: ThingsDiaryTopicParams) async throws -> ThingsDiaryTopic {
+        receivedUpdateTopicParams = params
+        guard let updateTopicResult else { throw TestFailure.rejected }
+        return try updateTopicResult.get()
+    }
+
+    func createTemplate(diaryID: String, params: ThingsDiaryTemplateParams) async throws -> ThingsDiaryTemplate {
+        receivedCreateTemplateParams = params
+        guard let createTemplateResult else { throw TestFailure.rejected }
+        return try createTemplateResult.get()
+    }
+
+    func updateTemplate(_ template: ThingsDiaryTemplate, params: ThingsDiaryTemplateParams) async throws -> ThingsDiaryTemplate {
+        receivedUpdateTemplateParams = params
+        guard let updateTemplateResult else { throw TestFailure.rejected }
+        return try updateTemplateResult.get()
     }
 
     func createEntry(
