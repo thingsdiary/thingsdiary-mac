@@ -218,6 +218,116 @@ func updatesEntryInSelectedDiary() async {
 }
 
 @MainActor
+@Test("Bookmarking a note updates only its bookmark flag")
+func bookmarksEntry() async {
+    let diary = diary(id: "diary-1", title: "Personal")
+    let original = entry(id: "entry-1", diaryID: diary.id, content: "Keep me")
+    let updated = ThingsDiaryEntry(
+        id: original.id,
+        diaryID: original.diaryID,
+        content: original.content,
+        bookmarked: true,
+        createdAt: original.createdAt,
+        updatedAt: original.updatedAt,
+        version: original.version + 1
+    )
+    let client = StubAppClient(
+        result: .success([diary]),
+        entriesResult: .success([original]),
+        updateEntryResult: .success(updated)
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    await model.selectDiary(diary)
+
+    await model.toggleBookmark(original)
+
+    #expect(model.screen == .entries(diary: diary, entries: [updated]))
+    #expect(await client.receivedUpdateParams == ThingsDiaryEntryParams(
+        content: original.content,
+        bookmarked: true
+    ))
+}
+
+@MainActor
+@Test("Archiving a note updates only its archive flag")
+func archivesEntry() async {
+    let diary = diary(id: "diary-1", title: "Personal")
+    let original = entry(id: "entry-1", diaryID: diary.id, content: "Archive me")
+    let updated = ThingsDiaryEntry(
+        id: original.id,
+        diaryID: original.diaryID,
+        content: original.content,
+        archived: true,
+        createdAt: original.createdAt,
+        updatedAt: original.updatedAt,
+        version: original.version + 1
+    )
+    let client = StubAppClient(
+        result: .success([diary]),
+        entriesResult: .success([original]),
+        updateEntryResult: .success(updated)
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    await model.selectDiary(diary)
+
+    await model.toggleArchive(original)
+
+    #expect(model.screen == .entries(diary: diary, entries: [updated]))
+    #expect(await client.receivedUpdateParams == ThingsDiaryEntryParams(
+        content: original.content,
+        archived: true
+    ))
+}
+
+@MainActor
+@Test("Duplicating a note creates a new entry with the same content and metadata")
+func duplicatesEntry() async {
+    let diary = diary(id: "diary-1", title: "Personal")
+    let original = ThingsDiaryEntry(
+        id: "entry-1",
+        diaryID: diary.id,
+        content: "Copy me",
+        topicID: "topic-1",
+        archived: true,
+        bookmarked: true,
+        previewHidden: true,
+        createdAt: Date(timeIntervalSince1970: 3),
+        updatedAt: Date(timeIntervalSince1970: 4),
+        version: 5
+    )
+    let duplicate = ThingsDiaryEntry(
+        id: "entry-copy",
+        diaryID: diary.id,
+        content: original.content,
+        topicID: original.topicID,
+        archived: original.archived,
+        bookmarked: original.bookmarked,
+        previewHidden: original.previewHidden,
+        createdAt: Date(timeIntervalSince1970: 6),
+        updatedAt: Date(timeIntervalSince1970: 6),
+        version: 6
+    )
+    let client = StubAppClient(
+        result: .success([diary]),
+        entriesResult: .success([original]),
+        createEntryResult: .success(duplicate)
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    await model.selectDiary(diary)
+
+    await model.duplicateEntry(original)
+
+    #expect(model.screen == .entries(diary: diary, entries: [original, duplicate]))
+    #expect(await client.receivedCreateParams == ThingsDiaryEntryParams(
+        content: original.content,
+        topicID: original.topicID,
+        archived: true,
+        bookmarked: true,
+        previewHidden: true
+    ))
+}
+
+@MainActor
 @Test("Updating a note offline keeps the edit visible and queues synchronization")
 func updatesEntryOffline() async throws {
     let fileURL = FileManager.default.temporaryDirectory
@@ -249,6 +359,71 @@ func updatesEntryOffline() async throws {
     #expect(pendingWrites.count == 1)
     #expect(pendingWrites.first?.operation == .update)
     #expect(pendingWrites.first?.entry.content == "After")
+}
+
+@MainActor
+@Test("Moving a note to trash offline queues a soft delete")
+func movesEntryToTrashOffline() async throws {
+    let fileURL = FileManager.default.temporaryDirectory
+        .appending(path: "thingsdiary-app-delete-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let original = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Trash me")
+    let store = try DiaryStore(fileURL: fileURL)
+    let client = StubAppClient(
+        result: .success([selectedDiary]),
+        entriesResult: .success([original])
+    )
+    let model = ThingsDiaryAppModel(client: client, store: store)
+    await model.selectDiary(selectedDiary)
+
+    await model.moveToTrash(original)
+
+    guard case let .entries(_, entries) = model.screen else {
+        Issue.record("Expected entries after the local delete")
+        return
+    }
+    #expect(entries.first?.deletedAt != nil)
+    let pendingWrites = await store.pendingEntryWrites()
+    #expect(pendingWrites.first?.operation == .delete)
+    #expect(pendingWrites.first?.entry.id == original.id)
+}
+
+@MainActor
+@Test("Restoring a note offline replaces its pending delete")
+func restoresEntryOffline() async throws {
+    let fileURL = FileManager.default.temporaryDirectory
+        .appending(path: "thingsdiary-app-restore-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let deleted = ThingsDiaryEntry(
+        id: "entry-1",
+        diaryID: selectedDiary.id,
+        content: "Restore me",
+        createdAt: Date(timeIntervalSince1970: 3),
+        updatedAt: Date(timeIntervalSince1970: 4),
+        deletedAt: Date(timeIntervalSince1970: 4),
+        version: 4_000
+    )
+    let store = try DiaryStore(fileURL: fileURL)
+    let client = StubAppClient(
+        result: .success([selectedDiary]),
+        entriesResult: .success([deleted])
+    )
+    let model = ThingsDiaryAppModel(client: client, store: store)
+    await model.selectDiary(selectedDiary)
+    try await store.savePendingEntry(PendingEntryWrite(operation: .delete, entry: deleted))
+
+    await model.restoreEntry(deleted)
+
+    guard case let .entries(_, entries) = model.screen else {
+        Issue.record("Expected entries after the local restore")
+        return
+    }
+    #expect(entries.first?.deletedAt == nil)
+    let pendingWrites = await store.pendingEntryWrites()
+    #expect(pendingWrites.count == 1)
+    #expect(pendingWrites.first?.operation == .restore)
 }
 
 @MainActor
@@ -440,6 +615,8 @@ private actor StubAppClient: ThingsDiaryAppClient {
     private(set) var receivedSecretKey: String?
     private(set) var receivedRegistrationSecretKey: String?
     private(set) var receivedEntriesDiaryID: String?
+    private(set) var receivedUpdateParams: ThingsDiaryEntryParams?
+    private(set) var receivedCreateParams: ThingsDiaryEntryParams?
 
     init(
         result: Result<[ThingsDiaryDiary], Error>,
@@ -489,6 +666,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
         diaryID: String,
         params: ThingsDiaryEntryParams
     ) async throws -> ThingsDiaryEntry {
+        receivedCreateParams = params
         guard let createEntryResult else {
             throw TestFailure.rejected
         }
@@ -499,6 +677,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
         _ entry: ThingsDiaryEntry,
         params: ThingsDiaryEntryParams
     ) async throws -> ThingsDiaryEntry {
+        receivedUpdateParams = params
         guard let updateEntryResult else {
             throw TestFailure.rejected
         }

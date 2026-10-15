@@ -230,6 +230,53 @@ func diaryStorePreservesEntryConflict() async throws {
     ])
 }
 
+@Test("Synchronization sends a pending soft delete and stores the server result")
+func diaryStoreSynchronizesSoftDelete() async throws {
+    let fileURL = FileManager.default.temporaryDirectory
+        .appending(path: "thingsdiary-delete-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let diary = ThingsDiaryDiary(
+        id: "diary-1",
+        title: "Personal",
+        description: "",
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 2),
+        version: 3
+    )
+    let deletedAt = Date(timeIntervalSince1970: 5)
+    let localDeleted = ThingsDiaryEntry(
+        id: "entry-1",
+        diaryID: diary.id,
+        content: "In trash",
+        createdAt: Date(timeIntervalSince1970: 3),
+        updatedAt: deletedAt,
+        deletedAt: deletedAt,
+        version: 5_000
+    )
+    let serverDeleted = ThingsDiaryEntry(
+        id: localDeleted.id,
+        diaryID: diary.id,
+        content: localDeleted.content,
+        createdAt: localDeleted.createdAt,
+        updatedAt: Date(timeIntervalSince1970: 6),
+        deletedAt: Date(timeIntervalSince1970: 6),
+        version: 6_000
+    )
+    let store = try DiaryStore(fileURL: fileURL)
+    try await store.replaceSelectedDiary(diary, entries: [])
+    try await store.savePendingEntry(PendingEntryWrite(
+        operation: .delete,
+        entry: localDeleted
+    ))
+    let remote = DeleteRemote(serverEntry: serverDeleted)
+
+    try await store.synchronize(with: remote)
+
+    #expect(await remote.deletedEntryIDs == [localDeleted.id])
+    #expect(await store.pendingEntryWrites().isEmpty)
+    #expect(await store.entries(diaryID: diary.id) == [serverDeleted])
+}
+
 private enum SyncTestFailure: Error {
     case lostResponse
 }
@@ -333,6 +380,45 @@ private actor ConflictRemote: DiaryStoreRemote {
         params: ThingsDiaryEntryParams
     ) async throws -> ThingsDiaryEntry {
         throw ThingsDiaryClientError.httpStatus(409, body: Data())
+    }
+
+    func getEntry(
+        diaryID: String,
+        entryID: String
+    ) async throws -> ThingsDiaryEntry {
+        serverEntry
+    }
+}
+
+private actor DeleteRemote: DiaryStoreRemote {
+    let serverEntry: ThingsDiaryEntry
+    private(set) var deletedEntryIDs: [String] = []
+
+    init(serverEntry: ThingsDiaryEntry) {
+        self.serverEntry = serverEntry
+    }
+
+    func createEntry(
+        diaryID: String,
+        entryID: String,
+        params: ThingsDiaryEntryParams
+    ) async throws -> ThingsDiaryEntry {
+        throw SyncTestFailure.lostResponse
+    }
+
+    func updateEntry(
+        _ entry: ThingsDiaryEntry,
+        params: ThingsDiaryEntryParams
+    ) async throws -> ThingsDiaryEntry {
+        throw SyncTestFailure.lostResponse
+    }
+
+    func deleteEntry(
+        diaryID: String,
+        entryID: String,
+        soft: Bool?
+    ) async throws {
+        deletedEntryIDs.append(entryID)
     }
 
     func getEntry(

@@ -4,6 +4,8 @@ import ThingsDiaryClient
 nonisolated enum PendingEntryOperation: String, Codable, Sendable, Equatable {
     case create
     case update
+    case delete
+    case restore
 }
 
 nonisolated struct PendingEntryWrite: Sendable, Equatable, Identifiable {
@@ -50,6 +52,15 @@ nonisolated protocol DiaryStoreRemote: Sendable {
         diaryID: String,
         entryID: String
     ) async throws -> ThingsDiaryEntry
+    func deleteEntry(
+        diaryID: String,
+        entryID: String,
+        soft: Bool?
+    ) async throws
+    func restoreEntry(
+        diaryID: String,
+        entryID: String
+    ) async throws -> ThingsDiaryEntry
 }
 
 extension DiaryStoreRemote {
@@ -63,6 +74,21 @@ extension DiaryStoreRemote {
     }
 
     func getEntry(
+        diaryID: String,
+        entryID: String
+    ) async throws -> ThingsDiaryEntry {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
+
+    func deleteEntry(
+        diaryID: String,
+        entryID: String,
+        soft: Bool?
+    ) async throws {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
+
+    func restoreEntry(
         diaryID: String,
         entryID: String
     ) async throws -> ThingsDiaryEntry {
@@ -164,6 +190,21 @@ actor DiaryStore {
                     )
                 case .update:
                     serverEntry = try await remote.updateEntry(write.entry, params: params)
+                case .delete:
+                    try await remote.deleteEntry(
+                        diaryID: write.entry.diaryID,
+                        entryID: write.entry.id,
+                        soft: true
+                    )
+                    serverEntry = try await remote.getEntry(
+                        diaryID: write.entry.diaryID,
+                        entryID: write.entry.id
+                    )
+                case .restore:
+                    serverEntry = try await remote.restoreEntry(
+                        diaryID: write.entry.diaryID,
+                        entryID: write.entry.id
+                    )
                 }
             } catch ThingsDiaryClientError.httpStatus(409, _) {
                 let currentServerEntry = try await remote.getEntry(

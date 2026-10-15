@@ -181,32 +181,118 @@ private struct EntriesView: View {
     @Bindable var model: ThingsDiaryAppModel
     let diary: ThingsDiaryDiary
     let entries: [ThingsDiaryEntry]
+    @State private var query = ""
+    @State private var section: EntrySection = .notes
+    @State private var sort: EntrySort = .newest
     @State private var newEntryContent = ""
     @State private var selectedEntry: ThingsDiaryEntry?
     @State private var draftContent = ""
 
+    private var displayedEntries: [ThingsDiaryEntry] {
+        visibleEntries(entries, section: section, query: query, sort: sort)
+    }
+
     var body: some View {
         NavigationStack {
             Group {
-                if entries.isEmpty {
-                    ContentUnavailableView(
-                        "No Notes",
-                        systemImage: "note.text",
-                        description: Text("This diary has no notes yet.")
-                    )
-                } else {
-                    List(entries) { entry in
-                        Button {
-                            selectedEntry = entry
-                            draftContent = entry.content
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Picker("Section", selection: $section) {
+                            ForEach(EntrySection.allCases) { section in
+                                Text(section.rawValue).tag(section)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+
+                        Menu {
+                            Picker("Sort", selection: $sort) {
+                                ForEach(EntrySort.allCases) { sort in
+                                    Text(sort.rawValue).tag(sort)
+                                }
+                            }
                         } label: {
-                            Text(entry.content)
-                                .lineLimit(4)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
+                        }
+                    }
+                    .padding(.horizontal)
+
+                    if displayedEntries.isEmpty {
+                        ContentUnavailableView(
+                            "No \(section.rawValue)",
+                            systemImage: "note.text",
+                            description: Text("No entries match this section and search.")
+                        )
+                    } else {
+                        List(displayedEntries) { entry in
+                            Button {
+                                selectedEntry = entry
+                                draftContent = entry.content
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text(entry.content)
+                                        .lineLimit(4)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    if entry.bookmarked {
+                                        Image(systemName: "bookmark.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .accessibilityLabel("Bookmarked")
+                                    }
+
+                                    if entry.archived {
+                                        Image(systemName: "archivebox.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .accessibilityLabel("Archived")
+                                    }
+                                }
                                 .contentShape(.rect)
                                 .padding(.vertical, 4)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                if entry.deletedAt != nil {
+                                    Button("Restore", systemImage: "arrow.uturn.backward") {
+                                        Task {
+                                            await model.restoreEntry(entry)
+                                        }
+                                    }
+                                } else {
+                                    Button(
+                                        entry.bookmarked ? "Remove Bookmark" : "Bookmark",
+                                        systemImage: entry.bookmarked ? "bookmark.slash" : "bookmark"
+                                    ) {
+                                        Task {
+                                            await model.toggleBookmark(entry)
+                                        }
+                                    }
+
+                                    Button(
+                                        entry.archived ? "Restore from Archive" : "Archive",
+                                        systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox"
+                                    ) {
+                                        Task {
+                                            await model.toggleArchive(entry)
+                                        }
+                                    }
+
+                                    Button("Duplicate", systemImage: "plus.square.on.square") {
+                                        Task {
+                                            await model.duplicateEntry(entry)
+                                        }
+                                    }
+
+                                    Divider()
+
+                                    Button("Move to Trash", systemImage: "trash", role: .destructive) {
+                                        Task {
+                                            await model.moveToTrash(entry)
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
 
@@ -228,6 +314,7 @@ private struct EntriesView: View {
                 .padding()
             }
             .navigationTitle(diary.title)
+            .searchable(text: $query)
             .toolbar {
                 Button("Diaries", action: model.showDiaries)
             }
