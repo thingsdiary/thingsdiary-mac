@@ -313,17 +313,35 @@ final class ThingsDiaryAppModel {
         let entry = ThingsDiaryEntry(
             id: "fixture-entry",
             diaryID: diary.id,
-            content: "Fixture note",
+            content: "Fixture Entry\nA useful preview for UI testing.",
             createdAt: now,
             updatedAt: now,
+            version: 1
+        )
+        let archivedEntry = ThingsDiaryEntry(
+            id: "fixture-archived-entry",
+            diaryID: diary.id,
+            content: "Archived Entry\nKept safely for later.",
+            archived: true,
+            createdAt: now.addingTimeInterval(-120),
+            updatedAt: now,
+            version: 1
+        )
+        let deletedEntry = ThingsDiaryEntry(
+            id: "fixture-deleted-entry",
+            diaryID: diary.id,
+            content: "Deleted Entry\nWaiting in Trash.",
+            createdAt: now.addingTimeInterval(-240),
+            updatedAt: now,
+            deletedAt: now,
             version: 1
         )
         let topic = ThingsDiaryTopic(
             id: "fixture-topic",
             diaryID: diary.id,
-            title: "Fixture Topic",
+            title: "Work Topic",
             description: "",
-            color: "",
+            color: "#93C5FD",
             createdAt: now,
             updatedAt: now,
             version: 1
@@ -331,7 +349,7 @@ final class ThingsDiaryAppModel {
         let model = ThingsDiaryAppModel()
         model.loadedDiaries = [diary]
         model.topics = [topic]
-        model.screen = .entries(diary: diary, entries: [entry])
+        model.screen = .entries(diary: diary, entries: [entry, archivedEntry, deletedEntry])
         return model
     }
     #endif
@@ -518,7 +536,7 @@ final class ThingsDiaryAppModel {
             )
             screen = .entries(diary: diary, entries: entries + [created])
         } catch {
-            screen = .error("Could not create the note.")
+            screen = .error("Could not create the entry.")
         }
     }
 
@@ -552,9 +570,15 @@ final class ThingsDiaryAppModel {
         )
     }
 
-    func createTopic(title: String, description: String, color: String) async {
+    func createTopic(
+        title: String,
+        description: String,
+        color: String,
+        entryPreviewable: Bool = true,
+        defaultTemplateID: String? = nil
+    ) async {
         guard case let .entries(diary, _) = screen else { return }
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = normalizedTopicTitle(title)
         guard !title.isEmpty else { return }
         do {
             let topic = try await client.createTopic(
@@ -562,7 +586,9 @@ final class ThingsDiaryAppModel {
                 params: ThingsDiaryTopicParams(
                     title: title,
                     description: description.trimmingCharacters(in: .whitespacesAndNewlines),
-                    color: color
+                    color: color,
+                    entryPreviewable: entryPreviewable,
+                    defaultTemplateID: defaultTemplateID
                 )
             )
             try await store?.upsertTopic(topic)
@@ -576,9 +602,11 @@ final class ThingsDiaryAppModel {
         _ topic: ThingsDiaryTopic,
         title: String,
         description: String,
-        color: String
+        color: String,
+        entryPreviewable: Bool? = nil,
+        defaultTemplateID: String? = nil
     ) async {
-        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = normalizedTopicTitle(title)
         guard !title.isEmpty else { return }
         do {
             let updated = try await client.updateTopic(
@@ -587,7 +615,8 @@ final class ThingsDiaryAppModel {
                     title: title,
                     description: description.trimmingCharacters(in: .whitespacesAndNewlines),
                     color: color,
-                    defaultTemplateID: topic.defaultTemplateID
+                    entryPreviewable: entryPreviewable ?? topic.entryPreviewable,
+                    defaultTemplateID: defaultTemplateID ?? topic.defaultTemplateID
                 )
             )
             try await store?.upsertTopic(updated)
@@ -709,7 +738,7 @@ final class ThingsDiaryAppModel {
                 entries: entries.map { $0.id == deleted.id ? deleted : $0 }
             )
         } catch {
-            screen = .error("Could not move the note to trash.")
+            screen = .error("Could not move the entry to trash.")
         }
     }
 
@@ -763,7 +792,7 @@ final class ThingsDiaryAppModel {
                 entries: entries.map { $0.id == restored.id ? restored : $0 }
             )
         } catch {
-            screen = .error("Could not restore the note.")
+            screen = .error("Could not restore the entry.")
         }
     }
 
@@ -798,7 +827,7 @@ final class ThingsDiaryAppModel {
                 entries: entries.filter { $0.id != entry.id }
             )
         } catch {
-            screen = .error("Could not permanently delete the note.")
+            screen = .error("Could not permanently delete the entry.")
         }
     }
 
@@ -867,7 +896,7 @@ final class ThingsDiaryAppModel {
             }
             screen = .entries(diary: diary, entries: updatedEntries)
         } catch {
-            screen = .error("Could not update the note.")
+            screen = .error("Could not update the entry.")
         }
     }
 

@@ -148,7 +148,7 @@ private struct DiariesView: View {
                     ContentUnavailableView {
                         Label("No Diaries", systemImage: "book.closed")
                     } description: {
-                        Text("Create a diary to start writing notes.")
+                        Text("Create a diary to start writing entries.")
                     } actions: {
                         Button("Create Diary", action: model.showDiaryCreation)
                             .buttonStyle(.borderedProminent)
@@ -244,9 +244,10 @@ private struct EntriesView: View {
     let diary: ThingsDiaryDiary
     let entries: [ThingsDiaryEntry]
     @State private var query = ""
-    @State private var selection: DiaryNavigationSelection? = .notes
+    @State private var selection: DiaryNavigationSelection? = .entries
     @State private var sort: EntrySort = .newest
     @State private var newEntryContent = ""
+    @State private var showingEntryCreator = false
     @State private var selectedEntryID: String?
     @State private var draftContent = ""
     @State private var showingTopicsAndTemplates = false
@@ -255,6 +256,11 @@ private struct EntriesView: View {
     @State private var topicTitle = ""
     @State private var topicDescription = ""
     @State private var topicColor = ""
+    @State private var topicEntryPreviewable = true
+    @State private var topicDefaultTemplateID: String?
+    @State private var pendingTrashEntry: ThingsDiaryEntry?
+    @State private var pendingPermanentDeletion: ThingsDiaryEntry?
+    @State private var confirmingEmptyTrash = false
     @State private var editingTemplate: ThingsDiaryTemplate?
     @State private var templateContent = ""
 
@@ -262,7 +268,7 @@ private struct EntriesView: View {
         visibleEntries(entries, selection: activeSelection, query: query, sort: sort)
     }
 
-    private var activeSelection: DiaryNavigationSelection { selection ?? .notes }
+    private var activeSelection: DiaryNavigationSelection { selection ?? .entries }
 
     private var selectedEntry: ThingsDiaryEntry? {
         entries.first { $0.id == selectedEntryID }
@@ -276,11 +282,21 @@ private struct EntriesView: View {
         NavigationSplitView {
             List {
                 Section {
+                    Button {
+                        newEntryContent = ""
+                        showingEntryCreator = true
+                    } label: {
+                        Label("New Entry", systemImage: "square.and.pencil")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .accessibilityIdentifier("entry.create")
+                    .buttonStyle(.plain)
+
                     sidebarRow(
-                        "Notes",
+                        "Entries",
                         systemImage: "note.text",
-                        destination: .notes,
-                        identifier: "sidebar.notes"
+                        destination: .entries,
+                        identifier: "sidebar.entries"
                     )
                     sidebarRow(
                         "Bookmarks",
@@ -296,13 +312,19 @@ private struct EntriesView: View {
                             topic.title,
                             systemImage: "tag",
                             destination: .topic(topic.id),
-                            identifier: "sidebar.topic.\(topic.id)"
+                            identifier: "sidebar.topic.\(topic.id)",
+                            color: topicColorValue(topic.color),
+                            doubleClick: { beginEditing(topic) }
                         )
                     }
 
                     Button {
                         topicTitle = ""
                         topicDescription = ""
+                        topicColor = topicColors[0]
+                        topicEntryPreviewable = true
+                        topicDefaultTemplateID = nil
+                        editingTopic = nil
                         showingTopicCreator = true
                     } label: {
                         Label("New Topic", systemImage: "plus")
@@ -355,9 +377,9 @@ private struct EntriesView: View {
 
                 if displayedEntries.isEmpty {
                     ContentUnavailableView(
-                        "No \(selectionTitle)",
-                        systemImage: "note.text",
-                        description: Text("No entries match this section and search.")
+                        emptyStateTitle,
+                        systemImage: emptyStateSystemImage,
+                        description: Text(emptyStateDescription)
                     )
                 } else {
                     List(displayedEntries) { entry in
@@ -365,23 +387,7 @@ private struct EntriesView: View {
                             selectedEntryID = entry.id
                             draftContent = entry.content
                         } label: {
-                            HStack(spacing: 6) {
-                                Text(entry.content)
-                                    .lineLimit(4)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                if entry.bookmarked {
-                                    Image(systemName: "bookmark.fill")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                        .accessibilityLabel("Bookmarked")
-                                }
-                                if entry.archived {
-                                    Image(systemName: "archivebox.fill")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                        .accessibilityLabel("Archived")
-                                }
-                            }
-                            .contentShape(.rect)
-                            .padding(.vertical, 4)
+                            entryListRow(entry)
                         }
                         .accessibilityIdentifier("entry.\(entry.id)")
                         .buttonStyle(.plain)
@@ -390,32 +396,14 @@ private struct EntriesView: View {
                         }
                     }
                 }
-
-                HStack {
-                    Menu("Use Template") {
-                        ForEach(model.templates) { template in
-                            Button(template.content.isEmpty ? "Empty Template" : String(template.content.prefix(40))) {
-                                newEntryContent = template.content
-                            }
-                        }
-                    }
-                    TextField("New note", text: $newEntryContent, axis: .vertical)
-                        .lineLimit(1 ... 4)
-                    Button("Add") {
-                        let content = newEntryContent
-                        newEntryContent = ""
-                        Task { await model.createEntry(content: content) }
-                    }
-                    .disabled(newEntryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                .padding()
             }
             .searchable(text: $query)
             .toolbar {
                 if activeSelection == .trash && !displayedEntries.isEmpty {
                     Button("Empty Trash", role: .destructive) {
-                        Task { await model.emptyTrash() }
+                        confirmingEmptyTrash = true
                     }
+                    .accessibilityIdentifier("trash.empty")
                 }
             }
             .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
@@ -424,7 +412,6 @@ private struct EntriesView: View {
                 TextEditor(text: $draftContent)
                     .accessibilityIdentifier("entry.editor")
                     .disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
-                    .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .toolbar {
                         ToolbarItemGroup(placement: .primaryAction) {
@@ -434,7 +421,7 @@ private struct EntriesView: View {
                                 Image(systemName: "ellipsis.circle")
                             }
                             .accessibilityIdentifier("entry.actions")
-                            .help("Note Actions")
+                            .help("Entry Actions")
 
                             if selectedEntry.deletedAt == nil && !selectedEntry.archived {
                                 Button("Save") {
@@ -454,7 +441,7 @@ private struct EntriesView: View {
                     Label(diary.title, systemImage: "book.closed")
                 } description: {
                     Text(diary.description.isEmpty ? "Your diary overview" : diary.description)
-                    Text("\(count(for: .notes)) notes · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash")
+                    Text("\(count(for: .entries)) entries · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash")
                 }
             }
         }
@@ -466,8 +453,43 @@ private struct EntriesView: View {
         .sheet(isPresented: $showingTopicsAndTemplates) {
             topicsAndTemplatesSheet
         }
+        .sheet(isPresented: $showingEntryCreator) {
+            entryCreatorSheet
+        }
         .sheet(isPresented: $showingTopicCreator) {
             topicCreatorSheet
+        }
+        .alert("Move Entry to Trash?", isPresented: Binding(
+            get: { pendingTrashEntry != nil },
+            set: { if !$0 { pendingTrashEntry = nil } }
+        ), presenting: pendingTrashEntry) { entry in
+            Button("Move to Trash", role: .destructive) {
+                pendingTrashEntry = nil
+                execute(.moveToTrash, on: entry, topicID: nil)
+            }
+            Button("Cancel", role: .cancel) { pendingTrashEntry = nil }
+        } message: { entry in
+            Text("“\(entryListPresentation(content: entry.content).title)” can be restored later from Trash.")
+        }
+        .alert("Delete Entry Permanently?", isPresented: Binding(
+            get: { pendingPermanentDeletion != nil },
+            set: { if !$0 { pendingPermanentDeletion = nil } }
+        ), presenting: pendingPermanentDeletion) { entry in
+            Button("Delete Permanently", role: .destructive) {
+                pendingPermanentDeletion = nil
+                execute(.deletePermanently, on: entry, topicID: nil)
+            }
+            Button("Cancel", role: .cancel) { pendingPermanentDeletion = nil }
+        } message: { entry in
+            Text("“\(entryListPresentation(content: entry.content).title)” will be deleted permanently. This cannot be undone.")
+        }
+        .alert("Empty Trash?", isPresented: $confirmingEmptyTrash) {
+            Button("Empty Trash", role: .destructive) {
+                Task { await model.emptyTrash() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All entries in Trash will be deleted permanently. This cannot be undone.")
         }
     }
 
@@ -480,15 +502,27 @@ private struct EntriesView: View {
         _ title: String,
         systemImage: String,
         destination: DiaryNavigationSelection,
-        identifier: String
+        identifier: String,
+        color: Color? = nil,
+        doubleClick: (() -> Void)? = nil
     ) -> some View {
         Button {
             selection = destination
         } label: {
-            Label(title, systemImage: systemImage)
+            HStack {
+                if let color {
+                    Circle().fill(color).frame(width: 8, height: 8)
+                } else {
+                    Image(systemName: systemImage)
+                        .frame(width: 16)
+                        .foregroundStyle(.tint)
+                }
+                Text(title)
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
         }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { doubleClick?() })
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
         .badge(count(for: destination))
@@ -506,6 +540,23 @@ private struct EntriesView: View {
     }
 
     private func perform(
+        _ action: EntryAction,
+        on entry: ThingsDiaryEntry,
+        topicID: String?
+    ) {
+        if action == .moveToTrash,
+           !entry.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pendingTrashEntry = entry
+            return
+        }
+        if action == .deletePermanently {
+            pendingPermanentDeletion = entry
+            return
+        }
+        execute(action, on: entry, topicID: topicID)
+    }
+
+    private func execute(
         _ action: EntryAction,
         on entry: ThingsDiaryEntry,
         topicID: String?
@@ -560,17 +611,182 @@ private struct EntriesView: View {
         }
     }
 
+    private var entryCreatorSheet: some View {
+        NavigationStack {
+            Form {
+                if !model.templates.isEmpty {
+                    Menu("Use Template") {
+                        ForEach(model.templates) { template in
+                            Button(template.content.isEmpty ? "Empty Template" : String(template.content.prefix(40))) {
+                                newEntryContent = template.content
+                            }
+                        }
+                    }
+                }
+                TextEditor(text: $newEntryContent)
+                    .accessibilityIdentifier("entry.new-content")
+                    .frame(minHeight: 220)
+            }
+            .formStyle(.grouped)
+            .navigationTitle("New Entry")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showingEntryCreator = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        let content = newEntryContent
+                        Task {
+                            await model.createEntry(content: content)
+                            selection = .entries
+                            showingEntryCreator = false
+                        }
+                    }
+                    .disabled(newEntryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .frame(minWidth: 520, minHeight: 380)
+    }
+
+    @ViewBuilder
+    private func entryListRow(_ entry: ThingsDiaryEntry) -> some View {
+        let presentation = entryListPresentation(content: entry.content)
+        let topic = model.topics.first { $0.id == entry.topicID }
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 7) {
+                if let topic {
+                    Circle()
+                        .fill(topicColorValue(topic.color))
+                        .frame(width: 8, height: 8)
+                        .accessibilityLabel("Topic: \(topic.title)")
+                }
+                Text(presentation.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if entry.bookmarked {
+                    Image(systemName: "bookmark.fill")
+                        .foregroundStyle(.tint)
+                        .accessibilityLabel("Bookmarked")
+                }
+                Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !entry.previewHidden,
+               topic?.entryPreviewable != false,
+               let preview = presentation.preview {
+                Text(preview)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            if entry.archived {
+                Label("Archived", systemImage: "archivebox.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if entry.deletedAt != nil {
+                Label("In Trash", systemImage: "trash.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .contentShape(.rect)
+        .padding(.vertical, 5)
+    }
+
+    private var emptyStateTitle: String {
+        switch activeSelection {
+        case .archive: "Archive is empty"
+        case .trash: "Trash is empty"
+        default: "No \(selectionTitle)"
+        }
+    }
+
+    private var emptyStateDescription: String {
+        switch activeSelection {
+        case .archive: "Archived entries appear here."
+        case .trash: "Deleted entries appear here until permanently removed."
+        default: query.isEmpty ? "Create an entry to get started." : "No entries match your search."
+        }
+    }
+
+    private var emptyStateSystemImage: String {
+        switch activeSelection {
+        case .archive: "archivebox"
+        case .trash: "trash"
+        default: "note.text"
+        }
+    }
+
+    private let topicColors = [
+        "#94A3B8", "#93C5FD", "#86EFAC", "#A3E635", "#2DD4BF",
+        "#FCD34D", "#F4A261", "#E76F51", "#E9C46A", "#B5838D", "#C4B5FD",
+    ]
+
+    private func topicColorValue(_ hex: String) -> Color {
+        Color(topicHex: hex) ?? .secondary
+    }
+
+    private func beginEditing(_ topic: ThingsDiaryTopic) {
+        editingTopic = topic
+        topicTitle = topic.title
+        topicDescription = topic.description
+        topicColor = topic.color.isEmpty ? topicColors[0] : topic.color
+        topicEntryPreviewable = topic.entryPreviewable
+        topicDefaultTemplateID = topic.defaultTemplateID
+        showingTopicCreator = true
+    }
+
     private var topicCreatorSheet: some View {
         NavigationStack {
             Form {
                 TextField("Title", text: $topicTitle)
                     .accessibilityIdentifier("topic.title")
+                    .onChange(of: topicTitle) {
+                        if topicTitle.count > maximumTopicTitleLength {
+                            topicTitle = String(topicTitle.prefix(maximumTopicTitleLength))
+                        }
+                    }
+                Text("\(topicTitle.count)/\(maximumTopicTitleLength)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 TextField("Description", text: $topicDescription, axis: .vertical)
                     .accessibilityIdentifier("topic.description")
                     .lineLimit(2 ... 5)
+                Picker("Default Template", selection: $topicDefaultTemplateID) {
+                    Text("None").tag(String?.none)
+                    ForEach(model.templates) { template in
+                        Text(template.content.isEmpty ? "Empty Template" : String(template.content.prefix(40)))
+                            .tag(Optional(template.id))
+                    }
+                }
+                Toggle("Show entry previews", isOn: $topicEntryPreviewable)
+                    .accessibilityIdentifier("topic.entry-previews")
+                LabeledContent("Color") {
+                    HStack(spacing: 10) {
+                        ForEach(topicColors, id: \.self) { color in
+                            Button {
+                                topicColor = color
+                            } label: {
+                                Circle()
+                                    .fill(topicColorValue(color))
+                                    .frame(width: 20, height: 20)
+                                    .overlay {
+                                        if topicColor == color {
+                                            Circle().stroke(.primary, lineWidth: 2)
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Topic color \(color)")
+                        }
+                    }
+                }
             }
             .formStyle(.grouped)
-            .navigationTitle("New Topic")
+            .navigationTitle(editingTopic == nil ? "New Topic" : "Edit Topic")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -578,36 +794,51 @@ private struct EntriesView: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
+                    Button(editingTopic == nil ? "Create" : "Save") {
                         let title = topicTitle
                         let description = topicDescription
+                        let color = topicColor
+                        let entryPreviewable = topicEntryPreviewable
+                        let defaultTemplateID = topicDefaultTemplateID
+                        let topic = editingTopic
                         let existingTopicIDs = Set(model.topics.map(\.id))
                         Task {
-                            await model.createTopic(
-                                title: title,
-                                description: description,
-                                color: ""
-                            )
-                            if let createdTopic = model.topics.first(where: {
-                                !existingTopicIDs.contains($0.id)
-                            }) {
-                                selection = .topic(createdTopic.id)
-                                showingTopicCreator = false
+                            if let topic {
+                                await model.updateTopic(
+                                    topic,
+                                    title: title,
+                                    description: description,
+                                    color: color,
+                                    entryPreviewable: entryPreviewable,
+                                    defaultTemplateID: defaultTemplateID
+                                )
+                            } else {
+                                await model.createTopic(
+                                    title: title,
+                                    description: description,
+                                    color: color,
+                                    entryPreviewable: entryPreviewable,
+                                    defaultTemplateID: defaultTemplateID
+                                )
+                                if let createdTopic = model.topics.first(where: {
+                                    !existingTopicIDs.contains($0.id)
+                                }) {
+                                    selection = .topic(createdTopic.id)
+                                }
                             }
+                            showingTopicCreator = false
                         }
                     }
-                    .disabled(topicTitle.trimmingCharacters(
-                        in: .whitespacesAndNewlines
-                    ).isEmpty)
+                    .disabled(normalizedTopicTitle(topicTitle).isEmpty)
                 }
             }
         }
-        .frame(minWidth: 420, minHeight: 240)
+        .frame(minWidth: 560, minHeight: 420)
     }
 
     private var selectionTitle: String {
         switch activeSelection {
-        case .notes: "Notes"
+        case .entries: "Entries"
         case .bookmarks: "Bookmarks"
         case let .topic(topicID): model.topics.first(where: { $0.id == topicID })?.title ?? "Topic"
         case .archive: "Archive"
@@ -620,33 +851,32 @@ private struct EntriesView: View {
             Form {
                 Section("Topics") {
                     ForEach(model.topics) { topic in
-                        Button(topic.title) {
-                            editingTopic = topic
-                            topicTitle = topic.title
-                            topicDescription = topic.description
-                            topicColor = topic.color
+                        Button {
+                            showingTopicsAndTemplates = false
+                            DispatchQueue.main.async { beginEditing(topic) }
+                        } label: {
+                            HStack {
+                                Circle()
+                                    .fill(topicColorValue(topic.color))
+                                    .frame(width: 9, height: 9)
+                                Text(topic.title)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
-                    TextField("Title", text: $topicTitle)
-                    TextField("Description", text: $topicDescription)
-                    TextField("Color", text: $topicColor)
-                    Button(editingTopic == nil ? "Create Topic" : "Save Topic") {
-                        let topic = editingTopic
-                        let title = topicTitle, description = topicDescription, color = topicColor
-                        Task {
-                            if let topic {
-                                await model.updateTopic(topic, title: title, description: description, color: color)
-                            } else {
-                                await model.createTopic(title: title, description: description, color: color)
-                            }
+                    Button("New Topic", systemImage: "plus") {
+                        showingTopicsAndTemplates = false
+                        DispatchQueue.main.async {
                             editingTopic = nil
                             topicTitle = ""
                             topicDescription = ""
-                            topicColor = ""
+                            topicColor = topicColors[0]
+                            topicEntryPreviewable = true
+                            topicDefaultTemplateID = nil
+                            showingTopicCreator = true
                         }
-                    }
-                    if editingTopic != nil {
-                        Button("New Topic") { editingTopic = nil; topicTitle = ""; topicDescription = ""; topicColor = "" }
                     }
                 }
 
@@ -758,6 +988,18 @@ private struct EntryActionsMenuContent: View {
                 perform(.deletePermanently, nil)
             }
         }
+    }
+}
+
+private extension Color {
+    init?(topicHex: String) {
+        let value = topicHex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        guard value.count == 6, let number = UInt64(value, radix: 16) else { return nil }
+        self.init(
+            red: Double((number >> 16) & 0xff) / 255,
+            green: Double((number >> 8) & 0xff) / 255,
+            blue: Double(number & 0xff) / 255
+        )
     }
 }
 

@@ -559,6 +559,7 @@ private nonisolated struct StoredTopic: Codable {
     let title: String
     let description: String
     let color: String
+    let entryPreviewable: Bool?
     let defaultTemplateID: String?
     let createdAt: Date
     let updatedAt: Date
@@ -571,6 +572,7 @@ private nonisolated struct StoredTopic: Codable {
         title = topic.title
         description = topic.description
         color = topic.color
+        entryPreviewable = topic.entryPreviewable
         defaultTemplateID = topic.defaultTemplateID
         createdAt = topic.createdAt
         updatedAt = topic.updatedAt
@@ -585,6 +587,7 @@ private nonisolated struct StoredTopic: Codable {
             title: title,
             description: description,
             color: color,
+            entryPreviewable: entryPreviewable ?? true,
             defaultTemplateID: defaultTemplateID,
             createdAt: createdAt,
             updatedAt: updatedAt,

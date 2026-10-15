@@ -31,22 +31,62 @@ final class DiaryWorkspaceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Create"].exists)
     }
 
-    func testNoteActionsAreAvailableFromRowAndEditorToolbar() {
+    func testEntryActionsAreAvailableFromRowAndEditorToolbar() {
         let app = launchWorkspace()
-        let note = app.descendants(matching: .any)["entry.fixture-entry"]
+        let entry = app.descendants(matching: .any)["entry.fixture-entry"]
 
-        note.rightClick()
+        entry.rightClick()
         XCTAssertTrue(app.menuItems["Bookmark"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.menuItems["Archive"].exists)
         XCTAssertTrue(app.menuItems["Move to Trash"].exists)
         app.typeKey(.escape, modifierFlags: [])
 
-        note.click()
+        entry.click()
         let actions = app.descendants(matching: .any)["entry.actions"]
         XCTAssertTrue(actions.waitForExistence(timeout: 2))
         actions.click()
         XCTAssertTrue(app.menuItems["Bookmark"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.menuItems["Archive"].exists)
         XCTAssertTrue(app.menuItems["Move to Trash"].exists)
+    }
+
+    func testNewEntryButtonOpensCreationForm() {
+        let app = launchWorkspace()
+
+        app.buttons["entry.create"].click()
+
+        XCTAssertTrue(app.descendants(matching: .any)["entry.new-content"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Create"].exists)
+    }
+
+    func testMovingNonemptyEntryToTrashRequiresConfirmation() {
+        let app = launchWorkspace()
+        let entry = app.descendants(matching: .any)["entry.fixture-entry"]
+
+        entry.rightClick()
+        app.menuItems["Move to Trash"].click()
+
+        XCTAssertTrue(app.staticTexts["Move Entry to Trash?"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Cancel"].exists)
+    }
+
+    func testEmptyTrashRequiresConfirmation() {
+        let app = launchWorkspace()
+
+        app.buttons["sidebar.trash"].click()
+        app.buttons["trash.empty"].firstMatch.click()
+
+        XCTAssertTrue(app.staticTexts["Empty Trash?"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["Cancel"].exists)
+    }
+
+    func testDoubleClickingTopicOpensEditor() {
+        let app = launchWorkspace()
+
+        app.buttons["sidebar.topic.fixture-topic"].doubleClick()
+
+        let title = app.descendants(matching: .any)["topic.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 2))
+        XCTAssertEqual(title.value as? String, "Work Topic")
     }
 }

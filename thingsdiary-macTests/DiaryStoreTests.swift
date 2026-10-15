@@ -57,6 +57,7 @@ func diaryStorePersistsTopicsAndTemplates() async throws {
         title: "Work",
         description: "Work notes",
         color: "blue",
+        entryPreviewable: false,
         defaultTemplateID: "template-1",
         createdAt: Date(timeIntervalSince1970: 3),
         updatedAt: Date(timeIntervalSince1970: 4),

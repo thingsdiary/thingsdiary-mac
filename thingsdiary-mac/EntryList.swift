@@ -2,7 +2,7 @@ import Foundation
 import ThingsDiaryClient
 
 nonisolated enum EntrySection: String, CaseIterable, Identifiable {
-    case notes = "Notes"
+    case entries = "Entries"
     case bookmarks = "Bookmarks"
     case archive = "Archive"
     case trash = "Trash"
@@ -18,7 +18,7 @@ nonisolated enum EntrySort: String, CaseIterable, Identifiable {
 }
 
 nonisolated enum DiaryNavigationSelection: Hashable {
-    case notes
+    case entries
     case bookmarks
     case topic(String)
     case archive
@@ -58,7 +58,7 @@ nonisolated func visibleEntries(
     return entries
         .filter { entry in
             let belongsToSection = switch section {
-            case .notes:
+            case .entries:
                 entry.deletedAt == nil && !entry.archived
             case .bookmarks:
                 entry.deletedAt == nil && !entry.archived && entry.bookmarked
@@ -91,8 +91,8 @@ nonisolated func visibleEntries(
     sort: EntrySort
 ) -> [ThingsDiaryEntry] {
     let section = switch selection {
-    case .notes, .topic:
-        EntrySection.notes
+    case .entries, .topic:
+        EntrySection.entries
     case .bookmarks:
         EntrySection.bookmarks
     case .archive:
@@ -106,4 +106,27 @@ nonisolated func visibleEntries(
         return sectionEntries
     }
     return sectionEntries.filter { $0.topicID == topicID }
+}
+
+nonisolated struct EntryListPresentation: Equatable {
+    let title: String
+    let preview: String?
+}
+
+nonisolated func entryListPresentation(content: String) -> EntryListPresentation {
+    let lines = content
+        .split(whereSeparator: \Character.isNewline)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+    guard let title = lines.first else {
+        return EntryListPresentation(title: "Untitled", preview: nil)
+    }
+    let preview = lines.dropFirst().joined(separator: " ")
+    return EntryListPresentation(title: title, preview: preview.isEmpty ? nil : preview)
+}
+
+nonisolated let maximumTopicTitleLength = 12
+
+nonisolated func normalizedTopicTitle(_ title: String) -> String {
+    String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maximumTopicTitleLength))
 }

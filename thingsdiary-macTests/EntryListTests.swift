@@ -16,11 +16,11 @@ func filtersEntryList() {
     let deleted = listEntry(id: "deleted", content: "Deleted walk", deletedAt: 5, updatedAt: 1)
     let entries = [deleted, archived, other, active]
 
-    #expect(visibleEntries(entries, section: .notes, query: "walk", sort: .newest) == [active])
+    #expect(visibleEntries(entries, section: .entries, query: "walk", sort: .newest) == [active])
     #expect(visibleEntries(entries, section: .bookmarks, query: "", sort: .newest) == [active])
     #expect(visibleEntries(entries, section: .archive, query: "", sort: .newest) == [archived])
     #expect(visibleEntries(entries, section: .trash, query: "", sort: .newest) == [deleted])
-    #expect(visibleEntries(entries, section: .notes, query: "", sort: .oldest) == [other, active])
+    #expect(visibleEntries(entries, section: .entries, query: "", sort: .oldest) == [other, active])
 }
 
 @Test("Diary navigation filters active notes by topic")
@@ -74,6 +74,24 @@ func entryActionsMatchLifecycleState() {
         .restore,
         .deletePermanently,
     ])
+}
+
+@Test("Entry list presentation separates title and preview")
+func entryListPresentationSeparatesTitleAndPreview() {
+    #expect(entryListPresentation(content: "Project plan\nFirst task\nSecond task") == EntryListPresentation(
+        title: "Project plan",
+        preview: "First task Second task"
+    ))
+    #expect(entryListPresentation(content: "  \n\n") == EntryListPresentation(
+        title: "Untitled",
+        preview: nil
+    ))
+}
+
+@Test("Topic titles are trimmed and limited to the web client contract")
+func normalizesTopicTitles() {
+    #expect(normalizedTopicTitle("  Personal  ") == "Personal")
+    #expect(normalizedTopicTitle("abcdefghijklmnop") == "abcdefghijkl")
 }
 
 private func listEntry(

@@ -252,19 +252,36 @@ func createsAndUpdatesTopic() async {
     let model = ThingsDiaryAppModel(client: client)
     await model.selectDiary(selectedDiary)
 
-    await model.createTopic(title: "Work", description: "Work notes", color: "blue")
-    await model.updateTopic(created, title: "Projects", description: "Project notes", color: "green")
+    await model.createTopic(
+        title: "Work",
+        description: "Work notes",
+        color: "blue",
+        entryPreviewable: false,
+        defaultTemplateID: "template-1"
+    )
+    await model.updateTopic(
+        created,
+        title: "Projects",
+        description: "Project notes",
+        color: "green",
+        entryPreviewable: false,
+        defaultTemplateID: "template-2"
+    )
 
     #expect(model.topics == [updated])
     #expect(await client.receivedCreateTopicParams == ThingsDiaryTopicParams(
         title: "Work",
         description: "Work notes",
-        color: "blue"
+        color: "blue",
+        entryPreviewable: false,
+        defaultTemplateID: "template-1"
     ))
     #expect(await client.receivedUpdateTopicParams == ThingsDiaryTopicParams(
         title: "Projects",
         description: "Project notes",
-        color: "green"
+        color: "green",
+        entryPreviewable: false,
+        defaultTemplateID: "template-2"
     ))
 }
 
