@@ -352,6 +352,7 @@ private struct EntriesView: View {
 	@State private var confirmingEmptyTrash = false
 	@State private var editingTemplate: ThingsDiaryTemplate?
 	@State private var templateContent = ""
+	@State private var pendingSidebarSelection: DiaryNavigationSelection?
 
 	private var displayedEntries: [ThingsDiaryEntry] {
 		visibleEntries(entries, selection: activeSelection, query: query, sort: sort)
@@ -369,73 +370,21 @@ private struct EntriesView: View {
 	}
 
 	var body: some View {
-		NavigationSplitView {
-			sidebar
-		} content: {
-			Group {
-				if selectionIsEmpty {
-					emptyStateView
-				} else {
-					VStack(spacing: 0) {
-						entryListHeader
-						Divider()
-
-						if displayedEntries.isEmpty {
-							emptyStateView
-						} else {
-							entryListScrollView
-						}
-					}
+		Group {
+			if selectionIsEmpty {
+				NavigationSplitView {
+					sidebar
+				} detail: {
+					entryListPane
 				}
-			}
-			.background(.background)
-			.searchable(text: $query)
-			.toolbar {
-				if activeSelection == .trash && !displayedEntries.isEmpty {
-					Button("Empty Trash", role: .destructive) {
-						confirmingEmptyTrash = true
-					}
-					.accessibilityIdentifier("trash.empty")
-				}
-			}
-			.navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
-		} detail: {
-			if let selectedEntry {
-				TextEditor(text: $draftContent)
-					.accessibilityIdentifier("entry.editor")
-					.disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
-					.frame(maxWidth: .infinity, maxHeight: .infinity)
-					.toolbar {
-						ToolbarItemGroup(placement: .primaryAction) {
-							Menu {
-								entryActions(for: selectedEntry)
-							} label: {
-								Image(systemName: "ellipsis.circle")
-							}
-							.accessibilityIdentifier("entry.actions")
-							.help("Entry Actions")
-
-							if selectedEntry.deletedAt == nil && !selectedEntry.archived {
-								Button("Save") {
-									let entry = selectedEntry
-									let content = draftContent
-									Task {
-										await model.updateEntry(entry, content: content)
-									}
-								}
-								.keyboardShortcut("s", modifiers: .command)
-								.disabled(!canSave(selectedEntry))
-							}
-						}
-					}
 			} else {
-				ContentUnavailableView {
-					Label(diary.title, systemImage: "book.closed")
-				} description: {
-					Text(diary.description.isEmpty ? "Your diary overview" : diary.description)
-					Text(
-						"\(count(for: .entries)) entries · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash"
-					)
+				NavigationSplitView {
+					sidebar
+				} content: {
+					entryListPane
+						.navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
+				} detail: {
+					entryDetailPane
 				}
 			}
 		}
@@ -478,7 +427,12 @@ private struct EntriesView: View {
 				}
 			}
 		}
-		.frame(minWidth: 900, minHeight: 520)
+		.frame(
+			minWidth: 900,
+			maxWidth: .infinity,
+			minHeight: 520,
+			maxHeight: .infinity
+		)
 		.onChange(of: selection) {
 			selectedEntryID = nil
 		}
@@ -518,6 +472,78 @@ private struct EntriesView: View {
 			Button("Cancel", role: .cancel) {}
 		} message: {
 			Text("All entries in Trash will be deleted permanently. This cannot be undone.")
+		}
+	}
+
+	private var entryListPane: some View {
+		Group {
+			if selectionIsEmpty {
+				emptyStateView
+			} else {
+				VStack(spacing: 0) {
+					entryListHeader
+					Divider()
+
+					if displayedEntries.isEmpty {
+						emptyStateView
+					} else {
+						entryListScrollView
+					}
+				}
+			}
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.background(.background)
+		.searchable(text: $query)
+		.toolbar {
+			if activeSelection == .trash && !displayedEntries.isEmpty {
+				Button("Empty Trash", role: .destructive) {
+					confirmingEmptyTrash = true
+				}
+				.accessibilityIdentifier("trash.empty")
+			}
+		}
+	}
+
+	@ViewBuilder private var entryDetailPane: some View {
+		if let selectedEntry {
+			TextEditor(text: $draftContent)
+				.accessibilityIdentifier("entry.editor")
+				.disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
+				.toolbar {
+					ToolbarItemGroup(placement: .primaryAction) {
+						Menu {
+							entryActions(for: selectedEntry)
+						} label: {
+							Image(systemName: "ellipsis.circle")
+						}
+						.accessibilityIdentifier("entry.actions")
+						.help("Entry Actions")
+
+						if selectedEntry.deletedAt == nil && !selectedEntry.archived {
+							Button("Save") {
+								let entry = selectedEntry
+								let content = draftContent
+								Task {
+									await model.updateEntry(entry, content: content)
+								}
+							}
+							.keyboardShortcut("s", modifiers: .command)
+							.disabled(!canSave(selectedEntry))
+						}
+					}
+				}
+		} else {
+			ContentUnavailableView {
+				Label(diary.title, systemImage: "book.closed")
+			} description: {
+				Text(diary.description.isEmpty ? "Your diary overview" : diary.description)
+				Text(
+					"\(count(for: .entries)) entries · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash"
+				)
+			}
+			.accessibilityIdentifier("diary.overview")
 		}
 	}
 
@@ -1026,7 +1052,25 @@ private struct EntriesView: View {
 		let dropTint = dropDestination == .trash ? Color.red : color ?? Color.accentColor
 
 		return Button {
-			selection = destination
+			guard let doubleClick,
+				let event = NSApp.currentEvent,
+				event.type == .leftMouseUp
+			else {
+				selection = destination
+				return
+			}
+
+			if event.clickCount > 1 {
+				pendingSidebarSelection = nil
+				doubleClick()
+			} else {
+				pendingSidebarSelection = destination
+				DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval) {
+					guard pendingSidebarSelection == destination else { return }
+					selection = destination
+					pendingSidebarSelection = nil
+				}
+			}
 		} label: {
 			HStack(spacing: 8) {
 				if let color {
@@ -1074,7 +1118,6 @@ private struct EntriesView: View {
 			}
 			.animation(.easeOut(duration: 0.12), value: isDropTargeted)
 		}
-		.simultaneousGesture(TapGesture(count: 2).onEnded { doubleClick?() })
 		.buttonStyle(.plain)
 		.accessibilityIdentifier(identifier)
 		.accessibilityValue(isDropTargeted ? "Drop target" : "")

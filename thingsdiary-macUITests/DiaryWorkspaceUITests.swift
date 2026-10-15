@@ -33,6 +33,26 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertFalse(header.frame.intersects(rows.frame))
 	}
 
+	func testDetailColumnIsRemovedForEmptySections() {
+		let app = launchWorkspace()
+		let overview = app.descendants(matching: .any)["diary.overview"]
+
+		XCTAssertTrue(overview.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.splitters.count, 2)
+
+		app.buttons["sidebar.bookmarks"].click()
+		XCTAssertFalse(overview.waitForExistence(timeout: 1))
+		XCTAssertEqual(app.splitters.count, 1)
+		XCTAssertEqual(
+			app.splitGroups.firstMatch.frame.width,
+			app.windows.firstMatch.frame.width,
+			accuracy: 2
+		)
+		app.buttons["sidebar.archive"].click()
+		XCTAssertTrue(overview.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.splitters.count, 2)
+	}
+
 	func testEmptyTopicExplainsHowToAddEntriesWithoutListControls() {
 		let app = launchWorkspace()
 
