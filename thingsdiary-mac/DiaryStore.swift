@@ -6,6 +6,7 @@ nonisolated enum PendingEntryOperation: String, Codable, Sendable, Equatable {
     case update
     case delete
     case restore
+    case remove
 }
 
 nonisolated struct PendingEntryWrite: Sendable, Equatable, Identifiable {
@@ -192,7 +193,9 @@ actor DiaryStore {
     func savePendingEntry(_ write: PendingEntryWrite) throws {
         var nextState = state
         nextState.entries.removeAll { $0.id == write.entry.id }
-        nextState.entries.append(StoredEntry(write.entry))
+        if write.operation != .remove {
+            nextState.entries.append(StoredEntry(write.entry))
+        }
         nextState.pendingEntryWrites.removeAll { $0.entry.id == write.entry.id }
         nextState.pendingEntryWrites.append(StoredPendingEntryWrite(write))
         try persist(nextState)
@@ -243,6 +246,14 @@ actor DiaryStore {
                         diaryID: write.entry.diaryID,
                         entryID: write.entry.id
                     )
+                case .remove:
+                    try await remote.deleteEntry(
+                        diaryID: write.entry.diaryID,
+                        entryID: write.entry.id,
+                        soft: false
+                    )
+                    try completeRemoval(writeID: write.id)
+                    continue
                 }
             } catch ThingsDiaryClientError.httpStatus(409, _) {
                 let currentServerEntry = try await remote.getEntry(
@@ -333,6 +344,14 @@ actor DiaryStore {
         var nextState = state
         nextState.entries.removeAll { $0.id == serverEntry.id }
         nextState.entries.append(StoredEntry(serverEntry))
+        nextState.pendingEntryWrites.removeAll { $0.entry.id == writeID }
+        try persist(nextState)
+        state = nextState
+    }
+
+    private func completeRemoval(writeID: String) throws {
+        var nextState = state
+        nextState.entries.removeAll { $0.id == writeID }
         nextState.pendingEntryWrites.removeAll { $0.entry.id == writeID }
         try persist(nextState)
         state = nextState

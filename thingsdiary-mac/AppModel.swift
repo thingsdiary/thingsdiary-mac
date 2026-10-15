@@ -688,6 +688,48 @@ final class ThingsDiaryAppModel {
         }
     }
 
+    func deleteEntryPermanently(_ entry: ThingsDiaryEntry) async {
+        guard case let .entries(diary, entries) = screen else { return }
+        if let store {
+            do {
+                try await store.savePendingEntry(PendingEntryWrite(
+                    operation: .remove,
+                    entry: entry
+                ))
+                screen = .entries(
+                    diary: diary,
+                    entries: entries.filter { $0.id != entry.id }
+                )
+                try await store.synchronize(with: client)
+            } catch {}
+            screen = .entries(
+                diary: diary,
+                entries: await store.entries(diaryID: diary.id)
+            )
+            return
+        }
+        do {
+            try await client.deleteEntry(
+                diaryID: entry.diaryID,
+                entryID: entry.id,
+                soft: false
+            )
+            screen = .entries(
+                diary: diary,
+                entries: entries.filter { $0.id != entry.id }
+            )
+        } catch {
+            screen = .error("Could not permanently delete the note.")
+        }
+    }
+
+    func emptyTrash() async {
+        guard case let .entries(_, entries) = screen else { return }
+        for entry in entries where entry.deletedAt != nil {
+            await deleteEntryPermanently(entry)
+        }
+    }
+
     private func saveEntry(
         _ entry: ThingsDiaryEntry,
         params: ThingsDiaryEntryParams

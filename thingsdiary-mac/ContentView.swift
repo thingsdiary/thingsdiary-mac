@@ -274,6 +274,15 @@ private struct EntriesView: View {
                                             await model.restoreEntry(entry)
                                         }
                                     }
+                                    Button(
+                                        "Delete Permanently",
+                                        systemImage: "trash.slash",
+                                        role: .destructive
+                                    ) {
+                                        Task {
+                                            await model.deleteEntryPermanently(entry)
+                                        }
+                                    }
                                 } else {
                                     Button(
                                         entry.bookmarked ? "Remove Bookmark" : "Bookmark",
@@ -353,6 +362,11 @@ private struct EntriesView: View {
             .toolbar {
                 Button("Diaries", action: model.showDiaries)
                 Button("Topics & Templates") { showingTopicsAndTemplates = true }
+                if section == .trash && !displayedEntries.isEmpty {
+                    Button("Empty Trash", role: .destructive) {
+                        Task { await model.emptyTrash() }
+                    }
+                }
             }
             .sheet(isPresented: $showingTopicsAndTemplates) {
                 topicsAndTemplatesSheet

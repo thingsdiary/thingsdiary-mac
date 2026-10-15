@@ -388,6 +388,32 @@ func diaryStoreSynchronizesSoftDelete() async throws {
     #expect(await store.entries(diaryID: diary.id) == [serverDeleted])
 }
 
+@Test("Synchronization permanently removes a note queued while offline")
+func diaryStoreSynchronizesPermanentDelete() async throws {
+    let fileURL = FileManager.default.temporaryDirectory
+        .appending(path: "thingsdiary-remove-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: fileURL) }
+    let entry = ThingsDiaryEntry(
+        id: "entry-1",
+        diaryID: "diary-1",
+        content: "Delete forever",
+        createdAt: Date(timeIntervalSince1970: 1),
+        updatedAt: Date(timeIntervalSince1970: 2),
+        deletedAt: Date(timeIntervalSince1970: 2),
+        version: 2_000
+    )
+    let store = try DiaryStore(fileURL: fileURL)
+    try await store.savePendingEntry(PendingEntryWrite(operation: .remove, entry: entry))
+    let remote = PermanentDeleteRemote()
+
+    try await store.synchronize(with: remote)
+
+    #expect(await remote.deletedEntryIDs == [entry.id])
+    #expect(await remote.receivedSoftValues == [false])
+    #expect(await store.entries(diaryID: entry.diaryID).isEmpty)
+    #expect(await store.pendingEntryWrites().isEmpty)
+}
+
 private enum SyncTestFailure: Error {
     case lostResponse
 }
@@ -592,5 +618,34 @@ private actor DeleteRemote: DiaryStoreRemote {
         entryID: String
     ) async throws -> ThingsDiaryEntry {
         serverEntry
+    }
+}
+
+private actor PermanentDeleteRemote: DiaryStoreRemote {
+    private(set) var deletedEntryIDs: [String] = []
+    private(set) var receivedSoftValues: [Bool?] = []
+
+    func createEntry(
+        diaryID: String,
+        entryID: String,
+        params: ThingsDiaryEntryParams
+    ) async throws -> ThingsDiaryEntry {
+        throw SyncTestFailure.lostResponse
+    }
+
+    func updateEntry(
+        _ entry: ThingsDiaryEntry,
+        params: ThingsDiaryEntryParams
+    ) async throws -> ThingsDiaryEntry {
+        throw SyncTestFailure.lostResponse
+    }
+
+    func deleteEntry(
+        diaryID: String,
+        entryID: String,
+        soft: Bool?
+    ) async throws {
+        deletedEntryIDs.append(entryID)
+        receivedSoftValues.append(soft)
     }
 }
