@@ -239,15 +239,21 @@ private struct DiaryPickerView: View {
 }
 
 private struct DiaryCreationView: View {
+	private enum Field: Hashable {
+		case title
+	}
+
 	@Bindable var model: ThingsDiaryAppModel
 	@State private var title = ""
 	@State private var diaryDescription = ""
+	@FocusState private var focusedField: Field?
 
 	var body: some View {
 		NavigationStack {
 			Form {
 				TextField("Title", text: $title)
 					.accessibilityIdentifier("diary.title")
+					.focused($focusedField, equals: .title)
 				TextField("Description", text: $diaryDescription, axis: .vertical)
 					.accessibilityIdentifier("diary.description")
 					.lineLimit(2...5)
@@ -276,6 +282,10 @@ private struct DiaryCreationView: View {
 			}
 		}
 		.frame(minWidth: 420, minHeight: 280)
+		.task {
+			await Task.yield()
+			focusedField = .title
+		}
 	}
 }
 

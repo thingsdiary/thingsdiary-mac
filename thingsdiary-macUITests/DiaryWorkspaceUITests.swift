@@ -55,6 +55,11 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		app.buttons["diary.create"].click()
 
 		XCTAssertTrue(app.descendants(matching: .any)["diary.title"].waitForExistence(timeout: 2))
+		app.typeText("Focused Diary")
+		XCTAssertEqual(
+			app.descendants(matching: .any)["diary.title"].value as? String,
+			"Focused Diary"
+		)
 		app.buttons["Cancel"].firstMatch.click()
 		XCTAssertTrue(app.descendants(matching: .any)["diary.picker"].waitForExistence(timeout: 2))
 		app.buttons["diary.cancel"].click()
