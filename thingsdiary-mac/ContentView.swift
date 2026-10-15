@@ -102,8 +102,9 @@ private struct LoginView: View {
 			Text("Sign in to load your encrypted diaries.")
 				.foregroundStyle(.secondary)
 
-			TextField("Login", text: $model.login)
-				.textContentType(.username)
+			TextField("Email", text: $model.login)
+				.textContentType(.emailAddress)
+				.lineLimit(1)
 
 			SecureField("Password", text: $model.password)
 				.textContentType(.password)
@@ -143,8 +144,9 @@ private struct RegistrationView: View {
 			Text("The app will generate a secret key. Save it before continuing.")
 				.foregroundStyle(.secondary)
 
-			TextField("Login", text: $model.login)
-				.textContentType(.username)
+			TextField("Email", text: $model.login)
+				.textContentType(.emailAddress)
+				.lineLimit(1)
 
 			SecureField("Password", text: $model.password)
 				.textContentType(.newPassword)
