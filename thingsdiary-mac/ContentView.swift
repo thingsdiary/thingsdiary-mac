@@ -138,16 +138,21 @@ private struct RegistrationView: View {
 private struct DiariesView: View {
     @Bindable var model: ThingsDiaryAppModel
     let diaries: [ThingsDiaryDiary]
+    @State private var title = ""
+    @State private var diaryDescription = ""
 
     var body: some View {
         NavigationStack {
             Group {
                 if diaries.isEmpty {
-                    ContentUnavailableView(
-                        "No Diaries",
-                        systemImage: "book.closed",
-                        description: Text("Your account has no diaries yet.")
-                    )
+                    ContentUnavailableView {
+                        Label("No Diaries", systemImage: "book.closed")
+                    } description: {
+                        Text("Create a diary to start writing notes.")
+                    } actions: {
+                        Button("Create Diary", action: model.showDiaryCreation)
+                            .buttonStyle(.borderedProminent)
+                    }
                 } else {
                     List(diaries) { diary in
                         Button {
@@ -177,6 +182,59 @@ private struct DiariesView: View {
                 }
             }
             .navigationTitle("Diaries")
+            .toolbar {
+                Button("Create Diary", systemImage: "plus", action: model.showDiaryCreation)
+            }
+            .sheet(isPresented: Binding(
+                get: { model.isCreatingDiary },
+                set: { isPresented in
+                    if !isPresented {
+                        model.cancelDiaryCreation()
+                    }
+                }
+            )) {
+                NavigationStack {
+                    Form {
+                        TextField("Title", text: $title)
+                        TextField("Description", text: $diaryDescription, axis: .vertical)
+                            .lineLimit(2 ... 5)
+
+                        if let error = model.diaryCreationError {
+                            Text(error)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .formStyle(.grouped)
+                    .navigationTitle("Create Diary")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                model.cancelDiaryCreation()
+                            }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Create") {
+                                let title = title
+                                let description = diaryDescription
+                                Task {
+                                    await model.createDiary(
+                                        title: title,
+                                        description: description
+                                    )
+                                    if !model.isCreatingDiary {
+                                        self.title = ""
+                                        diaryDescription = ""
+                                    }
+                                }
+                            }
+                            .disabled(title.trimmingCharacters(
+                                in: .whitespacesAndNewlines
+                            ).isEmpty)
+                        }
+                    }
+                }
+                .frame(minWidth: 420, minHeight: 260)
+            }
         }
     }
 }

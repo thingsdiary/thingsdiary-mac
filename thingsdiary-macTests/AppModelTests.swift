@@ -128,6 +128,44 @@ func successfulLoginLoadsDiaries() async throws {
 }
 
 @MainActor
+@Test("An empty diary list opens diary creation")
+func emptyDiaryListOpensCreation() async {
+    let model = ThingsDiaryAppModel(client: StubAppClient(result: .success([])))
+    model.login = "person@example.test"
+    model.password = "password"
+    model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+    await model.submit()
+
+    #expect(model.screen == .diaries([]))
+    #expect(model.isCreatingDiary)
+}
+
+@MainActor
+@Test("Creating the first diary closes creation and shows the diary")
+func createsFirstDiary() async {
+    let created = diary(id: "diary-new", title: "Personal")
+    let client = StubAppClient(
+        result: .success([]),
+        createDiaryResult: .success(created)
+    )
+    let model = ThingsDiaryAppModel(client: client)
+    model.login = "person@example.test"
+    model.password = "password"
+    model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+    await model.submit()
+
+    await model.createDiary(title: "Personal", description: "Daily notes")
+
+    #expect(model.screen == .diaries([created]))
+    #expect(!model.isCreatingDiary)
+    #expect(await client.receivedCreateDiaryParams == ThingsDiaryCreateParams(
+        title: "Personal",
+        description: "Daily notes"
+    ))
+}
+
+@MainActor
 @Test("Selecting a diary loads its plaintext entries")
 func selectingDiaryLoadsEntries() async {
     let diary = ThingsDiaryDiary(
@@ -785,6 +823,7 @@ private actor DelayedEntriesAppClient: ThingsDiaryAppClient {
 
 private actor StubAppClient: ThingsDiaryAppClient {
     let result: Result<[ThingsDiaryDiary], Error>
+    let createDiaryResult: Result<ThingsDiaryDiary, Error>?
     let registrationResult: Result<ThingsDiaryPublicKeys, Error>
     let entriesResult: Result<[ThingsDiaryEntry], Error>
     let createEntryResult: Result<ThingsDiaryEntry, Error>?
@@ -799,6 +838,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
     private(set) var receivedPassword: String?
     private(set) var receivedSecretKey: String?
     private(set) var receivedRegistrationSecretKey: String?
+    private(set) var receivedCreateDiaryParams: ThingsDiaryCreateParams?
     private(set) var receivedEntriesDiaryID: String?
     private(set) var receivedUpdateParams: ThingsDiaryEntryParams?
     private(set) var receivedCreateParams: ThingsDiaryEntryParams?
@@ -811,6 +851,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 
     init(
         result: Result<[ThingsDiaryDiary], Error>,
+        createDiaryResult: Result<ThingsDiaryDiary, Error>? = nil,
         registrationResult: Result<ThingsDiaryPublicKeys, Error> = .success(
             ThingsDiaryPublicKeys(signing: "signing", encryption: "encryption")
         ),
@@ -825,6 +866,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
         updateTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil
     ) {
         self.result = result
+        self.createDiaryResult = createDiaryResult
         self.registrationResult = registrationResult
         self.entriesResult = entriesResult
         self.createEntryResult = createEntryResult
@@ -858,6 +900,12 @@ private actor StubAppClient: ThingsDiaryAppClient {
 
     func diaries() async throws -> [ThingsDiaryDiary] {
         try result.get()
+    }
+
+    func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
+        receivedCreateDiaryParams = params
+        guard let createDiaryResult else { throw TestFailure.rejected }
+        return try createDiaryResult.get()
     }
 
     func entries(diaryID: String) async throws -> [ThingsDiaryEntry] {

@@ -21,6 +21,7 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
     ) async throws -> ThingsDiaryPublicKeys
     func login(login: String, password: String, secretKey: String) async throws
     func diaries() async throws -> [ThingsDiaryDiary]
+    func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary
     func entries(diaryID: String) async throws -> [ThingsDiaryEntry]
     func topics(diaryID: String) async throws -> [ThingsDiaryTopic]
     func templates(diaryID: String) async throws -> [ThingsDiaryTemplate]
@@ -51,6 +52,10 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 }
 
 extension ThingsDiaryAppClient {
+    func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
+        throw DiaryStoreError.unsupportedRemoteEntry
+    }
+
     func topics(diaryID: String) async throws -> [ThingsDiaryTopic] { [] }
 
     func templates(diaryID: String) async throws -> [ThingsDiaryTemplate] { [] }
@@ -127,6 +132,10 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 
     func diaries() async throws -> [ThingsDiaryDiary] {
         try await client.allDiaries()
+    }
+
+    func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
+        try await client.createDiary(params)
     }
 
     func entries(diaryID: String) async throws -> [ThingsDiaryEntry] {
@@ -263,6 +272,8 @@ final class ThingsDiaryAppModel {
     private(set) var screen: ThingsDiaryAppScreen = .login
     private(set) var topics: [ThingsDiaryTopic] = []
     private(set) var templates: [ThingsDiaryTemplate] = []
+    private(set) var isCreatingDiary = false
+    private(set) var diaryCreationError: String?
 
     private let client: any ThingsDiaryAppClient
     private let store: DiaryStore?
@@ -308,6 +319,7 @@ final class ThingsDiaryAppModel {
         do {
             let diaries = try await client.diaries()
             loadedDiaries = diaries
+            isCreatingDiary = diaries.isEmpty
             screen = .diaries(diaries)
         } catch {
             screen = .error("Account created, but diaries could not be loaded. Sign in to try again.")
@@ -319,6 +331,36 @@ final class ThingsDiaryAppModel {
         topics = []
         templates = []
         screen = .diaries(loadedDiaries)
+    }
+
+    func showDiaryCreation() {
+        diaryCreationError = nil
+        isCreatingDiary = true
+    }
+
+    func cancelDiaryCreation() {
+        diaryCreationError = nil
+        isCreatingDiary = false
+    }
+
+    func createDiary(title: String, description: String) async {
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            diaryCreationError = "Enter a diary title."
+            return
+        }
+        diaryCreationError = nil
+        do {
+            let diary = try await client.createDiary(ThingsDiaryCreateParams(
+                title: title,
+                description: description.trimmingCharacters(in: .whitespacesAndNewlines)
+            ))
+            loadedDiaries.append(diary)
+            isCreatingDiary = false
+            screen = .diaries(loadedDiaries)
+        } catch {
+            diaryCreationError = "Could not create the diary. Try again."
+        }
     }
 
     func selectDiary(_ diary: ThingsDiaryDiary) async {
@@ -859,6 +901,7 @@ final class ThingsDiaryAppModel {
             )
             let diaries = try await client.diaries()
             loadedDiaries = diaries
+            isCreatingDiary = diaries.isEmpty
             screen = .diaries(diaries)
         } catch {
             screen = .error("Could not sign in or load diaries. Check your credentials and try again.")
