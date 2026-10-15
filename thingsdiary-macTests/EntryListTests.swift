@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import ThingsDiaryClient
 
-@testable import thingsdiary_mac
+@testable import thingsdiary
 
 @Test("Entry list filters sections, searches content, and sorts by update time")
 func filtersEntryList() {

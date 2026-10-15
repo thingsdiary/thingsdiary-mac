@@ -28,7 +28,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		2D9E84A4307D31C000885CFA /* thingsdiary-mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "thingsdiary-mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2D9E84A4307D31C000885CFA /* thingsdiary.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = thingsdiary.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2D9E84B3307D31C200885CFA /* thingsdiary-macTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "thingsdiary-macTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2D9E84BD307D31C200885CFA /* thingsdiary-macUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "thingsdiary-macUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -90,7 +90,7 @@
 		2D9E84A5307D31C000885CFA /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				2D9E84A4307D31C000885CFA /* thingsdiary-mac.app */,
+				2D9E84A4307D31C000885CFA /* thingsdiary.app */,
 				2D9E84B3307D31C200885CFA /* thingsdiary-macTests.xctest */,
 				2D9E84BD307D31C200885CFA /* thingsdiary-macUITests.xctest */,
 			);
@@ -119,8 +119,8 @@
 			packageProductDependencies = (
 				A10000000000000000000003 /* ThingsDiaryClient */,
 			);
-			productName = "thingsdiary-mac";
-			productReference = 2D9E84A4307D31C000885CFA /* thingsdiary-mac.app */;
+			productName = thingsdiary;
+			productReference = 2D9E84A4307D31C000885CFA /* thingsdiary.app */;
 			productType = "com.apple.product-type.application";
 		};
 		2D9E84B2307D31C200885CFA /* thingsdiary-macTests */ = {
@@ -409,6 +409,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = thingsdiary;
+				INFOPLIST_KEY_CFBundleName = thingsdiary;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -416,7 +418,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "io.thingsdiary.thingsdiary-mac";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = thingsdiary;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -440,6 +442,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = thingsdiary;
+				INFOPLIST_KEY_CFBundleName = thingsdiary;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -447,7 +451,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "io.thingsdiary.thingsdiary-mac";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = thingsdiary;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -474,7 +478,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/thingsdiary-mac.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/thingsdiary-mac";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/thingsdiary.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/thingsdiary";
 			};
 			name = Debug;
 		};
@@ -494,7 +498,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/thingsdiary-mac.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/thingsdiary-mac";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/thingsdiary.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/thingsdiary";
 			};
 			name = Release;
 		};

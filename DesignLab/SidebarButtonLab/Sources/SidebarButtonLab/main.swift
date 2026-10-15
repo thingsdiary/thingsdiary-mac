@@ -147,7 +147,7 @@ private enum DiaryPickerVariant: String, CaseIterable, Identifiable {
 		case .nativeButton:
 			"Looks and behaves like a standard macOS menu control. The border adds weight above the navigation list."
 		case .breadcrumb:
-			"Explains hierarchy, but ThingsDiary is not a real parent destination. The extra path is mostly decorative."
+			"Explains hierarchy, but thingsdiary is not a real parent destination. The extra path is mostly decorative."
 		case .colorIdentity:
 			"A stable diary color speeds recognition. It only works if color is part of the diary model and never carries meaning alone."
 		case .entryMetadata:
@@ -463,7 +463,7 @@ private struct DiaryPickerSample: View {
 
 	var body: some View {
 		VStack(spacing: 0) {
-			MiniWindowBar(title: "ThingsDiary")
+			MiniWindowBar(title: "thingsdiary")
 			Divider()
 
 			VStack(spacing: 6) {
@@ -536,7 +536,7 @@ private struct DiaryPickerSample: View {
 			)
 		case .breadcrumb:
 			HStack(spacing: 6) {
-				Text("ThingsDiary")
+				Text("thingsdiary")
 					.foregroundStyle(.secondary)
 				Image(systemName: "chevron.right")
 					.font(.caption2.weight(.semibold))
@@ -688,7 +688,7 @@ private struct PickerMenuSample: View {
 
 	private var sidebar: some View {
 		VStack(spacing: 0) {
-			MiniWindowBar(title: "ThingsDiary")
+			MiniWindowBar(title: "thingsdiary")
 			Divider()
 
 			Button {
@@ -851,7 +851,7 @@ private struct FooterSample: View {
 
 	var body: some View {
 		VStack(spacing: 0) {
-			MiniWindowBar(title: usesTopDiaryContext ? "ThingsDiary" : "Personal")
+			MiniWindowBar(title: usesTopDiaryContext ? "thingsdiary" : "Personal")
 			Divider()
 			if usesTopDiaryContext {
 				if variant == .stackedTopContexts {

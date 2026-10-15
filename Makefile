@@ -2,7 +2,7 @@ PROJECT := thingsdiary-mac.xcodeproj
 SCHEME := thingsdiary-mac
 CONFIGURATION ?= Debug
 DERIVED_DATA ?= .build
-APP := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)/thingsdiary-mac.app
+APP := $(DERIVED_DATA)/Build/Products/$(CONFIGURATION)/thingsdiary.app
 SWIFT_FORMAT ?= xcrun swift-format
 SWIFT_SOURCE_DIRS := thingsdiary-mac thingsdiary-macTests thingsdiary-macUITests
 

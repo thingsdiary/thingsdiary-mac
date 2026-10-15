@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ThingsDiaryMacApp: App {
+struct ThingsDiaryApp: App {
 	@State private var model: ThingsDiaryAppModel
 
 	init() {

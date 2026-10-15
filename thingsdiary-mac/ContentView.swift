@@ -120,7 +120,7 @@ private struct LoginView: View {
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: 16) {
-			Text("ThingsDiary")
+			Text("thingsdiary")
 				.font(.largeTitle.bold())
 
 			Text("Sign in to load your encrypted diaries.")

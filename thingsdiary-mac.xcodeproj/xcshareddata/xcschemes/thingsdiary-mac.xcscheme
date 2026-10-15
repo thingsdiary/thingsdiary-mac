@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "2D9E84A3307D31C000885CFA"
-               BuildableName = "thingsdiary-mac.app"
+               BuildableName = "thingsdiary.app"
                BlueprintName = "thingsdiary-mac"
                ReferencedContainer = "container:thingsdiary-mac.xcodeproj">
             </BuildableReference>
@@ -63,7 +63,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2D9E84A3307D31C000885CFA"
-            BuildableName = "thingsdiary-mac.app"
+            BuildableName = "thingsdiary.app"
             BlueprintName = "thingsdiary-mac"
             ReferencedContainer = "container:thingsdiary-mac.xcodeproj">
          </BuildableReference>
@@ -79,7 +79,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2D9E84A3307D31C000885CFA"
-            BuildableName = "thingsdiary-mac.app"
+            BuildableName = "thingsdiary.app"
             BlueprintName = "thingsdiary-mac"
             ReferencedContainer = "container:thingsdiary-mac.xcodeproj">
          </BuildableReference>

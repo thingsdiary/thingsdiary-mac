@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import ThingsDiaryClient
 
-@testable import thingsdiary_mac
+@testable import thingsdiary
 
 @MainActor
 @Test("Registration generates a secret key and exposes public keys")

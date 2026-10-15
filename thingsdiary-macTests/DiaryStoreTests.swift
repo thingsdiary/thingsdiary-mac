@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import ThingsDiaryClient
 
-@testable import thingsdiary_mac
+@testable import thingsdiary
 
 @Test("Diary store reopens the selected diary and its entries without a network")
 func diaryStorePersistsDownloadedState() async throws {
