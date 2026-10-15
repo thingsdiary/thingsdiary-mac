@@ -24,6 +24,29 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 420)
+        .sheet(isPresented: Binding(
+            get: { model.presentation != .none },
+            set: { isPresented in
+                guard !isPresented else { return }
+                switch model.presentation {
+                case .diaryPicker:
+                    model.cancelDiaryPicker()
+                case .diaryCreation:
+                    model.cancelDiaryCreation()
+                case .none:
+                    break
+                }
+            }
+        )) {
+            switch model.presentation {
+            case .diaryPicker:
+                DiaryPickerView(model: model)
+            case .diaryCreation:
+                DiaryCreationView(model: model)
+            case .none:
+                EmptyView()
+            }
+        }
     }
 }
 
@@ -138,105 +161,114 @@ private struct RegistrationView: View {
 private struct DiariesView: View {
     @Bindable var model: ThingsDiaryAppModel
     let diaries: [ThingsDiaryDiary]
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(diaries.isEmpty ? "No Diaries" : "Choose a Diary", systemImage: "book.closed")
+        } description: {
+            Text(diaries.isEmpty
+                 ? "Create a diary to start writing entries."
+                 : "Open one of your diaries to continue.")
+        } actions: {
+            if !diaries.isEmpty {
+                Button("Open Diaries", action: model.showDiaryPicker)
+                    .buttonStyle(.borderedProminent)
+            }
+            Button("Create Diary", action: model.showDiaryCreation)
+        }
+    }
+}
+
+private struct DiaryPickerView: View {
+    @Bindable var model: ThingsDiaryAppModel
+
+    var body: some View {
+        NavigationStack {
+            List(model.availableDiaries) { diary in
+                Button {
+                    model.cancelDiaryPicker()
+                    Task { await model.selectDiary(diary) }
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(diary.title)
+                            .font(.headline)
+                        if !diary.description.isEmpty {
+                            Text(diary.description)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(diary.updatedAt, format: .dateTime)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("diary.open.\(diary.id)")
+                .padding(.vertical, 4)
+            }
+            .accessibilityIdentifier("diary.picker")
+            .navigationTitle("Diaries")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: model.cancelDiaryPicker)
+                        .accessibilityIdentifier("diary.cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create Diary", systemImage: "plus", action: model.showDiaryCreation)
+                        .accessibilityIdentifier("diary.create")
+                }
+            }
+        }
+        .frame(minWidth: 520, minHeight: 420)
+    }
+}
+
+private struct DiaryCreationView: View {
+    @Bindable var model: ThingsDiaryAppModel
     @State private var title = ""
     @State private var diaryDescription = ""
 
     var body: some View {
         NavigationStack {
-            Group {
-                if diaries.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Diaries", systemImage: "book.closed")
-                    } description: {
-                        Text("Create a diary to start writing entries.")
-                    } actions: {
-                        Button("Create Diary", action: model.showDiaryCreation)
-                            .buttonStyle(.borderedProminent)
-                    }
-                } else {
-                    List(diaries) { diary in
-                        Button {
-                            Task {
-                                await model.selectDiary(diary)
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(diary.title)
-                                    .font(.headline)
+            Form {
+                TextField("Title", text: $title)
+                    .accessibilityIdentifier("diary.title")
+                TextField("Description", text: $diaryDescription, axis: .vertical)
+                    .accessibilityIdentifier("diary.description")
+                    .lineLimit(2 ... 5)
 
-                                if !diary.description.isEmpty {
-                                    Text(diary.description)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Text(diary.updatedAt, format: .dateTime)
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 4)
-                    }
+                if let error = model.diaryCreationError {
+                    Text(error)
+                        .foregroundStyle(.red)
                 }
             }
-            .navigationTitle("Diaries")
+            .formStyle(.grouped)
+            .navigationTitle("Create Diary")
             .toolbar {
-                Button("Create Diary", systemImage: "plus", action: model.showDiaryCreation)
-            }
-            .sheet(isPresented: Binding(
-                get: { model.isCreatingDiary },
-                set: { isPresented in
-                    if !isPresented {
-                        model.cancelDiaryCreation()
-                    }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: model.cancelDiaryCreation)
                 }
-            )) {
-                NavigationStack {
-                    Form {
-                        TextField("Title", text: $title)
-                        TextField("Description", text: $diaryDescription, axis: .vertical)
-                            .lineLimit(2 ... 5)
-
-                        if let error = model.diaryCreationError {
-                            Text(error)
-                                .foregroundStyle(.red)
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        let title = title
+                        let description = diaryDescription
+                        Task {
+                            await model.createDiary(title: title, description: description)
                         }
                     }
-                    .formStyle(.grouped)
-                    .navigationTitle("Create Diary")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") {
-                                model.cancelDiaryCreation()
-                            }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Create") {
-                                let title = title
-                                let description = diaryDescription
-                                Task {
-                                    await model.createDiary(
-                                        title: title,
-                                        description: description
-                                    )
-                                    if !model.isCreatingDiary {
-                                        self.title = ""
-                                        diaryDescription = ""
-                                    }
-                                }
-                            }
-                            .disabled(title.trimmingCharacters(
-                                in: .whitespacesAndNewlines
-                            ).isEmpty)
-                        }
-                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .frame(minWidth: 420, minHeight: 260)
             }
         }
+        .frame(minWidth: 420, minHeight: 280)
     }
+}
+
+private struct PendingEntryAction {
+    let entryID: String
+    let action: EntryAction
+    let topicID: String?
 }
 
 private struct EntriesView: View {
@@ -259,8 +291,8 @@ private struct EntriesView: View {
     @State private var topicEntryPreviewable = true
     @State private var topicDefaultTemplateID: String?
     @State private var topicsExpanded = true
-    @State private var pendingTrashEntry: ThingsDiaryEntry?
-    @State private var pendingPermanentDeletion: ThingsDiaryEntry?
+    @State private var pendingEntryAction: PendingEntryAction?
+    @State private var targetedDropDestination: EntryDropDestination?
     @State private var confirmingEmptyTrash = false
     @State private var editingTemplate: ThingsDiaryTemplate?
     @State private var templateContent = ""
@@ -316,6 +348,7 @@ private struct EntriesView: View {
                                 destination: .topic(topic.id),
                                 identifier: "sidebar.topic.\(topic.id)",
                                 color: topicColorValue(topic.color),
+                                dropDestination: .topic(topic.id),
                                 doubleClick: { beginEditing(topic) }
                             )
                         }
@@ -358,19 +391,21 @@ private struct EntriesView: View {
                         "Archive",
                         systemImage: "archivebox",
                         destination: .archive,
-                        identifier: "sidebar.archive"
+                        identifier: "sidebar.archive",
+                        dropDestination: .archive
                     )
                     sidebarRow(
                         "Trash",
                         systemImage: "trash",
                         destination: .trash,
-                        identifier: "sidebar.trash"
+                        identifier: "sidebar.trash",
+                        dropDestination: .trash
                     )
                 }
             }
             .navigationTitle(diary.title)
             .toolbar {
-                Button("Diaries", action: model.showDiaries)
+                Button("Diaries", action: model.showDiaryPicker)
                 Button("Topics & Templates") { showingTopicsAndTemplates = true }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
@@ -394,6 +429,11 @@ private struct EntriesView: View {
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 8)
+                .background(.background)
+                .zIndex(1)
+                .accessibilityIdentifier("entry-list.header")
+
+                Divider()
 
                 if displayedEntries.isEmpty {
                     ContentUnavailableView(
@@ -411,10 +451,13 @@ private struct EntriesView: View {
                         }
                         .accessibilityIdentifier("entry.\(entry.id)")
                         .buttonStyle(.plain)
+                        .draggable(EntryDragPayload(diaryID: diary.id, entryID: entry.id))
                         .contextMenu {
                             entryActions(for: entry)
                         }
                     }
+                    .clipped()
+                    .accessibilityIdentifier("entry-list.scroll")
                 }
             }
             .searchable(text: $query)
@@ -479,29 +522,16 @@ private struct EntriesView: View {
         .sheet(isPresented: $showingTopicCreator) {
             topicCreatorSheet
         }
-        .alert("Move Entry to Trash?", isPresented: Binding(
-            get: { pendingTrashEntry != nil },
-            set: { if !$0 { pendingTrashEntry = nil } }
-        ), presenting: pendingTrashEntry) { entry in
-            Button("Move to Trash", role: .destructive) {
-                pendingTrashEntry = nil
-                execute(.moveToTrash, on: entry, topicID: nil)
+        .alert(entryConfirmationTitle, isPresented: Binding(
+            get: { pendingEntryAction != nil },
+            set: { if !$0 { pendingEntryAction = nil } }
+        )) {
+            Button(entryConfirmationButtonTitle, role: .destructive) {
+                confirmPendingEntryAction()
             }
-            Button("Cancel", role: .cancel) { pendingTrashEntry = nil }
-        } message: { entry in
-            Text("“\(entryListPresentation(content: entry.content).title)” can be restored later from Trash.")
-        }
-        .alert("Delete Entry Permanently?", isPresented: Binding(
-            get: { pendingPermanentDeletion != nil },
-            set: { if !$0 { pendingPermanentDeletion = nil } }
-        ), presenting: pendingPermanentDeletion) { entry in
-            Button("Delete Permanently", role: .destructive) {
-                pendingPermanentDeletion = nil
-                execute(.deletePermanently, on: entry, topicID: nil)
-            }
-            Button("Cancel", role: .cancel) { pendingPermanentDeletion = nil }
-        } message: { entry in
-            Text("“\(entryListPresentation(content: entry.content).title)” will be deleted permanently. This cannot be undone.")
+            Button("Cancel", role: .cancel) { pendingEntryAction = nil }
+        } message: {
+            Text(entryConfirmationMessage)
         }
         .alert("Empty Trash?", isPresented: $confirmingEmptyTrash) {
             Button("Empty Trash", role: .destructive) {
@@ -511,6 +541,77 @@ private struct EntriesView: View {
         } message: {
             Text("All entries in Trash will be deleted permanently. This cannot be undone.")
         }
+    }
+
+    private var pendingEntry: ThingsDiaryEntry? {
+        guard let pendingEntryAction else { return nil }
+        return entries.first { $0.id == pendingEntryAction.entryID }
+    }
+
+    private var entryConfirmationTitle: String {
+        switch pendingEntryAction?.action {
+        case .deletePermanently:
+            "Delete Entry Permanently?"
+        default:
+            "Move Entry to Trash?"
+        }
+    }
+
+    private var entryConfirmationButtonTitle: String {
+        switch pendingEntryAction?.action {
+        case .deletePermanently:
+            "Delete Permanently"
+        default:
+            "Move to Trash"
+        }
+    }
+
+    private var entryConfirmationMessage: String {
+        let title = pendingEntry.map {
+            entryListPresentation(content: $0.content).title
+        } ?? "This entry"
+        switch pendingEntryAction?.action {
+        case .deletePermanently:
+            return "“\(title)” will be deleted permanently. This cannot be undone."
+        default:
+            return "“\(title)” can be restored later from Trash."
+        }
+    }
+
+    private func confirmPendingEntryAction() {
+        guard let pending = pendingEntryAction,
+              let entry = entries.first(where: { $0.id == pending.entryID }) else {
+            pendingEntryAction = nil
+            return
+        }
+        pendingEntryAction = nil
+        execute(pending.action, on: entry, topicID: pending.topicID)
+    }
+
+    private func acceptDrop(
+        _ payloads: [EntryDragPayload],
+        to destination: EntryDropDestination
+    ) -> Bool {
+        guard let payload = payloads.first,
+              let request = resolveEntryDrop(
+                payload,
+                to: destination,
+                diaryID: diary.id,
+                entries: entries
+              ),
+              let entry = entries.first(where: { $0.id == payload.entryID }) else {
+            return false
+        }
+
+        switch request {
+        case let .moveToTopic(topicID):
+            perform(.moveToTopic, on: entry, topicID: topicID)
+        case .archive:
+            perform(.archive, on: entry, topicID: nil)
+        case .moveToTrash:
+            perform(.moveToTrash, on: entry, topicID: nil)
+        }
+        return true
     }
 
     private func canSave(_ entry: ThingsDiaryEntry) -> Bool {
@@ -524,6 +625,7 @@ private struct EntriesView: View {
         destination: DiaryNavigationSelection,
         identifier: String,
         color: Color? = nil,
+        dropDestination: EntryDropDestination? = nil,
         doubleClick: (() -> Void)? = nil
     ) -> some View {
         Button {
@@ -545,9 +647,22 @@ private struct EntriesView: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded { doubleClick?() })
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+        .dropDestination(for: EntryDragPayload.self) { payloads, _ in
+            guard let dropDestination else { return false }
+            return acceptDrop(payloads, to: dropDestination)
+        } isTargeted: { isTargeted in
+            guard let dropDestination else { return }
+            if isTargeted {
+                targetedDropDestination = dropDestination
+            } else if targetedDropDestination == dropDestination {
+                targetedDropDestination = nil
+            }
+        }
         .badge(count(for: destination))
         .listRowBackground(
-            activeSelection == destination
+            dropDestination != nil && targetedDropDestination == dropDestination
+                ? Color.accentColor.opacity(0.28)
+                : activeSelection == destination
                 ? Color.accentColor.opacity(0.16)
                 : Color.clear
         )
@@ -564,13 +679,12 @@ private struct EntriesView: View {
         on entry: ThingsDiaryEntry,
         topicID: String?
     ) {
-        if action == .moveToTrash,
-           !entry.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            pendingTrashEntry = entry
-            return
-        }
-        if action == .deletePermanently {
-            pendingPermanentDeletion = entry
+        if entryActionRequiresConfirmation(action, content: entry.content) {
+            pendingEntryAction = PendingEntryAction(
+                entryID: entry.id,
+                action: action,
+                topicID: topicID
+            )
             return
         }
         execute(action, on: entry, topicID: topicID)
@@ -592,6 +706,10 @@ private struct EntriesView: View {
                 await model.toggleBookmark(entry)
             case .toggleArchive:
                 await model.toggleArchive(entry)
+            case .archive:
+                if !entry.archived {
+                    await model.toggleArchive(entry)
+                }
             case .duplicate:
                 await model.duplicateEntry(entry)
             case .moveToTopic:
@@ -619,7 +737,7 @@ private struct EntriesView: View {
         switch action {
         case .toggleBookmark:
             return activeSelection == .bookmarks
-        case .toggleArchive, .moveToTrash, .restore, .deletePermanently:
+        case .toggleArchive, .archive, .moveToTrash, .restore, .deletePermanently:
             return true
         case .moveToTopic:
             guard case let .topic(selectedTopicID) = activeSelection else {

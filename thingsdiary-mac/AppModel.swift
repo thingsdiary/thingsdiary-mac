@@ -263,6 +263,12 @@ enum ThingsDiaryAppScreen: Equatable {
     case error(String)
 }
 
+enum ThingsDiaryAppPresentation: Equatable {
+    case none
+    case diaryPicker
+    case diaryCreation
+}
+
 @MainActor
 @Observable
 final class ThingsDiaryAppModel {
@@ -272,8 +278,12 @@ final class ThingsDiaryAppModel {
     private(set) var screen: ThingsDiaryAppScreen = .login
     private(set) var topics: [ThingsDiaryTopic] = []
     private(set) var templates: [ThingsDiaryTemplate] = []
-    private(set) var isCreatingDiary = false
+    private(set) var presentation: ThingsDiaryAppPresentation = .none
+    private var creationReturnPresentation: ThingsDiaryAppPresentation?
     private(set) var diaryCreationError: String?
+
+    var isCreatingDiary: Bool { presentation == .diaryCreation }
+    var availableDiaries: [ThingsDiaryDiary] { loadedDiaries }
 
     private let client: any ThingsDiaryAppClient
     private let store: DiaryStore?
@@ -373,9 +383,7 @@ final class ThingsDiaryAppModel {
         screen = .loading
         do {
             let diaries = try await client.diaries()
-            loadedDiaries = diaries
-            isCreatingDiary = diaries.isEmpty
-            screen = .diaries(diaries)
+            await routeToDiaries(diaries)
         } catch {
             screen = .error("Account created, but diaries could not be loaded. Sign in to try again.")
         }
@@ -385,17 +393,30 @@ final class ThingsDiaryAppModel {
         diarySelectionID = nil
         topics = []
         templates = []
+        presentation = .none
+        creationReturnPresentation = nil
         screen = .diaries(loadedDiaries)
     }
 
     func showDiaryCreation() {
         diaryCreationError = nil
-        isCreatingDiary = true
+        creationReturnPresentation = presentation == .diaryPicker ? .diaryPicker : nil
+        presentation = .diaryCreation
+    }
+
+    func showDiaryPicker() {
+        presentation = .diaryPicker
+    }
+
+    func cancelDiaryPicker() {
+        guard presentation == .diaryPicker else { return }
+        presentation = .none
     }
 
     func cancelDiaryCreation() {
         diaryCreationError = nil
-        isCreatingDiary = false
+        presentation = creationReturnPresentation ?? .none
+        creationReturnPresentation = nil
     }
 
     func createDiary(title: String, description: String) async {
@@ -411,8 +432,9 @@ final class ThingsDiaryAppModel {
                 description: description.trimmingCharacters(in: .whitespacesAndNewlines)
             ))
             loadedDiaries.append(diary)
-            isCreatingDiary = false
-            screen = .diaries(loadedDiaries)
+            presentation = .none
+            creationReturnPresentation = nil
+            await selectDiary(diary)
         } catch {
             diaryCreationError = "Could not create the diary. Try again."
         }
@@ -953,6 +975,7 @@ final class ThingsDiaryAppModel {
         let password = password
         let secretKey = secretKey
         screen = .loading
+        presentation = .none
 
         defer {
             self.password = ""
@@ -966,9 +989,7 @@ final class ThingsDiaryAppModel {
                 secretKey: secretKey
             )
             let diaries = try await client.diaries()
-            loadedDiaries = diaries
-            isCreatingDiary = diaries.isEmpty
-            screen = .diaries(diaries)
+            await routeToDiaries(diaries)
         } catch {
             screen = .error("Could not sign in or load diaries. Check your credentials and try again.")
         }
@@ -984,6 +1005,20 @@ final class ThingsDiaryAppModel {
             of: #"^[^@\s]+@[^@\s]+\.[^@\s]+$"#,
             options: .regularExpression
         ) != nil
+    }
+
+    private func routeToDiaries(_ diaries: [ThingsDiaryDiary]) async {
+        loadedDiaries = diaries
+        screen = .diaries(diaries)
+        switch diaries.count {
+        case 0:
+            showDiaryCreation()
+        case 1:
+            presentation = .none
+            await selectDiary(diaries[0])
+        default:
+            presentation = .diaryPicker
+        }
     }
 
     private static func serverErrorReason(from body: Data) -> String? {

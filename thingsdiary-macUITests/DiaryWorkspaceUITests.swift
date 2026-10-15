@@ -12,13 +12,60 @@ final class DiaryWorkspaceUITests: XCTestCase {
         let app = launchWorkspace()
 
         app.buttons["sidebar.bookmarks"].click()
-        XCTAssertEqual(app.staticTexts["entry-list.title"].value as? String, "Bookmarks")
+        XCTAssertTrue(app.staticTexts["No Bookmarks"].waitForExistence(timeout: 2))
 
         app.buttons["sidebar.archive"].click()
-        XCTAssertEqual(app.staticTexts["entry-list.title"].value as? String, "Archive")
+        XCTAssertTrue(app.descendants(matching: .any)["entry.fixture-archived-entry"].waitForExistence(timeout: 2))
 
         app.buttons["sidebar.trash"].click()
-        XCTAssertEqual(app.staticTexts["entry-list.title"].value as? String, "Trash")
+        XCTAssertTrue(app.descendants(matching: .any)["entry.fixture-deleted-entry"].waitForExistence(timeout: 2))
+    }
+
+    func testEntryListHeaderAndRowsUseSeparateContainers() {
+        let app = launchWorkspace()
+        let header = app.descendants(matching: .any)["entry-list.header"].firstMatch
+        let rows = app.descendants(matching: .any)["entry-list.scroll"].firstMatch
+
+        XCTAssertTrue(header.waitForExistence(timeout: 2))
+        XCTAssertTrue(rows.waitForExistence(timeout: 2))
+        XCTAssertFalse(header.frame.intersects(rows.frame))
+    }
+
+    func testDiariesPickerCanBeCancelledWithoutLeavingWorkspace() {
+        let app = launchWorkspace()
+
+        app.buttons["Diaries"].firstMatch.click()
+
+        let picker = app.descendants(matching: .any)["diary.picker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["diary.create"].exists)
+
+        app.buttons["diary.cancel"].click()
+
+        XCTAssertFalse(picker.waitForExistence(timeout: 1))
+        XCTAssertTrue(app.buttons["sidebar.entries"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.descendants(matching: .any)["entry-list.scroll"].exists)
+    }
+
+    func testDiaryCreationCanOpenFromAndReturnToPicker() {
+        let app = launchWorkspace()
+
+        app.buttons["Diaries"].firstMatch.click()
+        XCTAssertTrue(app.buttons["diary.create"].waitForExistence(timeout: 2))
+        app.buttons["diary.create"].click()
+
+        XCTAssertTrue(app.descendants(matching: .any)["diary.title"].waitForExistence(timeout: 2))
+        app.buttons["Cancel"].firstMatch.click()
+        XCTAssertTrue(app.descendants(matching: .any)["diary.picker"].waitForExistence(timeout: 2))
+        app.buttons["diary.cancel"].click()
+    }
+
+    func testDropTargetsAreAccessibleFromWorkspace() {
+        let app = launchWorkspace()
+
+        XCTAssertTrue(app.buttons["sidebar.topic.fixture-topic"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["sidebar.archive"].exists)
+        XCTAssertTrue(app.buttons["sidebar.trash"].exists)
     }
 
     func testTopicButtonOpensCreationForm() {

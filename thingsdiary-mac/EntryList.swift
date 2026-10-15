@@ -1,4 +1,6 @@
 import Foundation
+import CoreTransferable
+import UniformTypeIdentifiers
 import ThingsDiaryClient
 
 nonisolated enum EntrySection: String, CaseIterable, Identifiable {
@@ -28,11 +30,72 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 nonisolated enum EntryAction: Equatable {
     case toggleBookmark
     case toggleArchive
+    case archive
     case duplicate
     case moveToTopic
     case moveToTrash
     case restore
     case deletePermanently
+}
+
+nonisolated enum EntryDropDestination: Equatable {
+    case topic(String)
+    case archive
+    case trash
+}
+
+nonisolated enum EntryActionRequest: Equatable {
+    case moveToTopic(String)
+    case archive
+    case moveToTrash
+}
+
+nonisolated struct EntryDragPayload: Codable, Hashable, Transferable {
+    let diaryID: String
+    let entryID: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .thingsDiaryEntry)
+    }
+}
+
+nonisolated extension UTType {
+    static let thingsDiaryEntry = UTType(exportedAs: "com.thingsdiary.entry")
+}
+
+nonisolated func resolveEntryDrop(
+    _ payload: EntryDragPayload,
+    to destination: EntryDropDestination,
+    diaryID: String,
+    entries: [ThingsDiaryEntry]
+) -> EntryActionRequest? {
+    guard payload.diaryID == diaryID,
+          let entry = entries.first(where: { $0.id == payload.entryID && $0.diaryID == diaryID }),
+          entry.deletedAt == nil else {
+        return nil
+    }
+
+    switch destination {
+    case let .topic(topicID):
+        guard entry.topicID != topicID else { return nil }
+        return .moveToTopic(topicID)
+    case .archive:
+        guard !entry.archived else { return nil }
+        return .archive
+    case .trash:
+        return .moveToTrash
+    }
+}
+
+nonisolated func entryActionRequiresConfirmation(_ action: EntryAction, content: String) -> Bool {
+    switch action {
+    case .moveToTrash:
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    case .deletePermanently:
+        true
+    default:
+        false
+    }
 }
 
 nonisolated func availableEntryActions(for entry: ThingsDiaryEntry) -> [EntryAction] {

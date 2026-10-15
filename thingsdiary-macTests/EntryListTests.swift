@@ -76,6 +76,30 @@ func entryActionsMatchLifecycleState() {
     ])
 }
 
+@Test("Entry drop destinations resolve only valid moves")
+func resolvesEntryDropDestinations() {
+    let active = listEntry(id: "active", content: "Active", topicID: "topic-1", updatedAt: 2)
+    let payload = EntryDragPayload(diaryID: "diary-1", entryID: "active")
+    #expect(resolveEntryDrop(payload, to: .topic("topic-2"), diaryID: "diary-1", entries: [active]) == .moveToTopic("topic-2"))
+    #expect(resolveEntryDrop(payload, to: .archive, diaryID: "diary-1", entries: [active]) == .archive)
+    #expect(resolveEntryDrop(payload, to: .trash, diaryID: "diary-1", entries: [active]) == .moveToTrash)
+    #expect(resolveEntryDrop(payload, to: .topic("topic-1"), diaryID: "diary-1", entries: [active]) == nil)
+    #expect(resolveEntryDrop(payload, to: .archive, diaryID: "other", entries: [active]) == nil)
+    #expect(resolveEntryDrop(payload, to: .trash, diaryID: "diary-1", entries: []) == nil)
+    let deleted = listEntry(id: "active", content: "Active", deletedAt: 3, updatedAt: 3)
+    #expect(resolveEntryDrop(payload, to: .archive, diaryID: "diary-1", entries: [deleted]) == nil)
+    let archived = listEntry(id: "active", content: "Active", archived: true, updatedAt: 2)
+    #expect(resolveEntryDrop(payload, to: .archive, diaryID: "diary-1", entries: [archived]) == nil)
+}
+
+@Test("Confirmation is required for destructive entry actions")
+func confirmsDestructiveEntryActions() {
+    #expect(entryActionRequiresConfirmation(.moveToTrash, content: "Some content"))
+    #expect(!entryActionRequiresConfirmation(.moveToTrash, content: "  \n"))
+    #expect(entryActionRequiresConfirmation(.deletePermanently, content: ""))
+    #expect(!entryActionRequiresConfirmation(.archive, content: "Some content"))
+}
+
 @Test("Entry list presentation separates title and preview")
 func entryListPresentationSeparatesTitleAndPreview() {
     #expect(entryListPresentation(content: "Project plan\nFirst task\nSecond task") == EntryListPresentation(

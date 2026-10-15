@@ -85,7 +85,8 @@ func registrationContinuesToDiaries() async {
 
     await model.continueAfterRegistration()
 
-    #expect(model.screen == .diaries([diary]))
+    #expect(model.screen == .entries(diary: diary, entries: []))
+    #expect(model.presentation == .none)
 }
 
 @MainActor
@@ -119,7 +120,7 @@ func successfulLoginLoadsDiaries() async throws {
 
     await model.submit()
 
-    #expect(model.screen == .diaries([diary]))
+    #expect(model.screen == .entries(diary: diary, entries: []))
     #expect(model.password.isEmpty)
     #expect(model.secretKey.isEmpty)
     #expect(await client.receivedLogin == "person@example.test")
@@ -139,6 +140,75 @@ func emptyDiaryListOpensCreation() async {
 
     #expect(model.screen == .diaries([]))
     #expect(model.isCreatingDiary)
+    #expect(model.presentation == .diaryCreation)
+}
+
+@MainActor
+@Test("Login routes one diary directly into its workspace")
+func loginSelectsSingleDiary() async {
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let client = StubAppClient(result: .success([selectedDiary]))
+    let model = ThingsDiaryAppModel(client: client)
+    model.login = "person@example.test"
+    model.password = "password"
+    model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+    await model.submit()
+
+    #expect(model.screen == .entries(diary: selectedDiary, entries: []))
+    #expect(model.presentation == .none)
+}
+
+@MainActor
+@Test("Login routes multiple diaries to the picker")
+func loginShowsDiaryPickerForMultipleDiaries() async {
+    let diaries = [diary(id: "diary-1", title: "Personal"), diary(id: "diary-2", title: "Work")]
+    let model = ThingsDiaryAppModel(client: StubAppClient(result: .success(diaries)))
+    model.login = "person@example.test"
+    model.password = "password"
+    model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+    await model.submit()
+
+    #expect(model.screen == .diaries(diaries))
+    #expect(model.presentation == .diaryPicker)
+}
+
+@MainActor
+@Test("Cancelling the diary picker preserves the open workspace and its data")
+func cancelDiaryPickerPreservesWorkspace() async {
+    let selectedDiary = diary(id: "diary-1", title: "Personal")
+    let topic = topic(id: "topic-1", diaryID: selectedDiary.id, title: "Work")
+    let template = template(id: "template-1", diaryID: selectedDiary.id, content: "# Template")
+    let entry = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Note")
+    let model = ThingsDiaryAppModel(client: StubAppClient(
+        result: .success([selectedDiary]),
+        entriesResult: .success([entry]),
+        topicsResult: .success([topic]),
+        templatesResult: .success([template])
+    ))
+    await model.selectDiary(selectedDiary)
+
+    model.showDiaryPicker()
+    #expect(model.presentation == .diaryPicker)
+    model.cancelDiaryPicker()
+
+    #expect(model.presentation == .none)
+    #expect(model.screen == .entries(diary: selectedDiary, entries: [entry]))
+    #expect(model.topics == [topic])
+    #expect(model.templates == [template])
+}
+
+@MainActor
+@Test("Cancelling diary creation opened from the picker returns to the picker")
+func cancelDiaryCreationReturnsToPicker() {
+    let model = ThingsDiaryAppModel(client: StubAppClient(result: .success([])))
+
+    model.showDiaryPicker()
+    model.showDiaryCreation()
+    model.cancelDiaryCreation()
+
+    #expect(model.presentation == .diaryPicker)
 }
 
 @MainActor
@@ -157,8 +227,9 @@ func createsFirstDiary() async {
 
     await model.createDiary(title: "Personal", description: "Daily notes")
 
-    #expect(model.screen == .diaries([created]))
+    #expect(model.screen == .entries(diary: created, entries: []))
     #expect(!model.isCreatingDiary)
+    #expect(model.presentation == .none)
     #expect(await client.receivedCreateDiaryParams == ThingsDiaryCreateParams(
         title: "Personal",
         description: "Daily notes"
