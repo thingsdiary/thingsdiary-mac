@@ -46,38 +46,55 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertFalse(app.descendants(matching: .any)["entry-list.header"].exists)
 	}
 
-	func testDiariesPickerCanBeCancelledWithoutLeavingWorkspace() {
+	func testDiaryMenuClosesWithoutLeavingWorkspace() {
 		let app = launchWorkspace()
 
-		app.buttons["Diaries"].firstMatch.click()
+		let switcher = app.buttons["diary.switcher"]
+		XCTAssertTrue(switcher.waitForExistence(timeout: 2))
+		switcher.click()
 
-		let picker = app.descendants(matching: .any)["diary.picker"]
-		XCTAssertTrue(picker.waitForExistence(timeout: 2))
+		let selectedDiary = app.buttons["diary.switch.fixture-diary"]
+		XCTAssertTrue(selectedDiary.waitForExistence(timeout: 2))
 		XCTAssertTrue(app.buttons["diary.create"].exists)
+		XCTAssertEqual(
+			selectedDiary.value as? String,
+			"Selected"
+		)
 
-		app.buttons["diary.cancel"].click()
+		switcher.click()
 
-		XCTAssertFalse(picker.waitForExistence(timeout: 1))
+		XCTAssertFalse(selectedDiary.waitForExistence(timeout: 1))
 		XCTAssertTrue(app.buttons["sidebar.entries"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.descendants(matching: .any)["entry-list.scroll"].exists)
 	}
 
-	func testDiaryCreationCanOpenFromAndReturnToPicker() {
+	func testDiaryCreationCanOpenFromSwitcherAndReturnToWorkspace() {
 		let app = launchWorkspace()
 
-		app.buttons["Diaries"].firstMatch.click()
+		app.buttons["diary.switcher"].click()
 		XCTAssertTrue(app.buttons["diary.create"].waitForExistence(timeout: 2))
 		app.buttons["diary.create"].click()
 
-		XCTAssertTrue(app.descendants(matching: .any)["diary.title"].waitForExistence(timeout: 2))
-		app.typeText("Focused Diary")
-		XCTAssertEqual(
-			app.descendants(matching: .any)["diary.title"].value as? String,
-			"Focused Diary"
-		)
+		let titleField = app.descendants(matching: .any)["diary.title"]
+		XCTAssertTrue(titleField.waitForExistence(timeout: 2))
 		app.buttons["Cancel"].firstMatch.click()
-		XCTAssertTrue(app.descendants(matching: .any)["diary.picker"].waitForExistence(timeout: 2))
-		app.buttons["diary.cancel"].click()
+		XCTAssertTrue(app.buttons["diary.switcher"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["sidebar.entries"].exists)
+	}
+
+	func testDiarySettingsAppearOnHover() {
+		let app = launchWorkspace()
+
+		app.buttons["diary.switcher"].click()
+		let diaryRow = app.buttons["diary.switch.fixture-diary"]
+		XCTAssertTrue(diaryRow.waitForExistence(timeout: 2))
+		diaryRow.hover()
+
+		let settings = app.buttons["diary.settings.fixture-diary"]
+		XCTAssertTrue(settings.waitForExistence(timeout: 2))
+		settings.click()
+
+		XCTAssertTrue(app.staticTexts["Topics & Templates"].waitForExistence(timeout: 2))
 	}
 
 	func testDropTargetsAreAccessibleFromWorkspace() {

@@ -22,9 +22,142 @@ struct SidebarButtonLabApp: App {
 
 private enum LabPage: String, CaseIterable, Identifiable {
 	case footer = "Account footer"
+	case diaryPicker = "Diary picker"
+	case pickerDetails = "Picker menu"
 	case topics = "Topics"
 
 	var id: Self { self }
+}
+
+private enum PickerMenuVariant: String, CaseIterable, Identifiable {
+	case dividedHover
+	case seamlessHover
+	case dividedAlways
+	case seamlessAlways
+	case selectedAlways
+
+	var id: Self { self }
+
+	var title: String {
+		switch self {
+		case .dividedHover: "Divider + hover settings"
+		case .seamlessHover: "Seamless + hover settings"
+		case .dividedAlways: "Divider + visible settings"
+		case .seamlessAlways: "Seamless + visible settings"
+		case .selectedAlways: "Selected always, rest on hover"
+		}
+	}
+
+	var score: Int {
+		switch self {
+		case .dividedHover: 22
+		case .seamlessHover: 24
+		case .dividedAlways: 23
+		case .seamlessAlways: 25
+		case .selectedAlways: 24
+		}
+	}
+
+	var showsSeparator: Bool {
+		switch self {
+		case .dividedHover, .dividedAlways: true
+		case .seamlessHover, .seamlessAlways, .selectedAlways: false
+		}
+	}
+
+	var settingsMode: PickerSettingsMode {
+		switch self {
+		case .dividedHover, .seamlessHover: .hover
+		case .dividedAlways, .seamlessAlways: .always
+		case .selectedAlways: .selectedAlways
+		}
+	}
+
+	var verdict: String {
+		switch self {
+		case .dividedHover:
+			"The divider makes the selector a clear header. Hover-only settings keep the menu calm but are easier to miss."
+		case .seamlessHover:
+			"The navigation flows directly from the selector. Secondary actions stay quiet until the pointer reaches a diary."
+		case .dividedAlways:
+			"The boundary is clear and every diary action is discoverable. Repeated gears add visual noise."
+		case .seamlessAlways:
+			"The cleanest structure with no extra rule. Visible gears work for mouse, keyboard, and accessibility users."
+		case .selectedAlways:
+			"The current diary keeps an obvious settings action. Other rows reveal theirs on hover, which balances clarity and density."
+		}
+	}
+}
+
+private enum PickerSettingsMode {
+	case hover
+	case always
+	case selectedAlways
+}
+
+private enum DiaryPickerVariant: String, CaseIterable, Identifiable {
+	case contextRow
+	case compactRow
+	case sectionLabel
+	case nativeButton
+	case breadcrumb
+	case colorIdentity
+	case entryMetadata
+	case prominentCard
+	case centeredTitle
+
+	var id: Self { self }
+
+	var title: String {
+		switch self {
+		case .contextRow: "Current diary"
+		case .compactRow: "Compact row"
+		case .sectionLabel: "Labeled section"
+		case .nativeButton: "Native menu button"
+		case .breadcrumb: "Breadcrumb"
+		case .colorIdentity: "Color identity"
+		case .entryMetadata: "Diary metadata"
+		case .prominentCard: "Prominent card"
+		case .centeredTitle: "Centered title"
+		}
+	}
+
+	var score: Int {
+		switch self {
+		case .contextRow: 24
+		case .compactRow: 23
+		case .sectionLabel: 22
+		case .nativeButton: 25
+		case .breadcrumb: 18
+		case .colorIdentity: 21
+		case .entryMetadata: 20
+		case .prominentCard: 17
+		case .centeredTitle: 19
+		}
+	}
+
+	var verdict: String {
+		switch self {
+		case .contextRow:
+			"Names the object and its role without adding account details. The 44 pt row remains easy to target."
+		case .compactRow:
+			"Uses little vertical space and still reads as a switcher. Best when the diary name is enough context."
+		case .sectionLabel:
+			"The label removes ambiguity at a glance. It costs height and repeats information for frequent users."
+		case .nativeButton:
+			"Looks and behaves like a standard macOS menu control. The border adds weight above the navigation list."
+		case .breadcrumb:
+			"Explains hierarchy, but ThingsDiary is not a real parent destination. The extra path is mostly decorative."
+		case .colorIdentity:
+			"A stable diary color speeds recognition. It only works if color is part of the diary model and never carries meaning alone."
+		case .entryMetadata:
+			"Uses the second line for useful state instead of a generic label. Counts can become noisy and change often."
+		case .prominentCard:
+			"Makes the current diary unmistakable. The card competes with the selected navigation row below it."
+		case .centeredTitle:
+			"Feels like a navigation title and keeps the sidebar calm. Long diary names make the centered layout fragile."
+		}
+	}
 }
 
 private enum DemoAppearance: String, CaseIterable, Identifiable {
@@ -58,6 +191,7 @@ private enum FooterVariant: String, CaseIterable, Identifiable {
 	case richPopover
 	case topContextUtilities
 	case topContextAccount
+	case stackedTopContexts
 
 	var id: Self { self }
 
@@ -69,6 +203,7 @@ private enum FooterVariant: String, CaseIterable, Identifiable {
 		case .richPopover: "Rich popover"
 		case .topContextUtilities: "Top diary + utilities"
 		case .topContextAccount: "Top diary + account menu"
+		case .stackedTopContexts: "Account + diary at top"
 		}
 	}
 
@@ -80,6 +215,7 @@ private enum FooterVariant: String, CaseIterable, Identifiable {
 		case .richPopover: 17
 		case .topContextUtilities: 22
 		case .topContextAccount: 24
+		case .stackedTopContexts: 20
 		}
 	}
 
@@ -97,6 +233,8 @@ private enum FooterVariant: String, CaseIterable, Identifiable {
 			"Makes the current diary the page context. Settings and Sign Out stay visible, but the footer starts to resemble a toolbar."
 		case .topContextAccount:
 			"Separates diary navigation from account actions. The username opens a small menu with Settings and Sign Out."
+		case .stackedTopContexts:
+			"Keeps account and diary context above navigation, with no user control in the footer. The two Personal labels make their roles harder to scan."
 		}
 	}
 }
@@ -160,7 +298,8 @@ private struct SidebarDesignLab: View {
 
 			ScrollView {
 				LazyVGrid(columns: columns, alignment: .center, spacing: 18) {
-					if page == .footer {
+					switch page {
+					case .footer:
 						ForEach(FooterVariant.allCases) { variant in
 							CandidateCard(
 								title: variant.title,
@@ -170,7 +309,27 @@ private struct SidebarDesignLab: View {
 								FooterSample(variant: variant)
 							}
 						}
-					} else {
+					case .diaryPicker:
+						ForEach(DiaryPickerVariant.allCases) { variant in
+							CandidateCard(
+								title: variant.title,
+								score: variant.score,
+								verdict: variant.verdict
+							) {
+								DiaryPickerSample(variant: variant)
+							}
+						}
+					case .pickerDetails:
+						ForEach(PickerMenuVariant.allCases) { variant in
+							CandidateCard(
+								title: variant.title,
+								score: variant.score,
+								verdict: variant.verdict
+							) {
+								PickerMenuSample(variant: variant)
+							}
+						}
+					case .topics:
 						ForEach(TopicsVariant.allCases) { variant in
 							CandidateCard(
 								title: variant.title,
@@ -197,7 +356,7 @@ private struct SidebarDesignLab: View {
 			VStack(alignment: .leading, spacing: 3) {
 				Text("Sidebar design lab")
 					.font(.title2.weight(.semibold))
-				Text("Eleven shortlisted patterns. Hover and click inside each sample.")
+				Text(pageSubtitle)
 					.font(.callout)
 					.foregroundStyle(.secondary)
 			}
@@ -220,7 +379,7 @@ private struct SidebarDesignLab: View {
 				}
 			}
 			.pickerStyle(.segmented)
-			.frame(width: 270)
+			.frame(width: 490)
 
 			Picker("Appearance", selection: $appearance) {
 				ForEach(DemoAppearance.allCases) { option in
@@ -233,9 +392,19 @@ private struct SidebarDesignLab: View {
 		.padding(20)
 	}
 
+	private var pageSubtitle: String {
+		switch page {
+		case .footer: "Seven account-footer patterns. Hover and click inside each sample."
+		case .diaryPicker: "Nine top-of-sidebar diary selectors. No account actions or footer controls."
+		case .pickerDetails:
+			"Five refinements of the selected menu. Every dropdown overlays navigation and dismisses after selection or an outside click."
+		case .topics: "Five Topics patterns. Change the list state to compare behavior."
+		}
+	}
+
 	private var footer: some View {
 		HStack {
-			Label("Quorum shortlist: 6 footer patterns + 5 Topics patterns", systemImage: "checkmark.seal")
+			Label(footerSummary, systemImage: "checkmark.seal")
 			Spacer()
 			Text("Score /25: HIG · discovery · accessibility · hierarchy · implementation")
 				.foregroundStyle(.secondary)
@@ -243,6 +412,15 @@ private struct SidebarDesignLab: View {
 		.font(.callout.weight(.medium))
 		.padding(.horizontal, 20)
 		.frame(height: 46)
+	}
+
+	private var footerSummary: String {
+		switch page {
+		case .footer: "Account footer lab: 7 patterns"
+		case .diaryPicker: "Diary picker lab: 9 patterns"
+		case .pickerDetails: "Picker menu lab: 5 patterns"
+		case .topics: "Topics lab: 5 patterns"
+		}
 	}
 }
 
@@ -279,6 +457,384 @@ private struct CandidateCard<Sample: View>: View {
 	}
 }
 
+private struct DiaryPickerSample: View {
+	let variant: DiaryPickerVariant
+	@State private var menuOpen = false
+
+	var body: some View {
+		VStack(spacing: 0) {
+			MiniWindowBar(title: "ThingsDiary")
+			Divider()
+
+			VStack(spacing: 6) {
+				Button {
+					menuOpen.toggle()
+				} label: {
+					pickerLabel
+				}
+				.buttonStyle(.plain)
+				.help("Switch Diary")
+
+				if menuOpen {
+					diaryMenu
+				}
+			}
+			.padding(variant == .sectionLabel ? 8 : 6)
+
+			Divider()
+
+			ScrollView {
+				VStack(spacing: 4) {
+					SidebarRow("Entries", icon: "note.text", selected: true, count: "12")
+					SidebarRow("Bookmarks", icon: "bookmark")
+					MiniTopics()
+					SidebarRow("Archive", icon: "archivebox")
+					SidebarRow("Trash", icon: "trash")
+				}
+				.padding(10)
+			}
+		}
+		.miniSidebarChrome()
+	}
+
+	@ViewBuilder
+	private var pickerLabel: some View {
+		switch variant {
+		case .contextRow:
+			selectorRow(
+				icon: "book.closed.fill",
+				title: "Personal",
+				subtitle: "Current diary"
+			)
+		case .compactRow:
+			selectorRow(
+				icon: "book.closed",
+				title: "Personal",
+				subtitle: nil,
+				minHeight: 34
+			)
+		case .sectionLabel:
+			VStack(alignment: .leading, spacing: 4) {
+				Text("DIARY")
+					.font(.caption2.weight(.semibold))
+					.foregroundStyle(.secondary)
+					.padding(.horizontal, 8)
+				selectorRow(
+					icon: "book.closed",
+					title: "Personal",
+					subtitle: nil,
+					minHeight: 34
+				)
+			}
+		case .nativeButton:
+			selectorRow(
+				icon: "book.closed",
+				title: "Personal",
+				subtitle: nil,
+				minHeight: 36,
+				background: Color.primary.opacity(0.08)
+			)
+		case .breadcrumb:
+			HStack(spacing: 6) {
+				Text("ThingsDiary")
+					.foregroundStyle(.secondary)
+				Image(systemName: "chevron.right")
+					.font(.caption2.weight(.semibold))
+					.foregroundStyle(.tertiary)
+				Text("Personal").fontWeight(.semibold)
+				Spacer(minLength: 6)
+				switcherGlyph
+			}
+			.font(.callout)
+			.padding(.horizontal, 8)
+			.frame(maxWidth: .infinity, minHeight: 38)
+			.contentShape(.rect)
+		case .colorIdentity:
+			selectorRow(
+				icon: "circle.fill",
+				title: "Personal",
+				subtitle: "Current diary",
+				iconColor: .purple
+			)
+		case .entryMetadata:
+			selectorRow(
+				icon: "book.pages.fill",
+				title: "Personal",
+				subtitle: "12 entries · Updated today"
+			)
+		case .prominentCard:
+			selectorRow(
+				icon: "book.closed.fill",
+				title: "Personal",
+				subtitle: "Daily notes",
+				minHeight: 50,
+				background: .accentColor.opacity(0.13)
+			)
+			.overlay {
+				RoundedRectangle(cornerRadius: 9, style: .continuous)
+					.stroke(Color.accentColor.opacity(0.28), lineWidth: 1)
+			}
+		case .centeredTitle:
+			ZStack {
+				HStack {
+					Spacer()
+					Label("Personal", systemImage: "book.closed")
+						.font(.callout.weight(.semibold))
+					Spacer()
+				}
+				HStack {
+					Spacer()
+					switcherGlyph
+				}
+			}
+			.padding(.horizontal, 8)
+			.frame(maxWidth: .infinity, minHeight: 38)
+			.contentShape(.rect)
+		}
+	}
+
+	private func selectorRow(
+		icon: String,
+		title: String,
+		subtitle: String?,
+		minHeight: CGFloat = 44,
+		background: Color = .clear,
+		iconColor: Color = .accentColor
+	) -> some View {
+		HStack(spacing: 8) {
+			Image(systemName: icon)
+				.font(icon == "circle.fill" ? .system(size: 10) : .body)
+				.frame(width: 18)
+				.foregroundStyle(iconColor)
+			VStack(alignment: .leading, spacing: 0) {
+				Text(title).font(.callout.weight(.semibold)).lineLimit(1)
+				if let subtitle {
+					Text(subtitle)
+						.font(.caption2)
+						.foregroundStyle(.secondary)
+						.lineLimit(1)
+				}
+			}
+			Spacer(minLength: 6)
+			switcherGlyph
+		}
+		.padding(.horizontal, 8)
+		.frame(maxWidth: .infinity, minHeight: minHeight)
+		.contentShape(.rect)
+		.background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+	}
+
+	private var switcherGlyph: some View {
+		Image(systemName: "chevron.up.chevron.down")
+			.font(.caption2.weight(.semibold))
+			.foregroundStyle(.secondary)
+	}
+
+	private var diaryMenu: some View {
+		VStack(alignment: .leading, spacing: 2) {
+			diaryChoice("Personal", selected: true)
+			diaryChoice("Travel")
+			diaryChoice("Research")
+		}
+		.menuPanel()
+	}
+
+	private func diaryChoice(_ title: String, selected: Bool = false) -> some View {
+		HStack(spacing: 7) {
+			if selected {
+				Image(systemName: "checkmark")
+					.frame(width: 15)
+			} else {
+				Color.clear.frame(width: 15, height: 1)
+			}
+			Text(title)
+			Spacer()
+		}
+		.font(.callout)
+		.padding(.horizontal, 7)
+		.frame(maxWidth: .infinity, minHeight: 25)
+	}
+}
+
+private struct PickerMenuSample: View {
+	let variant: PickerMenuVariant
+	@State private var menuOpen = true
+	@State private var selectedDiary = "Personal"
+	@State private var hoveredDiary: String?
+
+	private let diaries = ["Personal", "Travel", "Research"]
+
+	var body: some View {
+		ZStack(alignment: .top) {
+			sidebar
+
+			if menuOpen {
+				Color.black.opacity(0.001)
+					.contentShape(.rect)
+					.onTapGesture { menuOpen = false }
+					.zIndex(1)
+
+				VStack(spacing: 0) {
+					dropdown
+					Spacer(minLength: 0)
+				}
+				.padding(.top, variant.showsSeparator ? 88 : 83)
+				.padding(.horizontal, 10)
+				.zIndex(2)
+			}
+		}
+		.miniSidebarChrome()
+	}
+
+	private var sidebar: some View {
+		VStack(spacing: 0) {
+			MiniWindowBar(title: "ThingsDiary")
+			Divider()
+
+			Button {
+				menuOpen.toggle()
+			} label: {
+				HStack(spacing: 8) {
+					Image(systemName: "book.closed")
+						.frame(width: 16)
+						.symbolRenderingMode(.monochrome)
+						.foregroundStyle(Color(nsColor: .secondaryLabelColor))
+					Text(selectedDiary).font(.callout.weight(.semibold))
+					Spacer(minLength: 6)
+					Image(systemName: "chevron.up.chevron.down")
+						.font(.caption2.weight(.semibold))
+						.frame(width: 18)
+						.foregroundStyle(.secondary)
+				}
+				.padding(.horizontal, 11)
+				.frame(maxWidth: .infinity, minHeight: 36)
+				.contentShape(.rect)
+				.background(
+					Color.primary.opacity(0.08),
+					in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+				)
+			}
+			.buttonStyle(.plain)
+			.help("Switch Diary")
+			.padding(
+				EdgeInsets(
+					top: 6,
+					leading: 6,
+					bottom: variant.showsSeparator ? 6 : 2,
+					trailing: 6
+				)
+			)
+
+			if variant.showsSeparator {
+				Divider()
+			}
+
+			ScrollView {
+				VStack(spacing: 4) {
+					SidebarRow("Entries", icon: "note.text", selected: true, count: "12")
+					SidebarRow("Bookmarks", icon: "bookmark")
+					MiniTopics()
+					SidebarRow("Archive", icon: "archivebox")
+					SidebarRow("Trash", icon: "trash")
+				}
+				.padding(
+					EdgeInsets(
+						top: variant.showsSeparator ? 10 : 4,
+						leading: 10,
+						bottom: 10,
+						trailing: 10
+					)
+				)
+			}
+		}
+	}
+
+	private var dropdown: some View {
+		VStack(spacing: 2) {
+			ForEach(diaries, id: \.self) { diary in
+				diaryRow(diary)
+			}
+
+			Divider().padding(.vertical, 3)
+
+			Button {
+				menuOpen = false
+			} label: {
+				HStack(spacing: 8) {
+					Image(systemName: "plus")
+						.frame(width: 16)
+					Text("New Diary…")
+					Spacer()
+				}
+				.padding(.horizontal, 7)
+				.frame(maxWidth: .infinity, minHeight: 28)
+				.contentShape(.rect)
+			}
+			.buttonStyle(.plain)
+		}
+		.padding(6)
+		.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+		.overlay {
+			RoundedRectangle(cornerRadius: 9, style: .continuous)
+				.stroke(Color.primary.opacity(0.14), lineWidth: 1)
+		}
+		.shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+	}
+
+	private func diaryRow(_ diary: String) -> some View {
+		let isSelected = diary == selectedDiary
+		let settingsVisible = showsSettings(for: diary, selected: isSelected)
+
+		return HStack(spacing: 2) {
+			Button {
+				selectedDiary = diary
+				menuOpen = false
+			} label: {
+				HStack(spacing: 8) {
+					if isSelected {
+						Image(systemName: "checkmark").frame(width: 16)
+					} else {
+						Color.clear.frame(width: 16, height: 1)
+					}
+					Text(diary)
+					Spacer()
+				}
+				.padding(.horizontal, 7)
+				.frame(maxWidth: .infinity, minHeight: 28)
+				.contentShape(.rect)
+			}
+			.buttonStyle(.plain)
+
+			Button {
+			} label: {
+				Image(systemName: "gearshape")
+					.frame(width: 24, height: 24)
+					.contentShape(.rect)
+			}
+			.buttonStyle(.plain)
+			.foregroundStyle(.secondary)
+			.opacity(settingsVisible ? 1 : 0)
+			.allowsHitTesting(settingsVisible)
+			.accessibilityHidden(!settingsVisible)
+			.help("Settings for \(diary)")
+		}
+		.onHover { hovering in
+			hoveredDiary = hovering ? diary : nil
+		}
+	}
+
+	private func showsSettings(for diary: String, selected: Bool) -> Bool {
+		switch variant.settingsMode {
+		case .hover:
+			hoveredDiary == diary
+		case .always:
+			true
+		case .selectedAlways:
+			selected || hoveredDiary == diary
+		}
+	}
+}
+
 private struct FooterSample: View {
 	let variant: FooterVariant
 	@State private var menuOpen = true
@@ -286,6 +842,11 @@ private struct FooterSample: View {
 
 	private var usesTopDiaryContext: Bool {
 		variant == .topContextUtilities || variant == .topContextAccount
+			|| variant == .stackedTopContexts
+	}
+
+	private var showsFooter: Bool {
+		variant != .stackedTopContexts
 	}
 
 	var body: some View {
@@ -293,6 +854,10 @@ private struct FooterSample: View {
 			MiniWindowBar(title: usesTopDiaryContext ? "ThingsDiary" : "Personal")
 			Divider()
 			if usesTopDiaryContext {
+				if variant == .stackedTopContexts {
+					topAccountContext
+					Divider()
+				}
 				topDiaryContext
 				Divider()
 			}
@@ -308,9 +873,11 @@ private struct FooterSample: View {
 				.padding(10)
 			}
 
-			Divider()
-			footerControl
-				.padding(8)
+			if showsFooter {
+				Divider()
+				footerControl
+					.padding(8)
+			}
 		}
 		.miniSidebarChrome()
 	}
@@ -350,7 +917,26 @@ private struct FooterSample: View {
 			.controlSize(.small)
 		case .topContextAccount:
 			accountActionsPreview
+		case .stackedTopContexts:
+			EmptyView()
 		}
+	}
+
+	private var topAccountContext: some View {
+		HStack(spacing: 8) {
+			Image(systemName: "book.closed")
+				.frame(width: 18)
+			VStack(alignment: .leading, spacing: 1) {
+				Text("Personal").font(.callout.weight(.semibold))
+				Text("mikhail@example.com").font(.caption2).foregroundStyle(.secondary)
+			}
+			Spacer()
+			Image(systemName: "chevron.up.chevron.down")
+				.font(.caption2.weight(.semibold))
+				.foregroundStyle(.secondary)
+		}
+		.padding(.horizontal, 10)
+		.frame(maxWidth: .infinity, minHeight: 44)
 	}
 
 	private var topDiaryContext: some View {
@@ -686,7 +1272,10 @@ private struct MiniTopics: View {
 			HStack {
 				Text("Topics").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
 				Spacer()
-				Image(systemName: "chevron.down").font(.caption2).foregroundStyle(.secondary)
+				Image(systemName: "chevron.down")
+					.font(.caption2)
+					.frame(width: 18)
+					.foregroundStyle(.secondary)
 			}
 			.padding(.horizontal, 7)
 			.frame(height: 26)
@@ -725,7 +1314,10 @@ private struct SidebarRow: View {
 			Text(title)
 			Spacer()
 			if let count {
-				Text(count).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+				Text(count)
+					.font(.caption.monospacedDigit())
+					.frame(width: 18)
+					.foregroundStyle(.secondary)
 			}
 		}
 		.padding(.horizontal, 7)

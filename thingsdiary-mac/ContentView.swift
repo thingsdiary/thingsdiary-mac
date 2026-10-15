@@ -1,5 +1,18 @@
+import AppKit
 import SwiftUI
 import ThingsDiaryClient
+
+private struct MenuMaterialBackground: NSViewRepresentable {
+	func makeNSView(context: Context) -> NSVisualEffectView {
+		let view = NSVisualEffectView()
+		view.blendingMode = .withinWindow
+		view.material = .menu
+		view.state = .followsWindowActiveState
+		return view
+	}
+
+	func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
 
 private struct EntryDropTargetFramesKey: PreferenceKey {
 	static var defaultValue: [EntryDropDestination: CGRect] = [:]
@@ -9,6 +22,17 @@ private struct EntryDropTargetFramesKey: PreferenceKey {
 		nextValue: () -> [EntryDropDestination: CGRect]
 	) {
 		value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+	}
+}
+
+private struct DiarySwitcherAnchorKey: PreferenceKey {
+	static var defaultValue: Anchor<CGRect>?
+
+	static func reduce(
+		value: inout Anchor<CGRect>?,
+		nextValue: () -> Anchor<CGRect>?
+	) {
+		value = nextValue() ?? value
 	}
 }
 
@@ -309,6 +333,8 @@ private struct EntriesView: View {
 	@State private var selectedEntryID: String?
 	@State private var draftContent = ""
 	@State private var showingTopicsAndTemplates = false
+	@State private var showingDiaryMenu = false
+	@State private var hoveredDiaryID: String?
 	@State private var showingTopicCreator = false
 	@State private var editingTopic: ThingsDiaryTopic?
 	@State private var topicTitle = ""
@@ -344,6 +370,161 @@ private struct EntriesView: View {
 
 	var body: some View {
 		NavigationSplitView {
+			sidebar
+		} content: {
+			Group {
+				if selectionIsEmpty {
+					emptyStateView
+				} else {
+					VStack(spacing: 0) {
+						entryListHeader
+						Divider()
+
+						if displayedEntries.isEmpty {
+							emptyStateView
+						} else {
+							entryListScrollView
+						}
+					}
+				}
+			}
+			.background(.background)
+			.searchable(text: $query)
+			.toolbar {
+				if activeSelection == .trash && !displayedEntries.isEmpty {
+					Button("Empty Trash", role: .destructive) {
+						confirmingEmptyTrash = true
+					}
+					.accessibilityIdentifier("trash.empty")
+				}
+			}
+			.navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
+		} detail: {
+			if let selectedEntry {
+				TextEditor(text: $draftContent)
+					.accessibilityIdentifier("entry.editor")
+					.disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
+					.frame(maxWidth: .infinity, maxHeight: .infinity)
+					.toolbar {
+						ToolbarItemGroup(placement: .primaryAction) {
+							Menu {
+								entryActions(for: selectedEntry)
+							} label: {
+								Image(systemName: "ellipsis.circle")
+							}
+							.accessibilityIdentifier("entry.actions")
+							.help("Entry Actions")
+
+							if selectedEntry.deletedAt == nil && !selectedEntry.archived {
+								Button("Save") {
+									let entry = selectedEntry
+									let content = draftContent
+									Task {
+										await model.updateEntry(entry, content: content)
+									}
+								}
+								.keyboardShortcut("s", modifiers: .command)
+								.disabled(!canSave(selectedEntry))
+							}
+						}
+					}
+			} else {
+				ContentUnavailableView {
+					Label(diary.title, systemImage: "book.closed")
+				} description: {
+					Text(diary.description.isEmpty ? "Your diary overview" : diary.description)
+					Text(
+						"\(count(for: .entries)) entries · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash"
+					)
+				}
+			}
+		}
+		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
+			GeometryReader { proxy in
+				if showingDiaryMenu, let anchor {
+					let frame = proxy[anchor]
+
+					ZStack(alignment: .topLeading) {
+						Color.black.opacity(0.001)
+							.contentShape(.rect)
+							.onTapGesture { showingDiaryMenu = false }
+
+						diaryMenu
+							.frame(width: max(frame.width - 8, 160))
+							.offset(x: frame.minX + 4, y: frame.maxY + 6)
+					}
+				}
+			}
+		}
+		.navigationSplitViewStyle(.balanced)
+		.onPreferenceChange(EntryDropTargetFramesKey.self) { frames in
+			dropTargetFrames = frames
+		}
+		.overlay(alignment: .topLeading) {
+			GeometryReader { proxy in
+				if let draggedEntry {
+					let frame = proxy.frame(in: .global)
+					let localLocation = CGPoint(
+						x: dragLocation.x - frame.minX,
+						y: dragLocation.y - frame.minY
+					)
+
+					entryDragPreview(draggedEntry)
+						.offset(
+							x: localLocation.x,
+							y: localLocation.y
+						)
+						.allowsHitTesting(false)
+				}
+			}
+		}
+		.frame(minWidth: 900, minHeight: 520)
+		.onChange(of: selection) {
+			selectedEntryID = nil
+		}
+		.onChange(of: model.diarySettingsRequestID) {
+			presentRequestedDiarySettings()
+		}
+		.task {
+			presentRequestedDiarySettings()
+		}
+		.sheet(isPresented: $showingTopicsAndTemplates) {
+			topicsAndTemplatesSheet
+		}
+		.sheet(isPresented: $showingEntryCreator) {
+			entryCreatorSheet
+		}
+		.sheet(isPresented: $showingTopicCreator) {
+			topicCreatorSheet
+		}
+		.alert(
+			entryConfirmationTitle,
+			isPresented: Binding(
+				get: { pendingEntryAction != nil },
+				set: { if !$0 { pendingEntryAction = nil } }
+			)
+		) {
+			Button(entryConfirmationButtonTitle, role: .destructive) {
+				confirmPendingEntryAction()
+			}
+			Button("Cancel", role: .cancel) { pendingEntryAction = nil }
+		} message: {
+			Text(entryConfirmationMessage)
+		}
+		.alert("Empty Trash?", isPresented: $confirmingEmptyTrash) {
+			Button("Empty Trash", role: .destructive) {
+				Task { await model.emptyTrash() }
+			}
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text("All entries in Trash will be deleted permanently. This cannot be undone.")
+		}
+	}
+
+	private var sidebar: some View {
+		VStack(spacing: 0) {
+			diarySwitcher
+
 			ScrollView {
 				VStack(alignment: .leading, spacing: 4) {
 					Button {
@@ -485,137 +666,141 @@ private struct EntriesView: View {
 				}
 				.padding(10)
 			}
-			.navigationTitle(diary.title)
-			.toolbar {
-				Button("Diaries", action: model.showDiaryPicker)
-				Button("Topics & Templates") { showingTopicsAndTemplates = true }
-			}
-			.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
-		} content: {
-			Group {
-				if selectionIsEmpty {
-					emptyStateView
-				} else {
-					VStack(spacing: 0) {
-						entryListHeader
-						Divider()
+		}
+		.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+	}
 
-						if displayedEntries.isEmpty {
-							emptyStateView
-						} else {
-							entryListScrollView
-						}
-					}
-				}
+	private var diarySwitcher: some View {
+		Button {
+			showingDiaryMenu.toggle()
+		} label: {
+			HStack(spacing: 8) {
+				Image(systemName: "book.closed")
+					.frame(width: 16)
+					.symbolRenderingMode(.monochrome)
+					.foregroundStyle(Color(nsColor: .secondaryLabelColor))
+				Text(diary.title)
+					.font(.callout.weight(.semibold))
+					.lineLimit(1)
+				Spacer(minLength: 6)
+				Image(systemName: "chevron.up.chevron.down")
+					.font(.caption2.weight(.semibold))
+					.frame(width: 18)
+					.foregroundStyle(.secondary)
 			}
-			.background(.background)
-			.searchable(text: $query)
-			.toolbar {
-				if activeSelection == .trash && !displayedEntries.isEmpty {
-					Button("Empty Trash", role: .destructive) {
-						confirmingEmptyTrash = true
-					}
-					.accessibilityIdentifier("trash.empty")
-				}
-			}
-			.navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
-		} detail: {
-			if let selectedEntry {
-				TextEditor(text: $draftContent)
-					.accessibilityIdentifier("entry.editor")
-					.disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
-					.frame(maxWidth: .infinity, maxHeight: .infinity)
-					.toolbar {
-						ToolbarItemGroup(placement: .primaryAction) {
-							Menu {
-								entryActions(for: selectedEntry)
-							} label: {
-								Image(systemName: "ellipsis.circle")
-							}
-							.accessibilityIdentifier("entry.actions")
-							.help("Entry Actions")
-
-							if selectedEntry.deletedAt == nil && !selectedEntry.archived {
-								Button("Save") {
-									let entry = selectedEntry
-									let content = draftContent
-									Task {
-										await model.updateEntry(entry, content: content)
-									}
-								}
-								.keyboardShortcut("s", modifiers: .command)
-								.disabled(!canSave(selectedEntry))
-							}
-						}
-					}
-			} else {
-				ContentUnavailableView {
-					Label(diary.title, systemImage: "book.closed")
-				} description: {
-					Text(diary.description.isEmpty ? "Your diary overview" : diary.description)
-					Text(
-						"\(count(for: .entries)) entries · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash"
-					)
-				}
-			}
-		}
-		.navigationSplitViewStyle(.balanced)
-		.onPreferenceChange(EntryDropTargetFramesKey.self) { frames in
-			dropTargetFrames = frames
-		}
-		.overlay(alignment: .topLeading) {
-			GeometryReader { proxy in
-				if let draggedEntry {
-					let frame = proxy.frame(in: .global)
-					let localLocation = CGPoint(
-						x: dragLocation.x - frame.minX,
-						y: dragLocation.y - frame.minY
-					)
-
-					entryDragPreview(draggedEntry)
-						.offset(
-							x: localLocation.x,
-							y: localLocation.y
-						)
-						.allowsHitTesting(false)
-				}
-			}
-		}
-		.frame(minWidth: 900, minHeight: 520)
-		.onChange(of: selection) {
-			selectedEntryID = nil
-		}
-		.sheet(isPresented: $showingTopicsAndTemplates) {
-			topicsAndTemplatesSheet
-		}
-		.sheet(isPresented: $showingEntryCreator) {
-			entryCreatorSheet
-		}
-		.sheet(isPresented: $showingTopicCreator) {
-			topicCreatorSheet
-		}
-		.alert(
-			entryConfirmationTitle,
-			isPresented: Binding(
-				get: { pendingEntryAction != nil },
-				set: { if !$0 { pendingEntryAction = nil } }
+			.padding(.horizontal, 11)
+			.frame(maxWidth: .infinity, minHeight: 36)
+			.contentShape(.rect)
+			.background(
+				Color.primary.opacity(0.08),
+				in: RoundedRectangle(cornerRadius: 8, style: .continuous)
 			)
-		) {
-			Button(entryConfirmationButtonTitle, role: .destructive) {
-				confirmPendingEntryAction()
-			}
-			Button("Cancel", role: .cancel) { pendingEntryAction = nil }
-		} message: {
-			Text(entryConfirmationMessage)
 		}
-		.alert("Empty Trash?", isPresented: $confirmingEmptyTrash) {
-			Button("Empty Trash", role: .destructive) {
-				Task { await model.emptyTrash() }
+		.buttonStyle(.plain)
+		.accessibilityIdentifier("diary.switcher")
+		.accessibilityLabel("Current diary, \(diary.title)")
+		.help("Switch Diary")
+		.padding(.init(top: 6, leading: 6, bottom: 2, trailing: 6))
+		.anchorPreference(key: DiarySwitcherAnchorKey.self, value: .bounds) { $0 }
+	}
+
+	private var diaryMenu: some View {
+		VStack(spacing: 2) {
+			ScrollView {
+				LazyVStack(spacing: 2) {
+					ForEach(model.availableDiaries) { candidate in
+						diaryMenuRow(candidate)
+					}
+				}
 			}
-			Button("Cancel", role: .cancel) {}
-		} message: {
-			Text("All entries in Trash will be deleted permanently. This cannot be undone.")
+			.frame(height: min(CGFloat(model.availableDiaries.count) * 30, 240))
+
+			Divider()
+				.overlay(Color(nsColor: .separatorColor))
+				.padding(.vertical, 3)
+
+			Button {
+				showingDiaryMenu = false
+				model.showDiaryCreation()
+			} label: {
+				HStack(spacing: 8) {
+					Image(systemName: "plus")
+						.frame(width: 16)
+					Text("New Diary…")
+					Spacer()
+				}
+				.padding(.horizontal, 7)
+				.frame(maxWidth: .infinity, minHeight: 28)
+				.contentShape(.rect)
+			}
+			.buttonStyle(.plain)
+			.accessibilityIdentifier("diary.create")
 		}
+		.padding(6)
+		.background {
+			MenuMaterialBackground()
+				.clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+		}
+		.overlay {
+			RoundedRectangle(cornerRadius: 9, style: .continuous)
+				.stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+		}
+		.shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+	}
+
+	private func diaryMenuRow(_ candidate: ThingsDiaryDiary) -> some View {
+		let isSelected = candidate.id == diary.id
+		let settingsVisible = hoveredDiaryID == candidate.id
+
+		return HStack(spacing: 2) {
+			Button {
+				showingDiaryMenu = false
+				guard !isSelected else { return }
+				Task { await model.selectDiary(candidate) }
+			} label: {
+				HStack(spacing: 8) {
+					if isSelected {
+						Image(systemName: "checkmark").frame(width: 16)
+					} else {
+						Color.clear.frame(width: 16, height: 1)
+					}
+					Text(candidate.title)
+						.lineLimit(1)
+					Spacer()
+				}
+				.padding(.horizontal, 7)
+				.frame(maxWidth: .infinity, minHeight: 28)
+				.contentShape(.rect)
+			}
+			.buttonStyle(.plain)
+			.accessibilityIdentifier("diary.switch.\(candidate.id)")
+			.accessibilityValue(isSelected ? "Selected" : "")
+
+			Button {
+				showingDiaryMenu = false
+				Task { await model.requestDiarySettings(for: candidate) }
+			} label: {
+				Image(systemName: "gearshape")
+					.frame(width: 24, height: 24)
+					.contentShape(.rect)
+			}
+			.buttonStyle(.plain)
+			.foregroundStyle(.secondary)
+			.opacity(settingsVisible ? 1 : 0)
+			.allowsHitTesting(settingsVisible)
+			.accessibilityHidden(!settingsVisible)
+			.accessibilityIdentifier("diary.settings.\(candidate.id)")
+			.help("Settings for \(candidate.title)")
+		}
+		.onHover { hovering in
+			hoveredDiaryID = hovering ? candidate.id : nil
+		}
+	}
+
+	private func presentRequestedDiarySettings() {
+		guard model.consumeDiarySettingsRequest(for: diary.id) else { return }
+		showingDiaryMenu = false
+		showingTopicsAndTemplates = true
 	}
 
 	private var entryListHeader: some View {
@@ -864,13 +1049,10 @@ private struct EntriesView: View {
 						Text(count(for: destination), format: .number)
 							.font(.caption.monospacedDigit())
 							.foregroundStyle(.secondary)
-							.padding(.horizontal, 6)
-							.padding(.vertical, 2)
-							.background(.quaternary, in: Capsule())
 							.opacity(isDropTargeted ? 0 : 1)
 					}
 				}
-				.frame(width: 38, height: 20, alignment: .trailing)
+				.frame(width: 18, height: 20)
 			}
 			.padding(.horizontal, 7)
 			.padding(.vertical, 5)

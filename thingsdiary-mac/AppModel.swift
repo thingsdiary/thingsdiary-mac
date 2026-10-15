@@ -279,6 +279,7 @@ final class ThingsDiaryAppModel {
 	private(set) var topics: [ThingsDiaryTopic] = []
 	private(set) var templates: [ThingsDiaryTemplate] = []
 	private(set) var presentation: ThingsDiaryAppPresentation = .none
+	private(set) var diarySettingsRequestID: String?
 	private var creationReturnPresentation: ThingsDiaryAppPresentation?
 	private(set) var diaryCreationError: String?
 
@@ -406,6 +407,26 @@ final class ThingsDiaryAppModel {
 
 	func showDiaryPicker() {
 		presentation = .diaryPicker
+	}
+
+	func requestDiarySettings(for diary: ThingsDiaryDiary) async {
+		if case .entries(let selectedDiary, _) = screen,
+			selectedDiary.id != diary.id
+		{
+			await selectDiary(diary)
+		}
+		guard case .entries(let selectedDiary, _) = screen,
+			selectedDiary.id == diary.id
+		else {
+			return
+		}
+		diarySettingsRequestID = diary.id
+	}
+
+	func consumeDiarySettingsRequest(for diaryID: String) -> Bool {
+		guard diarySettingsRequestID == diaryID else { return false }
+		diarySettingsRequestID = nil
+		return true
 	}
 
 	func cancelDiaryPicker() {

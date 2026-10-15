@@ -205,6 +205,28 @@ func cancelDiaryPickerPreservesWorkspace() async {
 }
 
 @MainActor
+@Test("Diary settings request selects the diary and can be consumed once")
+func diarySettingsRequestSelectsDiary() async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let requestedDiary = diary(id: "diary-2", title: "Work")
+	let model = ThingsDiaryAppModel(
+		client: StubAppClient(result: .success([selectedDiary, requestedDiary]))
+	)
+	await model.selectDiary(selectedDiary)
+
+	await model.requestDiarySettings(for: requestedDiary)
+
+	guard case .entries(let openDiary, _) = model.screen else {
+		Issue.record("Expected the requested diary workspace")
+		return
+	}
+	#expect(openDiary == requestedDiary)
+	#expect(model.diarySettingsRequestID == requestedDiary.id)
+	#expect(model.consumeDiarySettingsRequest(for: requestedDiary.id))
+	#expect(!model.consumeDiarySettingsRequest(for: requestedDiary.id))
+}
+
+@MainActor
 @Test("Cancelling diary creation opened from the picker returns to the picker")
 func cancelDiaryCreationReturnsToPicker() {
 	let model = ThingsDiaryAppModel(client: StubAppClient(result: .success([])))
