@@ -736,13 +736,12 @@ private struct EntriesView: View {
 			.padding(.horizontal, 12)
 			.padding(.vertical, 6)
 			.frame(width: 280, alignment: .leading)
-			.background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 10))
+			.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
 			.overlay {
 				RoundedRectangle(cornerRadius: 10)
-					.stroke(Color.black.opacity(0.12), lineWidth: 1)
+					.stroke(Color.primary.opacity(0.14), lineWidth: 1)
 			}
 			.shadow(color: .black.opacity(0.2), radius: 12, y: 5)
-			.environment(\.colorScheme, .light)
 			.accessibilityIdentifier("entry.drag-preview")
 	}
 
