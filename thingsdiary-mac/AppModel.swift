@@ -299,6 +299,43 @@ final class ThingsDiaryAppModel {
         self.store = store
     }
 
+    #if DEBUG
+    static func uiTestingWorkspace() -> ThingsDiaryAppModel {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let diary = ThingsDiaryDiary(
+            id: "fixture-diary",
+            title: "Test Diary",
+            description: "UI testing workspace",
+            createdAt: now,
+            updatedAt: now,
+            version: 1
+        )
+        let entry = ThingsDiaryEntry(
+            id: "fixture-entry",
+            diaryID: diary.id,
+            content: "Fixture note",
+            createdAt: now,
+            updatedAt: now,
+            version: 1
+        )
+        let topic = ThingsDiaryTopic(
+            id: "fixture-topic",
+            diaryID: diary.id,
+            title: "Fixture Topic",
+            description: "",
+            color: "",
+            createdAt: now,
+            updatedAt: now,
+            version: 1
+        )
+        let model = ThingsDiaryAppModel()
+        model.loadedDiaries = [diary]
+        model.topics = [topic]
+        model.screen = .entries(diary: diary, entries: [entry])
+        return model
+    }
+    #endif
+
     func showRegistration() {
         password = ""
         secretKey = ""

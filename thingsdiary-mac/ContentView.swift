@@ -274,45 +274,56 @@ private struct EntriesView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
+            List {
                 Section {
-                    Label("Notes", systemImage: "note.text")
-                        .tag(Optional(DiaryNavigationSelection.notes))
-                        .badge(count(for: .notes))
-                    Label("Bookmarks", systemImage: "bookmark")
-                        .tag(Optional(DiaryNavigationSelection.bookmarks))
-                        .badge(count(for: .bookmarks))
+                    sidebarRow(
+                        "Notes",
+                        systemImage: "note.text",
+                        destination: .notes,
+                        identifier: "sidebar.notes"
+                    )
+                    sidebarRow(
+                        "Bookmarks",
+                        systemImage: "bookmark",
+                        destination: .bookmarks,
+                        identifier: "sidebar.bookmarks"
+                    )
                 }
 
-                Section {
+                Section("Topics") {
                     ForEach(model.topics) { topic in
-                        Label(topic.title, systemImage: "tag")
-                            .tag(Optional(DiaryNavigationSelection.topic(topic.id)))
-                            .badge(count(for: .topic(topic.id)))
+                        sidebarRow(
+                            topic.title,
+                            systemImage: "tag",
+                            destination: .topic(topic.id),
+                            identifier: "sidebar.topic.\(topic.id)"
+                        )
                     }
-                } header: {
-                    HStack {
-                        Text("Topics")
-                        Spacer()
-                        Button {
-                            topicTitle = ""
-                            topicDescription = ""
-                            showingTopicCreator = true
-                        } label: {
-                            Image(systemName: "plus")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("New Topic")
+
+                    Button {
+                        topicTitle = ""
+                        topicDescription = ""
+                        showingTopicCreator = true
+                    } label: {
+                        Label("New Topic", systemImage: "plus")
                     }
+                    .accessibilityIdentifier("topic.create")
+                    .buttonStyle(.plain)
                 }
 
                 Section {
-                    Label("Archive", systemImage: "archivebox")
-                        .tag(Optional(DiaryNavigationSelection.archive))
-                        .badge(count(for: .archive))
-                    Label("Trash", systemImage: "trash")
-                        .tag(Optional(DiaryNavigationSelection.trash))
-                        .badge(count(for: .trash))
+                    sidebarRow(
+                        "Archive",
+                        systemImage: "archivebox",
+                        destination: .archive,
+                        identifier: "sidebar.archive"
+                    )
+                    sidebarRow(
+                        "Trash",
+                        systemImage: "trash",
+                        destination: .trash,
+                        identifier: "sidebar.trash"
+                    )
                 }
             }
             .navigationTitle(diary.title)
@@ -324,7 +335,10 @@ private struct EntriesView: View {
         } content: {
             VStack(spacing: 0) {
                 HStack {
-                    Text(selectionTitle).font(.headline)
+                    Text(selectionTitle)
+                        .font(.headline)
+                        .accessibilityIdentifier("entry-list.title")
+                        .accessibilityLabel(selectionTitle)
                     Spacer()
                     Menu {
                         Picker("Sort", selection: $sort) {
@@ -369,6 +383,7 @@ private struct EntriesView: View {
                             .contentShape(.rect)
                             .padding(.vertical, 4)
                         }
+                        .accessibilityIdentifier("entry.\(entry.id)")
                         .buttonStyle(.plain)
                         .contextMenu {
                             entryActions(for: entry)
@@ -407,6 +422,7 @@ private struct EntriesView: View {
         } detail: {
             if let selectedEntry {
                 TextEditor(text: $draftContent)
+                    .accessibilityIdentifier("entry.editor")
                     .disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -417,6 +433,7 @@ private struct EntriesView: View {
                             } label: {
                                 Image(systemName: "ellipsis.circle")
                             }
+                            .accessibilityIdentifier("entry.actions")
                             .help("Note Actions")
 
                             if selectedEntry.deletedAt == nil && !selectedEntry.archived {
@@ -457,6 +474,29 @@ private struct EntriesView: View {
     private func canSave(_ entry: ThingsDiaryEntry) -> Bool {
         !draftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && draftContent != entry.content
+    }
+
+    private func sidebarRow(
+        _ title: String,
+        systemImage: String,
+        destination: DiaryNavigationSelection,
+        identifier: String
+    ) -> some View {
+        Button {
+            selection = destination
+        } label: {
+            Label(title, systemImage: systemImage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .badge(count(for: destination))
+        .listRowBackground(
+            activeSelection == destination
+                ? Color.accentColor.opacity(0.16)
+                : Color.clear
+        )
     }
 
     private func entryActions(for entry: ThingsDiaryEntry) -> some View {
@@ -524,7 +564,9 @@ private struct EntriesView: View {
         NavigationStack {
             Form {
                 TextField("Title", text: $topicTitle)
+                    .accessibilityIdentifier("topic.title")
                 TextField("Description", text: $topicDescription, axis: .vertical)
+                    .accessibilityIdentifier("topic.description")
                     .lineLimit(2 ... 5)
             }
             .formStyle(.grouped)

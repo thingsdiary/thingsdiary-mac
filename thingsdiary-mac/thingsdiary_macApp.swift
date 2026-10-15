@@ -5,6 +5,13 @@ struct thingsdiary_macApp: App {
     @State private var model: ThingsDiaryAppModel
 
     init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing-workspace") {
+            _model = State(initialValue: ThingsDiaryAppModel.uiTestingWorkspace())
+            return
+        }
+        #endif
+
         let applicationSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
