@@ -497,7 +497,7 @@ private struct EntriesView: View {
 								entryListRow(entry)
 									.padding(.horizontal)
 									.frame(maxWidth: .infinity, alignment: .leading)
-									.background(Color.white)
+									.background(.background)
 									.opacity(draggedEntryID == entry.id ? 0.45 : 1)
 									.contentShape(.interaction, Rectangle())
 									.onTapGesture {
@@ -518,12 +518,11 @@ private struct EntriesView: View {
 						}
 					}
 					.clipped()
-					.background(Color.white)
-					.environment(\.colorScheme, .light)
+					.background(.background)
 					.accessibilityIdentifier("entry-list.scroll")
 				}
 			}
-			.background(Color.white)
+			.background(.background)
 			.searchable(text: $query)
 			.toolbar {
 				if activeSelection == .trash && !displayedEntries.isEmpty {
