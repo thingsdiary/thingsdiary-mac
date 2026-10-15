@@ -770,22 +770,25 @@ private struct EntriesView: View {
 				}
 				Text(title)
 				Spacer(minLength: 6)
-				if isDropTargeted {
+				ZStack(alignment: .trailing) {
 					Image(systemName: dropDestination == .trash ? "trash.fill" : "arrow.down.circle.fill")
 						.foregroundStyle(dropTint)
-						.transition(.opacity)
-				} else if count(for: destination) > 0 {
-					Text(count(for: destination), format: .number)
-						.font(.caption.monospacedDigit())
-						.foregroundStyle(.secondary)
-						.padding(.horizontal, 6)
-						.padding(.vertical, 2)
-						.background(.quaternary, in: Capsule())
+						.opacity(isDropTargeted ? 1 : 0)
+					if count(for: destination) > 0 {
+						Text(count(for: destination), format: .number)
+							.font(.caption.monospacedDigit())
+							.foregroundStyle(.secondary)
+							.padding(.horizontal, 6)
+							.padding(.vertical, 2)
+							.background(.quaternary, in: Capsule())
+							.opacity(isDropTargeted ? 0 : 1)
+					}
 				}
+				.frame(width: 38, height: 20, alignment: .trailing)
 			}
 			.padding(.horizontal, 7)
 			.padding(.vertical, 5)
-			.frame(maxWidth: .infinity, alignment: .leading)
+			.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
 			.contentShape(.rect)
 			.background {
 				RoundedRectangle(cornerRadius: 7, style: .continuous)
