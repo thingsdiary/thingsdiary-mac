@@ -64,8 +64,20 @@ final class DiaryWorkspaceUITests: XCTestCase {
         let app = launchWorkspace()
 
         XCTAssertTrue(app.buttons["sidebar.topic.fixture-topic"].waitForExistence(timeout: 2))
+        XCTAssertTrue(app.buttons["sidebar.bookmarks"].exists)
         XCTAssertTrue(app.buttons["sidebar.archive"].exists)
         XCTAssertTrue(app.buttons["sidebar.trash"].exists)
+    }
+
+    func testEntryCanBeDraggedFromItsCenterToTrash() {
+        let app = launchWorkspace()
+        let entry = app.buttons["entry.fixture-entry"]
+        let trash = app.buttons["sidebar.trash"]
+
+        XCTAssertTrue(entry.waitForExistence(timeout: 2))
+        entry.press(forDuration: 0.1, thenDragTo: trash)
+
+        XCTAssertTrue(app.staticTexts["Move Entry to Trash?"].waitForExistence(timeout: 2))
     }
 
     func testTopicButtonOpensCreationForm() {

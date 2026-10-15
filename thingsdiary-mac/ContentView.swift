@@ -1,6 +1,17 @@
 import SwiftUI
 import ThingsDiaryClient
 
+private struct EntryDropTargetFramesKey: PreferenceKey {
+    static var defaultValue: [EntryDropDestination: CGRect] = [:]
+
+    static func reduce(
+        value: inout [EntryDropDestination: CGRect],
+        nextValue: () -> [EntryDropDestination: CGRect]
+    ) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
 struct ContentView: View {
     @Bindable var model: ThingsDiaryAppModel
 
@@ -293,6 +304,9 @@ private struct EntriesView: View {
     @State private var topicsExpanded = true
     @State private var pendingEntryAction: PendingEntryAction?
     @State private var targetedDropDestination: EntryDropDestination?
+    @State private var dropTargetFrames: [EntryDropDestination: CGRect] = [:]
+    @State private var draggedEntryID: String?
+    @State private var dragLocation = CGPoint.zero
     @State private var confirmingEmptyTrash = false
     @State private var editingTemplate: ThingsDiaryTemplate?
     @State private var templateContent = ""
@@ -313,8 +327,8 @@ private struct EntriesView: View {
 
     var body: some View {
         NavigationSplitView {
-            List {
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
                     Button {
                         newEntryContent = ""
                         showingEntryCreator = true
@@ -335,11 +349,32 @@ private struct EntriesView: View {
                         "Bookmarks",
                         systemImage: "bookmark",
                         destination: .bookmarks,
-                        identifier: "sidebar.bookmarks"
+                        identifier: "sidebar.bookmarks",
+                        dropDestination: .bookmarks
                     )
-                }
 
-                Section {
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    Button {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            topicsExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: topicsExpanded ? "chevron.down" : "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                            Text("Topics")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("topics.toggle")
+                    .accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
+
                     if topicsExpanded {
                         ForEach(model.topics) { topic in
                             sidebarRow(
@@ -367,26 +402,10 @@ private struct EntriesView: View {
                         .accessibilityIdentifier("topic.create")
                         .buttonStyle(.plain)
                     }
-                } header: {
-                    Button {
-                        withAnimation(.snappy(duration: 0.18)) {
-                            topicsExpanded.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: topicsExpanded ? "chevron.down" : "chevron.right")
-                                .font(.caption2.weight(.semibold))
-                            Text("Topics")
-                            Spacer()
-                        }
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("topics.toggle")
-                    .accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
-                }
 
-                Section {
+                    Divider()
+                        .padding(.vertical, 4)
+
                     sidebarRow(
                         "Archive",
                         systemImage: "archivebox",
@@ -402,6 +421,7 @@ private struct EntriesView: View {
                         dropDestination: .trash
                     )
                 }
+                .padding(10)
             }
             .navigationTitle(diary.title)
             .toolbar {
@@ -442,24 +462,39 @@ private struct EntriesView: View {
                         description: Text(emptyStateDescription)
                     )
                 } else {
-                    List(displayedEntries) { entry in
-                        Button {
-                            selectedEntryID = entry.id
-                            draftContent = entry.content
-                        } label: {
-                            entryListRow(entry)
-                        }
-                        .accessibilityIdentifier("entry.\(entry.id)")
-                        .buttonStyle(.plain)
-                        .draggable(EntryDragPayload(diaryID: diary.id, entryID: entry.id))
-                        .contextMenu {
-                            entryActions(for: entry)
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(displayedEntries) { entry in
+                                entryListRow(entry)
+                                    .padding(.horizontal)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.white)
+                                    .opacity(draggedEntryID == entry.id ? 0.45 : 1)
+                                    .contentShape(.interaction, Rectangle())
+                                    .onTapGesture {
+                                        selectedEntryID = entry.id
+                                        draftContent = entry.content
+                                    }
+                                    .highPriorityGesture(entryDragGesture(for: entry))
+                                    .accessibilityElement(children: .combine)
+                                    .accessibilityIdentifier("entry.\(entry.id)")
+                                    .accessibilityAddTraits(.isButton)
+                                    .contextMenu {
+                                        entryActions(for: entry)
+                                    }
+
+                                Divider()
+                                    .padding(.leading)
+                            }
                         }
                     }
                     .clipped()
+                    .background(Color.white)
+                    .environment(\.colorScheme, .light)
                     .accessibilityIdentifier("entry-list.scroll")
                 }
             }
+            .background(Color.white)
             .searchable(text: $query)
             .toolbar {
                 if activeSelection == .trash && !displayedEntries.isEmpty {
@@ -509,6 +544,27 @@ private struct EntriesView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .onPreferenceChange(EntryDropTargetFramesKey.self) { frames in
+            dropTargetFrames = frames
+        }
+        .overlay(alignment: .topLeading) {
+            GeometryReader { proxy in
+                if let draggedEntry {
+                    let frame = proxy.frame(in: .global)
+                    let localLocation = CGPoint(
+                        x: dragLocation.x - frame.minX,
+                        y: dragLocation.y - frame.minY
+                    )
+
+                    entryDragPreview(draggedEntry)
+                        .offset(
+                            x: localLocation.x,
+                            y: localLocation.y
+                        )
+                        .allowsHitTesting(false)
+                }
+            }
+        }
         .frame(minWidth: 900, minHeight: 520)
         .onChange(of: selection) {
             selectedEntryID = nil
@@ -588,22 +644,23 @@ private struct EntriesView: View {
         execute(pending.action, on: entry, topicID: pending.topicID)
     }
 
-    private func acceptDrop(
-        _ payloads: [EntryDragPayload],
+    private func performDrop(
+        _ payload: EntryDragPayload,
         to destination: EntryDropDestination
-    ) -> Bool {
-        guard let payload = payloads.first,
-              let request = resolveEntryDrop(
-                payload,
-                to: destination,
-                diaryID: diary.id,
-                entries: entries
-              ),
+    ) {
+        guard let request = resolveEntryDrop(
+            payload,
+            to: destination,
+            diaryID: diary.id,
+            entries: entries
+        ),
               let entry = entries.first(where: { $0.id == payload.entryID }) else {
-            return false
+            return
         }
 
         switch request {
+        case .bookmark:
+            perform(.bookmark, on: entry, topicID: nil)
         case let .moveToTopic(topicID):
             perform(.moveToTopic, on: entry, topicID: topicID)
         case .archive:
@@ -611,12 +668,60 @@ private struct EntriesView: View {
         case .moveToTrash:
             perform(.moveToTrash, on: entry, topicID: nil)
         }
-        return true
     }
 
     private func canSave(_ entry: ThingsDiaryEntry) -> Bool {
         !draftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && draftContent != entry.content
+    }
+
+    private func entryDragGesture(for entry: ThingsDiaryEntry) -> some Gesture {
+        DragGesture(
+            minimumDistance: 4,
+            coordinateSpace: .global
+        )
+        .onChanged { value in
+            selectedEntryID = entry.id
+            draftContent = entry.content
+            draggedEntryID = entry.id
+            dragLocation = value.location
+            targetedDropDestination = dropDestination(at: value.location)
+        }
+        .onEnded { value in
+            defer {
+                targetedDropDestination = nil
+                draggedEntryID = nil
+            }
+            guard let destination = dropDestination(at: value.location) else { return }
+            performDrop(
+                EntryDragPayload(diaryID: diary.id, entryID: entry.id),
+                to: destination
+            )
+        }
+    }
+
+    private func dropDestination(at location: CGPoint) -> EntryDropDestination? {
+        dropTargetFrames.first { $0.value.contains(location) }?.key
+    }
+
+    private var draggedEntry: ThingsDiaryEntry? {
+        guard let draggedEntryID else { return nil }
+        return entries.first { $0.id == draggedEntryID }
+    }
+
+    private func entryDragPreview(_ entry: ThingsDiaryEntry) -> some View {
+        entryListRow(entry)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(width: 280, alignment: .leading)
+            .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.2), radius: 12, y: 5)
+            .environment(\.colorScheme, .light)
+            .accessibilityIdentifier("entry.drag-preview")
     }
 
     private func sidebarRow(
@@ -628,7 +733,10 @@ private struct EntriesView: View {
         dropDestination: EntryDropDestination? = nil,
         doubleClick: (() -> Void)? = nil
     ) -> some View {
-        Button {
+        let isDropTargeted = dropDestination != nil && dropDestination == targetedDropDestination
+        let dropTint = dropDestination == .trash ? Color.red : color ?? Color.accentColor
+
+        return Button {
             selection = destination
         } label: {
             HStack {
@@ -640,32 +748,54 @@ private struct EntriesView: View {
                         .foregroundStyle(.tint)
                 }
                 Text(title)
+                Spacer(minLength: 6)
+                if isDropTargeted {
+                    Image(systemName: dropDestination == .trash ? "trash.fill" : "arrow.down.circle.fill")
+                        .foregroundStyle(dropTint)
+                        .transition(.opacity)
+                } else if count(for: destination) > 0 {
+                    Text(count(for: destination), format: .number)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                }
             }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(.rect)
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(
+                            isDropTargeted
+                                ? dropTint.opacity(0.18)
+                                : activeSelection == destination
+                                    ? Color.accentColor.opacity(0.16)
+                                    : Color.clear
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(isDropTargeted ? dropTint.opacity(0.7) : Color.clear, lineWidth: 1)
+                }
+                .animation(.easeOut(duration: 0.12), value: isDropTargeted)
         }
         .simultaneousGesture(TapGesture(count: 2).onEnded { doubleClick?() })
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
-        .dropDestination(for: EntryDragPayload.self) { payloads, _ in
-            guard let dropDestination else { return false }
-            return acceptDrop(payloads, to: dropDestination)
-        } isTargeted: { isTargeted in
-            guard let dropDestination else { return }
-            if isTargeted {
-                targetedDropDestination = dropDestination
-            } else if targetedDropDestination == dropDestination {
-                targetedDropDestination = nil
+        .accessibilityValue(isDropTargeted ? "Drop target" : "")
+        .background {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: EntryDropTargetFramesKey.self,
+                    value: dropDestination.map {
+                        [$0: proxy.frame(in: .global)]
+                    } ?? [:]
+                )
             }
         }
-        .badge(count(for: destination))
-        .listRowBackground(
-            dropDestination != nil && targetedDropDestination == dropDestination
-                ? Color.accentColor.opacity(0.28)
-                : activeSelection == destination
-                ? Color.accentColor.opacity(0.16)
-                : Color.clear
-        )
     }
 
     private func entryActions(for entry: ThingsDiaryEntry) -> some View {
@@ -702,6 +832,10 @@ private struct EntriesView: View {
         )
         Task {
             switch action {
+            case .bookmark:
+                if !entry.bookmarked {
+                    await model.toggleBookmark(entry)
+                }
             case .toggleBookmark:
                 await model.toggleBookmark(entry)
             case .toggleArchive:
@@ -735,6 +869,8 @@ private struct EntriesView: View {
     ) -> Bool {
         guard selectedEntryID == entry.id else { return false }
         switch action {
+        case .bookmark:
+            return false
         case .toggleBookmark:
             return activeSelection == .bookmarks
         case .toggleArchive, .archive, .moveToTrash, .restore, .deletePermanently:

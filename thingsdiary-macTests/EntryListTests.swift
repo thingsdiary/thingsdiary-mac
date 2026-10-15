@@ -80,6 +80,7 @@ func entryActionsMatchLifecycleState() {
 func resolvesEntryDropDestinations() {
     let active = listEntry(id: "active", content: "Active", topicID: "topic-1", updatedAt: 2)
     let payload = EntryDragPayload(diaryID: "diary-1", entryID: "active")
+    #expect(resolveEntryDrop(payload, to: .bookmarks, diaryID: "diary-1", entries: [active]) == .bookmark)
     #expect(resolveEntryDrop(payload, to: .topic("topic-2"), diaryID: "diary-1", entries: [active]) == .moveToTopic("topic-2"))
     #expect(resolveEntryDrop(payload, to: .archive, diaryID: "diary-1", entries: [active]) == .archive)
     #expect(resolveEntryDrop(payload, to: .trash, diaryID: "diary-1", entries: [active]) == .moveToTrash)
@@ -90,6 +91,8 @@ func resolvesEntryDropDestinations() {
     #expect(resolveEntryDrop(payload, to: .archive, diaryID: "diary-1", entries: [deleted]) == nil)
     let archived = listEntry(id: "active", content: "Active", archived: true, updatedAt: 2)
     #expect(resolveEntryDrop(payload, to: .archive, diaryID: "diary-1", entries: [archived]) == nil)
+    let bookmarked = listEntry(id: "active", content: "Active", bookmarked: true, updatedAt: 2)
+    #expect(resolveEntryDrop(payload, to: .bookmarks, diaryID: "diary-1", entries: [bookmarked]) == nil)
 }
 
 @Test("Confirmation is required for destructive entry actions")
@@ -98,6 +101,7 @@ func confirmsDestructiveEntryActions() {
     #expect(!entryActionRequiresConfirmation(.moveToTrash, content: "  \n"))
     #expect(entryActionRequiresConfirmation(.deletePermanently, content: ""))
     #expect(!entryActionRequiresConfirmation(.archive, content: "Some content"))
+    #expect(!entryActionRequiresConfirmation(.bookmark, content: "Some content"))
 }
 
 @Test("Entry list presentation separates title and preview")

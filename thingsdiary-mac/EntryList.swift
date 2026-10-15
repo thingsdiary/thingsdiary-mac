@@ -1,6 +1,4 @@
 import Foundation
-import CoreTransferable
-import UniformTypeIdentifiers
 import ThingsDiaryClient
 
 nonisolated enum EntrySection: String, CaseIterable, Identifiable {
@@ -28,6 +26,7 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 }
 
 nonisolated enum EntryAction: Equatable {
+    case bookmark
     case toggleBookmark
     case toggleArchive
     case archive
@@ -38,29 +37,23 @@ nonisolated enum EntryAction: Equatable {
     case deletePermanently
 }
 
-nonisolated enum EntryDropDestination: Equatable {
+nonisolated enum EntryDropDestination: Hashable {
+    case bookmarks
     case topic(String)
     case archive
     case trash
 }
 
 nonisolated enum EntryActionRequest: Equatable {
+    case bookmark
     case moveToTopic(String)
     case archive
     case moveToTrash
 }
 
-nonisolated struct EntryDragPayload: Codable, Hashable, Transferable {
+nonisolated struct EntryDragPayload {
     let diaryID: String
     let entryID: String
-
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .thingsDiaryEntry)
-    }
-}
-
-nonisolated extension UTType {
-    static let thingsDiaryEntry = UTType(exportedAs: "com.thingsdiary.entry")
 }
 
 nonisolated func resolveEntryDrop(
@@ -76,6 +69,9 @@ nonisolated func resolveEntryDrop(
     }
 
     switch destination {
+    case .bookmarks:
+        guard !entry.bookmarked else { return nil }
+        return .bookmark
     case let .topic(topicID):
         guard entry.topicID != topicID else { return nil }
         return .moveToTopic(topicID)
