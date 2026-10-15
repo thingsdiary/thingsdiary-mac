@@ -346,11 +346,27 @@ private struct EntriesView: View {
 						newEntryContent = ""
 						showingEntryCreator = true
 					} label: {
-						Label("New Entry", systemImage: "square.and.pencil")
-							.frame(maxWidth: .infinity, alignment: .leading)
+						HStack {
+							Label("New Entry", systemImage: "square.and.pencil")
+							Spacer(minLength: 0)
+						}
+						.padding(.horizontal, 7)
+						.padding(.vertical, 6)
+						.frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+						.contentShape(.rect)
+						.background {
+							RoundedRectangle(cornerRadius: 7, style: .continuous)
+								.fill(Color.accentColor.opacity(0.12))
+						}
+						.overlay {
+							RoundedRectangle(cornerRadius: 7, style: .continuous)
+								.stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+						}
 					}
 					.accessibilityIdentifier("entry.create")
 					.buttonStyle(.plain)
+					.keyboardShortcut("n", modifiers: .command)
+					.help("Create a new entry")
 
 					sidebarRow(
 						"Entries",

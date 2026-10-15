@@ -133,8 +133,10 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 	func testNewEntryButtonOpensCreationForm() {
 		let app = launchWorkspace()
+		let newEntryButton = app.buttons["entry.create"]
 
-		app.buttons["entry.create"].click()
+		XCTAssertTrue(newEntryButton.waitForExistence(timeout: 2))
+		newEntryButton.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).click()
 
 		XCTAssertTrue(app.descendants(matching: .any)["entry.new-content"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.buttons["Create"].exists)
