@@ -31,6 +31,23 @@ final class DiaryWorkspaceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Create"].exists)
     }
 
+    func testTopicsHeaderCollapsesAndExpandsItsRows() {
+        let app = launchWorkspace()
+        let header = app.buttons["topics.toggle"]
+        let topic = app.buttons["sidebar.topic.fixture-topic"]
+
+        XCTAssertTrue(header.waitForExistence(timeout: 2))
+        XCTAssertTrue(topic.exists)
+
+        header.click()
+        XCTAssertFalse(topic.waitForExistence(timeout: 1))
+        XCTAssertEqual(header.value as? String, "Collapsed")
+
+        header.click()
+        XCTAssertTrue(topic.waitForExistence(timeout: 2))
+        XCTAssertEqual(header.value as? String, "Expanded")
+    }
+
     func testEntryActionsAreAvailableFromRowAndEditorToolbar() {
         let app = launchWorkspace()
         let entry = app.descendants(matching: .any)["entry.fixture-entry"]

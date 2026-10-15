@@ -258,6 +258,7 @@ private struct EntriesView: View {
     @State private var topicColor = ""
     @State private var topicEntryPreviewable = true
     @State private var topicDefaultTemplateID: String?
+    @State private var topicsExpanded = true
     @State private var pendingTrashEntry: ThingsDiaryEntry?
     @State private var pendingPermanentDeletion: ThingsDiaryEntry?
     @State private var confirmingEmptyTrash = false
@@ -306,31 +307,50 @@ private struct EntriesView: View {
                     )
                 }
 
-                Section("Topics") {
-                    ForEach(model.topics) { topic in
-                        sidebarRow(
-                            topic.title,
-                            systemImage: "tag",
-                            destination: .topic(topic.id),
-                            identifier: "sidebar.topic.\(topic.id)",
-                            color: topicColorValue(topic.color),
-                            doubleClick: { beginEditing(topic) }
-                        )
-                    }
+                Section {
+                    if topicsExpanded {
+                        ForEach(model.topics) { topic in
+                            sidebarRow(
+                                topic.title,
+                                systemImage: "tag",
+                                destination: .topic(topic.id),
+                                identifier: "sidebar.topic.\(topic.id)",
+                                color: topicColorValue(topic.color),
+                                doubleClick: { beginEditing(topic) }
+                            )
+                        }
 
-                    Button {
-                        topicTitle = ""
-                        topicDescription = ""
-                        topicColor = topicColors[0]
-                        topicEntryPreviewable = true
-                        topicDefaultTemplateID = nil
-                        editingTopic = nil
-                        showingTopicCreator = true
-                    } label: {
-                        Label("New Topic", systemImage: "plus")
+                        Button {
+                            topicTitle = ""
+                            topicDescription = ""
+                            topicColor = topicColors[0]
+                            topicEntryPreviewable = true
+                            topicDefaultTemplateID = nil
+                            editingTopic = nil
+                            showingTopicCreator = true
+                        } label: {
+                            Label("New Topic", systemImage: "plus")
+                        }
+                        .accessibilityIdentifier("topic.create")
+                        .buttonStyle(.plain)
                     }
-                    .accessibilityIdentifier("topic.create")
+                } header: {
+                    Button {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            topicsExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: topicsExpanded ? "chevron.down" : "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                            Text("Topics")
+                            Spacer()
+                        }
+                        .contentShape(.rect)
+                    }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("topics.toggle")
+                    .accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
                 }
 
                 Section {
