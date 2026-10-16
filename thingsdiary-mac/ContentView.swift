@@ -500,7 +500,6 @@ private struct EntriesView: View {
 	@State private var confirmingEmptyTrash = false
 	@State private var editingTemplate: ThingsDiaryTemplate?
 	@State private var templateContent = ""
-	@State private var pendingSidebarSelection: DiaryNavigationSelection?
 	@State private var isEditorFocusMode = false
 	@State private var isEditorWorkspaceCompact = false
 	@State private var compactWorkspacePane: CompactWorkspacePane = .editor
@@ -1337,25 +1336,7 @@ private struct EntriesView: View {
 		let dropTint = dropDestination == .trash ? Color.red : color ?? Color.accentColor
 
 		return Button {
-			guard let doubleClick,
-				let event = NSApp.currentEvent,
-				event.type == .leftMouseUp
-			else {
-				selection = destination
-				return
-			}
-
-			if event.clickCount > 1 {
-				pendingSidebarSelection = nil
-				doubleClick()
-			} else {
-				pendingSidebarSelection = destination
-				DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval) {
-					guard pendingSidebarSelection == destination else { return }
-					selection = destination
-					pendingSidebarSelection = nil
-				}
-			}
+			selection = destination
 		} label: {
 			HStack(spacing: 8) {
 				if let color {
@@ -1406,6 +1387,7 @@ private struct EntriesView: View {
 			}
 			.animation(.easeOut(duration: 0.12), value: isDropTargeted)
 		}
+		.simultaneousGesture(TapGesture(count: 2).onEnded { doubleClick?() })
 		.buttonStyle(.plain)
 		.accessibilityIdentifier(identifier)
 		.accessibilityValue(isDropTargeted ? "Drop target" : "")
