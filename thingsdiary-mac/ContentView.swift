@@ -864,10 +864,10 @@ private struct EntriesView: View {
 					.lineLimit(1)
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
-				Color.clear
-					.frame(width: 20, height: 20)
-					.accessibilityHidden(true)
 			}
+			.padding(.leading, 9)
+			.padding(.trailing, 30)
+			.frame(width: width, height: 30)
 		}
 		.buttonStyle(.plain)
 		.accessibilityIdentifier("entry-tab.\(entry.id)")
@@ -878,17 +878,16 @@ private struct EntriesView: View {
 				} label: {
 					Image(systemName: "xmark")
 						.font(.system(size: 10, weight: .semibold))
-						.frame(width: 20, height: 20)
+						.frame(width: 28, height: 28)
+						.contentShape(.rect)
 				}
 				.buttonStyle(.plain)
-				.padding(.trailing, 9)
+				.padding(.trailing, 1)
 				.accessibilityIdentifier("entry-tab.close.\(entry.id)")
 				.accessibilityLabel("Close \(title)")
 				.help("Close \(title)")
 			}
 		}
-		.padding(.horizontal, 9)
-		.frame(width: width, height: 30)
 		.background(
 			isActive
 				? Color(nsColor: .controlBackgroundColor)
