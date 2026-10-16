@@ -14,6 +14,142 @@ private struct MenuMaterialBackground: NSViewRepresentable {
 	func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
+private final class WindowTitleHostingView: NSView {
+	var synchronizedTitle = "" {
+		didSet { synchronizeWindowTitle() }
+	}
+
+	override func viewDidMoveToWindow() {
+		super.viewDidMoveToWindow()
+		synchronizeWindowTitle()
+	}
+
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		nil
+	}
+
+	private func synchronizeWindowTitle() {
+		DispatchQueue.main.async { [weak self] in
+			guard let self, !synchronizedTitle.isEmpty else { return }
+			window?.title = synchronizedTitle
+		}
+	}
+}
+
+private struct WindowTitle: NSViewRepresentable {
+	let title: String
+
+	func makeNSView(context: Context) -> WindowTitleHostingView {
+		let view = WindowTitleHostingView()
+		view.synchronizedTitle = title
+		return view
+	}
+
+	func updateNSView(_ view: WindowTitleHostingView, context: Context) {
+		view.synchronizedTitle = title
+	}
+
+	static func dismantleNSView(_ view: WindowTitleHostingView, coordinator: ()) {
+		view.window?.title = "thingsdiary"
+	}
+}
+
+private final class EscapeHandlingSearchField: NSSearchField {
+	var escapeHandler: (() -> Void)?
+
+	override func cancelOperation(_ sender: Any?) {
+		escapeHandler?()
+	}
+}
+
+private struct InlineSearchField: NSViewRepresentable {
+	@Binding var text: String
+	@Binding var isFocused: Bool
+	let resetID: Int
+	let accessibilityLabel: String
+
+	func makeCoordinator() -> Coordinator {
+		Coordinator(self)
+	}
+
+	func makeNSView(context: Context) -> EscapeHandlingSearchField {
+		let field = EscapeHandlingSearchField()
+		field.delegate = context.coordinator
+		field.placeholderString = "Search"
+		field.sendsSearchStringImmediately = true
+		field.setAccessibilityIdentifier("entry-list.search")
+		field.setAccessibilityLabel(accessibilityLabel)
+		field.escapeHandler = { [weak field, weak coordinator = context.coordinator] in
+			guard let field, let coordinator else { return }
+			coordinator.handleEscape(in: field)
+		}
+		return field
+	}
+
+	func updateNSView(_ field: EscapeHandlingSearchField, context: Context) {
+		context.coordinator.parent = self
+		field.setAccessibilityLabel(accessibilityLabel)
+		let didReset = context.coordinator.applyResetIfNeeded(to: field)
+		if !didReset, field.currentEditor() == nil, field.stringValue != text {
+			field.stringValue = text
+		}
+
+		if isFocused {
+			guard field.currentEditor() == nil else { return }
+			DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
+		} else if field.currentEditor() != nil {
+			DispatchQueue.main.async { field.window?.makeFirstResponder(nil) }
+		}
+	}
+
+	final class Coordinator: NSObject, NSSearchFieldDelegate {
+		var parent: InlineSearchField
+		private var appliedResetID: Int
+
+		init(_ parent: InlineSearchField) {
+			self.parent = parent
+			appliedResetID = parent.resetID
+		}
+
+		func controlTextDidBeginEditing(_ notification: Notification) {
+			parent.isFocused = true
+		}
+
+		func controlTextDidEndEditing(_ notification: Notification) {
+			if let field = notification.object as? NSSearchField {
+				parent.text = field.stringValue
+			}
+			parent.isFocused = false
+		}
+
+		func controlTextDidChange(_ notification: Notification) {
+			guard let field = notification.object as? NSSearchField else { return }
+			parent.isFocused = true
+			parent.text = field.stringValue
+		}
+
+		func handleEscape(in field: NSSearchField) {
+			if field.stringValue.isEmpty {
+				parent.isFocused = false
+				field.window?.makeFirstResponder(nil)
+			} else {
+				field.stringValue = ""
+				parent.text = ""
+				parent.isFocused = true
+			}
+		}
+
+		func applyResetIfNeeded(to field: NSSearchField) -> Bool {
+			guard appliedResetID != parent.resetID else { return false }
+			appliedResetID = parent.resetID
+			if field.stringValue != parent.text {
+				field.stringValue = parent.text
+			}
+			return true
+		}
+	}
+}
+
 private struct EntryDropTargetFramesKey: PreferenceKey {
 	static var defaultValue: [EntryDropDestination: CGRect] = [:]
 
@@ -337,8 +473,9 @@ private struct EntriesView: View {
 	let diary: ThingsDiaryDiary
 	let entries: [ThingsDiaryEntry]
 	@State private var query = ""
+	@State private var searchIsFocused = false
+	@State private var searchResetID = 0
 	@State private var selection: DiaryNavigationSelection? = .entries
-	@State private var sort: EntrySort = .newest
 	@State private var newEntryContent = ""
 	@State private var showingEntryCreator = false
 	@State private var selectedEntryID: String?
@@ -371,7 +508,7 @@ private struct EntriesView: View {
 	@State private var sidebarWidth: CGFloat = 220
 
 	private var displayedEntries: [ThingsDiaryEntry] {
-		visibleEntries(entries, selection: activeSelection, query: query, sort: sort)
+		visibleEntries(entries, selection: activeSelection, query: query, sort: .newest)
 	}
 
 	private var activeSelection: DiaryNavigationSelection { selection ?? .entries }
@@ -409,6 +546,7 @@ private struct EntriesView: View {
 			}
 		}
 		.navigationSplitViewStyle(.balanced)
+		.background(WindowTitle(title: selectionTitle))
 		.onPreferenceChange(EntryDropTargetFramesKey.self) { frames in
 			dropTargetFrames = frames
 		}
@@ -440,9 +578,18 @@ private struct EntriesView: View {
 			maxHeight: .infinity
 		)
 		.onChange(of: selection) {
+			query = ""
+			searchIsFocused = false
+			searchResetID += 1
 			selectedEntryID = nil
 			isEditorFocusMode = false
 			compactWorkspacePane = .editor
+		}
+		.onChange(of: selectionIsEmpty) {
+			guard selectionIsEmpty else { return }
+			query = ""
+			searchIsFocused = false
+			searchResetID += 1
 		}
 		.onChange(of: selectedEntry?.id) {
 			guard selectedEntry == nil, selectedEntryID != nil else { return }
@@ -578,7 +725,6 @@ private struct EntriesView: View {
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.background(.background)
-		.searchable(text: $query)
 		.toolbar {
 			if showsEditorButton {
 				Button {
@@ -979,22 +1125,13 @@ private struct EntriesView: View {
 	}
 
 	private var entryListHeader: some View {
-		HStack {
-			Text(selectionTitle)
-				.font(.headline)
-				.accessibilityIdentifier("entry-list.title")
-				.accessibilityLabel(selectionTitle)
-			Spacer()
-			Menu {
-				Picker("Sort", selection: $sort) {
-					ForEach(EntrySort.allCases) { sort in
-						Text(sort.rawValue).tag(sort)
-					}
-				}
-			} label: {
-				Label(sort.rawValue, systemImage: "arrow.up.arrow.down")
-			}
-		}
+		InlineSearchField(
+			text: $query,
+			isFocused: $searchIsFocused,
+			resetID: searchResetID,
+			accessibilityLabel: "Search \(selectionTitle)"
+		)
+		.frame(height: 24)
 		.padding(.horizontal)
 		.padding(.vertical, 8)
 		.background(.background)

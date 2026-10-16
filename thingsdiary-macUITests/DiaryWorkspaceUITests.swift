@@ -36,6 +36,27 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(header.waitForExistence(timeout: 2))
 		XCTAssertTrue(rows.waitForExistence(timeout: 2))
 		XCTAssertFalse(header.frame.intersects(rows.frame))
+		let search = app.searchFields["Search Entries"]
+		XCTAssertTrue(search.exists)
+		XCTAssertGreaterThan(search.frame.width, header.frame.width * 0.8)
+		XCTAssertFalse(app.descendants(matching: .any)["entry-list.title"].exists)
+		XCTAssertFalse(app.buttons["Newest"].exists)
+		XCTAssertEqual(app.windows.firstMatch.title, "Entries")
+	}
+
+	func testSearchScopeChangesWhenSectionChanges() {
+		let app = launchWorkspace()
+		let workspace = app.dialogs.firstMatch.exists ? app.dialogs.firstMatch : app.windows.firstMatch
+		let search = workspace.searchFields["Search Entries"]
+
+		XCTAssertTrue(search.waitForExistence(timeout: 2))
+
+		workspace.buttons["sidebar.archive"].click()
+		let archiveSearch = workspace.searchFields["Search Archive"]
+		XCTAssertTrue(archiveSearch.waitForExistence(timeout: 2))
+		XCTAssertEqual(archiveSearch.value as? String, "")
+		XCTAssertTrue(workspace.descendants(matching: .any)["entry.fixture-archived-entry"].exists)
+		XCTAssertEqual(app.windows.firstMatch.title, "Archive")
 	}
 
 	func testOverviewColumnStaysHiddenInCompactWorkspace() {
@@ -100,6 +121,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		)
 		XCTAssertTrue(app.buttons["Browse Entries"].exists)
 		XCTAssertFalse(app.descendants(matching: .any)["entry-list.header"].exists)
+		XCTAssertFalse(app.searchFields["Search Work Topic"].exists)
 	}
 
 	func testDiaryMenuClosesWithoutLeavingWorkspace() {
