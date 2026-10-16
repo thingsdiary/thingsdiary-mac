@@ -25,6 +25,17 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 	case trash
 }
 
+nonisolated let minimumDiaryOverviewWidth: CGFloat = 820
+
+nonisolated func shouldShowEntryDetailColumn(
+	selectionIsEmpty: Bool,
+	hasSelectedEntry: Bool,
+	availableWidth: CGFloat
+) -> Bool {
+	guard !selectionIsEmpty else { return false }
+	return hasSelectedEntry || availableWidth >= minimumDiaryOverviewWidth
+}
+
 nonisolated enum EntryAction: Equatable {
 	case bookmark
 	case toggleBookmark

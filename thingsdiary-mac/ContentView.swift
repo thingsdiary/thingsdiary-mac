@@ -370,23 +370,14 @@ private struct EntriesView: View {
 	}
 
 	var body: some View {
-		Group {
-			if selectionIsEmpty {
-				NavigationSplitView {
-					sidebar
-				} detail: {
-					entryListPane
-				}
-			} else {
-				NavigationSplitView {
-					sidebar
-				} content: {
-					entryListPane
-						.navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
-				} detail: {
-					entryDetailPane
-				}
-			}
+		GeometryReader { proxy in
+			workspace(
+				showsDetailColumn: shouldShowEntryDetailColumn(
+					selectionIsEmpty: selectionIsEmpty,
+					hasSelectedEntry: selectedEntry != nil,
+					availableWidth: proxy.size.width
+				)
+			)
 		}
 		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
 			GeometryReader { proxy in
@@ -428,7 +419,6 @@ private struct EntriesView: View {
 			}
 		}
 		.frame(
-			minWidth: 900,
 			maxWidth: .infinity,
 			minHeight: 520,
 			maxHeight: .infinity
@@ -472,6 +462,25 @@ private struct EntriesView: View {
 			Button("Cancel", role: .cancel) {}
 		} message: {
 			Text("All entries in Trash will be deleted permanently. This cannot be undone.")
+		}
+	}
+
+	@ViewBuilder private func workspace(showsDetailColumn: Bool) -> some View {
+		if showsDetailColumn {
+			NavigationSplitView {
+				sidebar
+			} content: {
+				entryListPane
+					.navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
+			} detail: {
+				entryDetailPane
+			}
+		} else {
+			NavigationSplitView {
+				sidebar
+			} detail: {
+				entryListPane
+			}
 		}
 	}
 
@@ -557,12 +566,19 @@ private struct EntriesView: View {
 						newEntryContent = ""
 						showingEntryCreator = true
 					} label: {
-						HStack {
-							Label("New Entry", systemImage: "square.and.pencil")
-							Spacer(minLength: 8)
+						HStack(spacing: 8) {
+							Image(systemName: "square.and.pencil")
+								.frame(width: 16)
+								.foregroundStyle(.tint)
+							Text("New Entry")
+								.lineLimit(1)
+								.truncationMode(.tail)
+								.layoutPriority(1)
+							Spacer(minLength: 6)
 							Text("⌘N")
 								.font(.caption)
 								.foregroundStyle(.tertiary)
+								.fixedSize()
 						}
 						.padding(.horizontal, 7)
 						.padding(.vertical, 5)
@@ -598,6 +614,9 @@ private struct EntriesView: View {
 									.frame(width: 16)
 									.foregroundStyle(.tint)
 								Text("Topics")
+									.lineLimit(1)
+									.truncationMode(.tail)
+									.layoutPriority(1)
 								Spacer(minLength: 6)
 							}
 							.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
@@ -611,6 +630,9 @@ private struct EntriesView: View {
 										.foregroundStyle(.tint)
 									Text("Topics")
 										.foregroundStyle(.primary)
+										.lineLimit(1)
+										.truncationMode(.tail)
+										.layoutPriority(1)
 									Spacer(minLength: 6)
 								}
 								.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
@@ -691,7 +713,9 @@ private struct EntriesView: View {
 					)
 				}
 				.padding(10)
+				.frame(maxWidth: .infinity, alignment: .leading)
 			}
+			.frame(maxWidth: .infinity)
 		}
 		.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
 	}
@@ -708,6 +732,8 @@ private struct EntriesView: View {
 				Text(diary.title)
 					.font(.callout.weight(.semibold))
 					.lineLimit(1)
+					.truncationMode(.tail)
+					.layoutPriority(1)
 				Spacer(minLength: 6)
 				Image(systemName: "chevron.up.chevron.down")
 					.font(.caption2.weight(.semibold))
@@ -996,8 +1022,6 @@ private struct EntriesView: View {
 			coordinateSpace: .global
 		)
 		.onChanged { value in
-			selectedEntryID = entry.id
-			draftContent = entry.content
 			draggedEntryID = entry.id
 			dragLocation = value.location
 			targetedDropDestination = dropDestination(at: value.location)
@@ -1084,6 +1108,9 @@ private struct EntriesView: View {
 						.foregroundStyle(.tint)
 				}
 				Text(title)
+					.lineLimit(1)
+					.truncationMode(.tail)
+					.layoutPriority(1)
 				Spacer(minLength: 6)
 				ZStack(alignment: .trailing) {
 					Image(systemName: dropDestination == .trash ? "trash.fill" : "arrow.down.circle.fill")

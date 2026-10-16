@@ -132,6 +132,34 @@ func normalizesTopicTitles() {
 	#expect(normalizedTopicTitle("abcdefghijklmnop") == "abcdefghijkl")
 }
 
+@Test("Diary overview hides before it becomes too narrow")
+func adaptsDiaryOverviewToWorkspaceWidth() {
+	#expect(
+		!shouldShowEntryDetailColumn(
+			selectionIsEmpty: true,
+			hasSelectedEntry: false,
+			availableWidth: 1_000
+		))
+	#expect(
+		!shouldShowEntryDetailColumn(
+			selectionIsEmpty: false,
+			hasSelectedEntry: false,
+			availableWidth: minimumDiaryOverviewWidth - 1
+		))
+	#expect(
+		shouldShowEntryDetailColumn(
+			selectionIsEmpty: false,
+			hasSelectedEntry: false,
+			availableWidth: minimumDiaryOverviewWidth
+		))
+	#expect(
+		shouldShowEntryDetailColumn(
+			selectionIsEmpty: false,
+			hasSelectedEntry: true,
+			availableWidth: 520
+		))
+}
+
 private func listEntry(
 	id: String,
 	content: String,
