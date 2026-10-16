@@ -1280,6 +1280,7 @@ private struct EntriesView: View {
 						systemImage: "archivebox",
 						destination: .archive,
 						identifier: "sidebar.archive",
+						showsCount: false,
 						dropDestination: .archive
 					)
 					sidebarRow(
@@ -1287,6 +1288,7 @@ private struct EntriesView: View {
 						systemImage: "trash",
 						destination: .trash,
 						identifier: "sidebar.trash",
+						showsCount: false,
 						dropDestination: .trash
 					)
 				}
