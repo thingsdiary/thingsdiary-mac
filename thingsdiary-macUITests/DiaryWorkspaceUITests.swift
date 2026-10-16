@@ -1,6 +1,11 @@
 import XCTest
 
 final class DiaryWorkspaceUITests: XCTestCase {
+	override func tearDown() {
+		XCUIApplication().terminate()
+		super.tearDown()
+	}
+
 	private func launchWorkspace() -> XCUIApplication {
 		let app = XCUIApplication()
 		app.launchArguments = ["--ui-testing-workspace"]
