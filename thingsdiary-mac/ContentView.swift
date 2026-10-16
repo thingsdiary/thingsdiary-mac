@@ -14,46 +14,6 @@ private struct MenuMaterialBackground: NSViewRepresentable {
 	func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
-private final class WindowTitleHostingView: NSView {
-	var synchronizedTitle = "" {
-		didSet { synchronizeWindowTitle() }
-	}
-
-	override func viewDidMoveToWindow() {
-		super.viewDidMoveToWindow()
-		synchronizeWindowTitle()
-	}
-
-	override func hitTest(_ point: NSPoint) -> NSView? {
-		nil
-	}
-
-	private func synchronizeWindowTitle() {
-		DispatchQueue.main.async { [weak self] in
-			guard let self, !synchronizedTitle.isEmpty else { return }
-			window?.title = synchronizedTitle
-		}
-	}
-}
-
-private struct WindowTitle: NSViewRepresentable {
-	let title: String
-
-	func makeNSView(context: Context) -> WindowTitleHostingView {
-		let view = WindowTitleHostingView()
-		view.synchronizedTitle = title
-		return view
-	}
-
-	func updateNSView(_ view: WindowTitleHostingView, context: Context) {
-		view.synchronizedTitle = title
-	}
-
-	static func dismantleNSView(_ view: WindowTitleHostingView, coordinator: ()) {
-		view.window?.title = "thingsdiary"
-	}
-}
-
 private final class EscapeHandlingSearchField: NSSearchField {
 	var escapeHandler: (() -> Void)?
 
@@ -169,17 +129,6 @@ private struct DiarySwitcherAnchorKey: PreferenceKey {
 		nextValue: () -> Anchor<CGRect>?
 	) {
 		value = nextValue() ?? value
-	}
-}
-
-private struct SidebarWidthPreferenceKey: PreferenceKey {
-	static var defaultValue: CGFloat = 220
-
-	static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-		let nextValue = nextValue()
-		if nextValue > 0 {
-			value = nextValue
-		}
 	}
 }
 
@@ -478,8 +427,8 @@ private struct EntriesView: View {
 	@State private var selection: DiaryNavigationSelection? = .entries
 	@State private var newEntryContent = ""
 	@State private var showingEntryCreator = false
-	@State private var selectedEntryID: String?
-	@State private var draftContent = ""
+	@State private var tabs = EntryTabsState()
+	@State private var draftsByEntryID: [String: String] = [:]
 	@State private var showingTopicsAndTemplates = false
 	@State private var showingDiaryMenu = false
 	@State private var hoveredDiaryID: String?
@@ -504,7 +453,15 @@ private struct EntriesView: View {
 	@State private var isEditorWorkspaceCompact = false
 	@State private var compactWorkspacePane: CompactWorkspacePane = .editor
 	@State private var sidebarVisibility: NavigationSplitViewVisibility = .all
-	@State private var sidebarWidth: CGFloat = 220
+	@State private var currentWorkspaceLayout = EntryWorkspaceLayout.listOnly
+	@State private var availableWorkspaceWidth: CGFloat = 0
+	@State private var dragStartEntryListWidth: CGFloat?
+	@State private var hoveredEntryTabID: String?
+	@State private var availableEntryTabsWidth: CGFloat = 0
+	@State private var trafficLightsTrailingInset: CGFloat = 76
+	@State private var sidebarToggleInSidebar = true
+	@Namespace private var sidebarToggleNamespace
+	@SceneStorage("entries.preferredListWidth") private var preferredEntryListWidth = 320.0
 
 	private var displayedEntries: [ThingsDiaryEntry] {
 		visibleEntries(entries, selection: activeSelection, query: query, sort: .newest)
@@ -514,7 +471,35 @@ private struct EntriesView: View {
 	private var selectionIsEmpty: Bool { count(for: activeSelection) == 0 }
 
 	private var selectedEntry: ThingsDiaryEntry? {
-		entries.first { $0.id == selectedEntryID }
+		entries.first { $0.id == tabs.activeEntryID }
+	}
+
+	private var selectedDraftContent: String {
+		guard let selectedEntry else { return "" }
+		return draftsByEntryID[selectedEntry.id] ?? selectedEntry.content
+	}
+
+	private var selectedDraftBinding: Binding<String> {
+		Binding(
+			get: { selectedDraftContent },
+			set: { value in
+				guard let entryID = tabs.activeEntryID else { return }
+				draftsByEntryID[entryID] = value
+			}
+		)
+	}
+
+	private var openEntries: [ThingsDiaryEntry] {
+		tabs.openEntryIDs.compactMap { entryID in
+			entries.first { $0.id == entryID }
+		}
+	}
+
+	private var effectiveListWidth: CGFloat {
+		effectiveEntryListWidth(
+			preferredWidth: CGFloat(preferredEntryListWidth),
+			availableWidth: availableWorkspaceWidth
+		)
 	}
 
 	private func count(for selection: DiaryNavigationSelection) -> Int {
@@ -523,10 +508,11 @@ private struct EntriesView: View {
 
 	var body: some View {
 		NavigationSplitView(columnVisibility: $sidebarVisibility) {
-			sidebar
+			sidebarWorkspace
 		} detail: {
-			adaptiveWorkspace
+			entryWorkspace
 		}
+		.navigationSplitViewStyle(.balanced)
 		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
 			GeometryReader { proxy in
 				if showingDiaryMenu, let anchor {
@@ -544,14 +530,15 @@ private struct EntriesView: View {
 				}
 			}
 		}
-		.navigationSplitViewStyle(.balanced)
-		.background(WindowTitle(title: selectionTitle))
+		.background(
+			WorkspaceWindowChrome(
+				title: selectionTitle,
+				trafficLightsTrailingInset: $trafficLightsTrailingInset
+			)
+		)
+		.ignoresSafeArea(.container, edges: .top)
 		.onPreferenceChange(EntryDropTargetFramesKey.self) { frames in
 			dropTargetFrames = frames
-		}
-		.onPreferenceChange(SidebarWidthPreferenceKey.self) { width in
-			guard width > 0 else { return }
-			sidebarWidth = width
 		}
 		.overlay(alignment: .topLeading) {
 			GeometryReader { proxy in
@@ -576,13 +563,18 @@ private struct EntriesView: View {
 			minHeight: 520,
 			maxHeight: .infinity
 		)
+		.toolbar(removing: .sidebarToggle)
 		.onChange(of: selection) {
 			query = ""
 			searchIsFocused = false
 			searchResetID += 1
-			selectedEntryID = nil
-			isEditorFocusMode = false
-			compactWorkspacePane = .editor
+		}
+		.onChange(of: sidebarVisibility) {
+			let shouldAppearInSidebar = sidebarVisibility != .detailOnly
+			guard sidebarToggleInSidebar != shouldAppearInSidebar else { return }
+			withAnimation(.easeInOut(duration: 0.24)) {
+				sidebarToggleInSidebar = shouldAppearInSidebar
+			}
 		}
 		.onChange(of: selectionIsEmpty) {
 			guard selectionIsEmpty else { return }
@@ -590,11 +582,12 @@ private struct EntriesView: View {
 			searchIsFocused = false
 			searchResetID += 1
 		}
-		.onChange(of: selectedEntry?.id) {
-			guard selectedEntry == nil, selectedEntryID != nil else { return }
-			selectedEntryID = nil
-			isEditorFocusMode = false
-			compactWorkspacePane = .editor
+		.onChange(of: entries.map(\.id)) {
+			tabs.reconcile(validEntryIDs: Set(entries.map(\.id)))
+			if tabs.activeEntryID == nil {
+				isEditorFocusMode = false
+				compactWorkspacePane = .editor
+			}
 		}
 		.onChange(of: model.diarySettingsRequestID) {
 			presentRequestedDiarySettings()
@@ -635,12 +628,330 @@ private struct EntriesView: View {
 		}
 	}
 
+	private var sidebarWorkspace: some View {
+		VStack(spacing: 0) {
+			HStack(spacing: 0) {
+				Color.clear.frame(width: trafficLightsTrailingInset)
+				Spacer(minLength: 8)
+				if sidebarToggleInSidebar {
+					animatedSidebarToggleButton
+				}
+			}
+			.frame(height: workspaceTitlebarHeight)
+			.padding(.trailing, 10)
+			.background(WorkspaceWindowDragArea())
+			sidebar
+		}
+		.ignoresSafeArea(.container, edges: .top)
+		.accessibilityIdentifier("workspace.sidebar")
+	}
+
+	private var entryWorkspace: some View {
+		VStack(spacing: 0) {
+			workspaceHeader
+			Divider()
+			adaptiveWorkspace
+		}
+		.ignoresSafeArea(.container, edges: .top)
+		.background(.background)
+	}
+
+	@ViewBuilder private var workspaceHeader: some View {
+		Group {
+			switch currentWorkspaceLayout {
+			case .listOnly:
+				entryListTitlebar
+			case .split:
+				HStack(spacing: 0) {
+					entryListTitlebar
+						.frame(width: effectiveListWidth)
+					entryListDivider(isInteractive: true, height: workspaceTitlebarHeight)
+					entryTabsBar
+				}
+			case .editorOnly:
+				entryTabsBar
+			}
+		}
+		.frame(height: workspaceTitlebarHeight)
+		.background(TitlebarMaterialBackground())
+	}
+
+	private var entryListTitlebar: some View {
+		HStack(spacing: 10) {
+			if !sidebarToggleInSidebar {
+				Color.clear.frame(width: trafficLightsTrailingInset)
+				animatedSidebarToggleButton
+			}
+
+			Text(selectionTitle)
+				.font(.headline)
+				.lineLimit(1)
+				.accessibilityIdentifier("entry-list.section-title")
+
+			Spacer(minLength: 8)
+
+			if currentWorkspaceLayout == .listOnly, selectedEntry != nil {
+				Button {
+					compactWorkspacePane = .editor
+				} label: {
+					Image(systemName: "doc.text")
+				}
+				.frame(width: 28, height: 28)
+				.accessibilityIdentifier("workspace.show-editor")
+				.accessibilityLabel("Show Editor")
+				.help("Show Editor")
+			}
+
+			if activeSelection == .trash {
+				Button(role: .destructive) {
+					confirmingEmptyTrash = true
+				} label: {
+					Image(systemName: "trash")
+				}
+				.frame(width: 28, height: 28)
+				.disabled(displayedEntries.isEmpty)
+				.accessibilityIdentifier("trash.empty")
+				.accessibilityLabel("Empty Trash")
+				.help("Empty Trash")
+			} else if activeSelection != .archive {
+				Button(action: beginCreatingEntry) {
+					Image(systemName: "square.and.pencil")
+						.font(.system(size: 16, weight: .medium))
+				}
+				.frame(width: 28, height: 28)
+				.accessibilityIdentifier("entry.create")
+				.accessibilityLabel("New Entry")
+				.keyboardShortcut("n", modifiers: .command)
+				.help("Create a new entry")
+			}
+		}
+		.buttonStyle(.borderless)
+		.frame(
+			maxWidth: .infinity,
+			minHeight: workspaceTitlebarHeight,
+			maxHeight: workspaceTitlebarHeight
+		)
+		.padding(.horizontal, 10)
+		.background(WorkspaceWindowDragArea())
+		.accessibilityIdentifier("entry-list.titlebar")
+	}
+
+	private var sidebarToggleButton: some View {
+		Button(action: toggleSidebar) {
+			Image(systemName: "sidebar.left")
+				.font(.system(size: 16, weight: .medium))
+		}
+		.frame(width: 28, height: 28)
+		.buttonStyle(.borderless)
+		.accessibilityIdentifier("sidebar.toggle")
+		.accessibilityLabel(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
+		.help(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
+	}
+
+	private var animatedSidebarToggleButton: some View {
+		sidebarToggleButton
+			.matchedGeometryEffect(
+				id: "workspace-sidebar-toggle",
+				in: sidebarToggleNamespace,
+				properties: .position,
+				anchor: .center
+			)
+			.zIndex(2)
+	}
+
+	private var entryTabsBar: some View {
+		let tabWidth = adaptiveEntryTabWidth(
+			availableWidth: availableEntryTabsWidth,
+			tabCount: openEntries.count
+		)
+
+		return HStack(spacing: 8) {
+			if !sidebarToggleInSidebar, currentWorkspaceLayout == .editorOnly {
+				Color.clear.frame(width: trafficLightsTrailingInset)
+				animatedSidebarToggleButton
+			}
+
+			ScrollViewReader { scrollProxy in
+				ScrollView(.horizontal, showsIndicators: false) {
+					HStack(spacing: 0) {
+						ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
+							entryTab(entry, width: tabWidth)
+								.id(entry.id)
+							if index < openEntries.count - 1 {
+								let nextEntry = openEntries[index + 1]
+								let touchesHighlightedTab =
+									tabs.activeEntryID == entry.id
+									|| tabs.activeEntryID == nextEntry.id
+									|| hoveredEntryTabID == entry.id
+									|| hoveredEntryTabID == nextEntry.id
+								Divider()
+									.frame(height: 16)
+									.padding(.horizontal, 1)
+									.opacity(touchesHighlightedTab ? 0 : 0.55)
+									.allowsHitTesting(false)
+							}
+						}
+					}
+					.padding(.leading, 6)
+				}
+				.onChange(of: tabs.activeEntryID) {
+					guard let activeEntryID = tabs.activeEntryID else { return }
+					withAnimation(.easeInOut(duration: 0.16)) {
+						scrollProxy.scrollTo(activeEntryID, anchor: .center)
+					}
+				}
+			}
+			.frame(maxWidth: .infinity)
+			.background {
+				GeometryReader { proxy in
+					Color.clear
+						.onAppear { availableEntryTabsWidth = proxy.size.width }
+						.onChange(of: proxy.size.width) {
+							availableEntryTabsWidth = proxy.size.width
+						}
+				}
+			}
+
+			if let selectedEntry {
+				Divider()
+					.frame(height: 24)
+					.allowsHitTesting(false)
+				editorTitlebarActions(for: selectedEntry)
+			}
+		}
+		.frame(maxWidth: .infinity)
+		.frame(height: workspaceTitlebarHeight)
+		.padding(.trailing, 10)
+		.background(WorkspaceWindowDragArea())
+		.accessibilityIdentifier("entry-tabs.titlebar")
+	}
+
+	private func entryTab(_ entry: ThingsDiaryEntry, width: CGFloat) -> some View {
+		let draft = draftsByEntryID[entry.id] ?? entry.content
+		let title = entryListPresentation(content: draft).title
+		let isActive = tabs.activeEntryID == entry.id
+		let isDirty = draft != entry.content
+		let isHovered = hoveredEntryTabID == entry.id
+
+		return HStack(spacing: 6) {
+			Button {
+				activateEntryTab(entry.id)
+			} label: {
+				HStack(spacing: 6) {
+					if isDirty {
+						Circle()
+							.fill(.secondary)
+							.frame(width: 6, height: 6)
+					}
+					Text(title)
+						.lineLimit(1)
+						.frame(maxWidth: .infinity, alignment: .leading)
+						.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
+				}
+			}
+			.buttonStyle(.plain)
+			.accessibilityIdentifier("entry-tab.\(entry.id)")
+
+			Group {
+				if isActive {
+					Button {
+						closeEntryTab(entry.id)
+					} label: {
+						Image(systemName: "xmark")
+							.font(.system(size: 10, weight: .semibold))
+							.frame(width: 20, height: 20)
+					}
+					.buttonStyle(.plain)
+					.accessibilityIdentifier("entry-tab.close.\(entry.id)")
+					.accessibilityLabel("Close \(title)")
+					.help("Close \(title)")
+				} else {
+					Color.clear
+						.frame(width: 20, height: 20)
+						.accessibilityHidden(true)
+				}
+			}
+		}
+		.padding(.horizontal, 9)
+		.frame(width: width, height: 30)
+		.background(
+			isActive
+				? Color(nsColor: .controlBackgroundColor)
+				: Color.primary.opacity(isHovered ? 0.09 : 0.045),
+			in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+		)
+		.overlay {
+			RoundedRectangle(cornerRadius: 7, style: .continuous)
+				.stroke(isActive ? Color(nsColor: .separatorColor) : .clear)
+		}
+		.contentShape(.rect)
+		.onTapGesture { activateEntryTab(entry.id) }
+		.onHover { hovering in
+			if hovering {
+				hoveredEntryTabID = entry.id
+			} else if hoveredEntryTabID == entry.id {
+				hoveredEntryTabID = nil
+			}
+		}
+	}
+
+	private func editorTitlebarActions(for entry: ThingsDiaryEntry) -> some View {
+		HStack(spacing: 10) {
+			if isEditorFocusMode {
+				Button {
+					isEditorFocusMode = false
+					if isEditorWorkspaceCompact {
+						compactWorkspacePane = .list
+					}
+				} label: {
+					Image(systemName: "arrow.down.right.and.arrow.up.left")
+				}
+				.accessibilityIdentifier("workspace.exit-editor-focus")
+				.accessibilityLabel("Exit Editor Focus")
+				.help("Exit Editor Focus")
+			} else if currentWorkspaceLayout == .split {
+				Button {
+					isEditorFocusMode = true
+				} label: {
+					Image(systemName: "arrow.up.left.and.arrow.down.right")
+				}
+				.accessibilityIdentifier("workspace.focus-editor")
+				.accessibilityLabel("Focus Editor")
+				.help("Focus Editor")
+			} else {
+				Button {
+					compactWorkspacePane = .list
+				} label: {
+					Image(systemName: "list.bullet")
+				}
+				.accessibilityIdentifier("workspace.show-entry-list")
+				.accessibilityLabel("Show Entry List")
+				.help("Show Entry List")
+			}
+
+			Menu {
+				entryActions(for: entry)
+			} label: {
+				Image(systemName: "ellipsis.circle")
+			}
+			.menuStyle(.borderlessButton)
+			.accessibilityIdentifier("entry.actions")
+			.help("Entry Actions")
+
+			if entry.deletedAt == nil && !entry.archived {
+				Button("Save") {
+					saveSelectedEntry()
+				}
+				.keyboardShortcut("s", modifiers: .command)
+				.disabled(!canSave(entry))
+			}
+		}
+		.buttonStyle(.borderless)
+	}
+
 	private var adaptiveWorkspace: some View {
 		GeometryReader { proxy in
-			let availableWidth = max(
-				proxy.size.width - (sidebarVisibility == .detailOnly ? 0 : sidebarWidth),
-				0
-			)
+			let availableWidth = max(proxy.size.width, 0)
 			let compact = updatedEditorWorkspaceCompactState(
 				isCompact: isEditorWorkspaceCompact,
 				hasSelectedEntry: selectedEntry != nil,
@@ -656,12 +967,18 @@ private struct EntriesView: View {
 				compactPane: compactWorkspacePane
 			)
 
-			workspace(layout: layout)
+			workspace(layout: layout, availableWidth: availableWidth)
 				.onAppear {
+					currentWorkspaceLayout = layout
+					availableWorkspaceWidth = availableWidth
 					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
 				}
 				.onChange(of: availableWidth) {
+					availableWorkspaceWidth = availableWidth
 					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
+				}
+				.onChange(of: layout) {
+					currentWorkspaceLayout = layout
 				}
 				.onChange(of: selectedEntry?.id) {
 					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
@@ -672,27 +989,71 @@ private struct EntriesView: View {
 		}
 	}
 
-	@ViewBuilder private func workspace(layout: EntryWorkspaceLayout) -> some View {
+	@ViewBuilder private func workspace(
+		layout: EntryWorkspaceLayout,
+		availableWidth: CGFloat
+	) -> some View {
 		switch layout {
 		case .listOnly:
-			entryListPane(
-				showsEditorButton: selectedEntry != nil && compactWorkspacePane == .list
-			)
+			entryListPane()
 		case .split:
-			HSplitView {
-				entryListPane(showsEditorButton: false)
-					.frame(
-						minWidth: minimumEntryListWidth,
-						idealWidth: 320,
-						maxWidth: 440,
-						maxHeight: .infinity
-					)
+			let listWidth = effectiveEntryListWidth(
+				preferredWidth: CGFloat(preferredEntryListWidth),
+				availableWidth: availableWidth
+			)
+			HStack(spacing: 0) {
+				entryListPane()
+					.frame(width: listWidth)
+					.frame(maxHeight: .infinity)
+				entryListDivider(isInteractive: true)
 				entryDetailPane(layout: layout)
 					.frame(minWidth: minimumEntryEditorWidth, maxWidth: .infinity, maxHeight: .infinity)
 			}
 			.accessibilityIdentifier("workspace.split")
 		case .editorOnly:
 			entryDetailPane(layout: layout)
+		}
+	}
+
+	@ViewBuilder private func entryListDivider(
+		isInteractive: Bool,
+		height: CGFloat? = nil
+	) -> some View {
+		let divider = ZStack {
+			Color.clear
+			Rectangle()
+				.fill(Color(nsColor: .separatorColor))
+				.frame(width: 1)
+		}
+		.frame(width: entryListDividerWidth, height: height)
+		.contentShape(.rect)
+		.accessibilityIdentifier("workspace.entry-list-divider")
+
+		if isInteractive {
+			divider
+				.gesture(
+					DragGesture(minimumDistance: 0, coordinateSpace: .global)
+						.onChanged { value in
+							let start = dragStartEntryListWidth ?? effectiveListWidth
+							dragStartEntryListWidth = start
+							preferredEntryListWidth = Double(
+								min(
+									max(start + value.translation.width, minimumEntryListWidth),
+									440
+								)
+							)
+						}
+						.onEnded { _ in dragStartEntryListWidth = nil }
+				)
+				.onHover { hovering in
+					if hovering {
+						NSCursor.resizeLeftRight.set()
+					} else {
+						NSCursor.arrow.set()
+					}
+				}
+		} else {
+			divider
 		}
 	}
 
@@ -705,7 +1066,7 @@ private struct EntriesView: View {
 		)
 	}
 
-	private func entryListPane(showsEditorButton: Bool) -> some View {
+	private func entryListPane() -> some View {
 		Group {
 			if selectionIsEmpty {
 				emptyStateView
@@ -724,88 +1085,17 @@ private struct EntriesView: View {
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.background(.background)
-		.toolbar {
-			if showsEditorButton {
-				Button {
-					compactWorkspacePane = .editor
-				} label: {
-					Image(systemName: "doc.text")
-				}
-				.accessibilityIdentifier("workspace.show-editor")
-				.accessibilityLabel("Show Editor")
-				.help("Show Editor")
-			}
-
-			if activeSelection == .trash && !displayedEntries.isEmpty {
-				Button("Empty Trash", role: .destructive) {
-					confirmingEmptyTrash = true
-				}
-				.accessibilityIdentifier("trash.empty")
-			}
-		}
 	}
 
 	@ViewBuilder private func entryDetailPane(layout: EntryWorkspaceLayout) -> some View {
 		if let selectedEntry {
-			TextEditor(text: $draftContent)
+			TextEditor(text: selectedDraftBinding)
 				.accessibilityIdentifier("entry.editor")
 				.disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
+				.padding(.horizontal, 8)
+				.padding(.vertical, 6)
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
-				.toolbar {
-					ToolbarItemGroup(placement: .primaryAction) {
-						if isEditorFocusMode {
-							Button {
-								isEditorFocusMode = false
-								if isEditorWorkspaceCompact {
-									compactWorkspacePane = .list
-								}
-							} label: {
-								Image(systemName: "arrow.down.right.and.arrow.up.left")
-							}
-							.accessibilityIdentifier("workspace.exit-editor-focus")
-							.accessibilityLabel("Exit Editor Focus")
-							.help("Exit Editor Focus")
-						} else if layout == .split {
-							Button {
-								isEditorFocusMode = true
-							} label: {
-								Image(systemName: "arrow.up.left.and.arrow.down.right")
-							}
-							.accessibilityIdentifier("workspace.focus-editor")
-							.accessibilityLabel("Focus Editor")
-							.help("Focus Editor")
-						} else {
-							Button {
-								compactWorkspacePane = .list
-							} label: {
-								Image(systemName: "list.bullet")
-							}
-							.accessibilityIdentifier("workspace.show-entry-list")
-							.accessibilityLabel("Show Entry List")
-							.help("Show Entry List")
-						}
-
-						Menu {
-							entryActions(for: selectedEntry)
-						} label: {
-							Image(systemName: "ellipsis.circle")
-						}
-						.accessibilityIdentifier("entry.actions")
-						.help("Entry Actions")
-
-						if selectedEntry.deletedAt == nil && !selectedEntry.archived {
-							Button("Save") {
-								let entry = selectedEntry
-								let content = draftContent
-								Task {
-									await model.updateEntry(entry, content: content)
-								}
-							}
-							.keyboardShortcut("s", modifiers: .command)
-							.disabled(!canSave(selectedEntry))
-						}
-					}
-				}
+				.background(.background)
 		} else {
 			ContentUnavailableView {
 				Label(diary.title, systemImage: "book.closed")
@@ -825,34 +1115,6 @@ private struct EntriesView: View {
 
 			ScrollView {
 				VStack(alignment: .leading, spacing: 4) {
-					Button {
-						newEntryContent = ""
-						showingEntryCreator = true
-					} label: {
-						HStack(spacing: 8) {
-							Image(systemName: "square.and.pencil")
-								.frame(width: 16)
-								.foregroundStyle(.tint)
-							Text("New Entry")
-								.lineLimit(1)
-								.truncationMode(.tail)
-								.layoutPriority(1)
-							Spacer(minLength: 6)
-							Text("⌘N")
-								.font(.caption)
-								.foregroundStyle(.tertiary)
-								.fixedSize()
-						}
-						.padding(.horizontal, 7)
-						.padding(.vertical, 5)
-						.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-						.contentShape(.rect)
-					}
-					.accessibilityIdentifier("entry.create")
-					.buttonStyle(.plain)
-					.keyboardShortcut("n", modifiers: .command)
-					.help("Create a new entry")
-
 					sidebarRow(
 						"Entries",
 						systemImage: "note.text",
@@ -981,11 +1243,6 @@ private struct EntriesView: View {
 			.frame(maxWidth: .infinity)
 		}
 		.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
-		.background {
-			GeometryReader { proxy in
-				Color.clear.preference(key: SidebarWidthPreferenceKey.self, value: proxy.size.width)
-			}
-		}
 	}
 
 	private var diarySwitcher: some View {
@@ -1123,6 +1380,57 @@ private struct EntriesView: View {
 		showingTopicsAndTemplates = true
 	}
 
+	private func beginCreatingEntry() {
+		newEntryContent = ""
+		showingEntryCreator = true
+	}
+
+	private func toggleSidebar() {
+		let willHideSidebar = sidebarToggleInSidebar
+		withAnimation(.easeInOut(duration: 0.24)) {
+			sidebarToggleInSidebar.toggle()
+		}
+		let handled = NSApp.sendAction(
+			#selector(NSSplitViewController.toggleSidebar(_:)),
+			to: nil,
+			from: nil
+		)
+		guard !handled else { return }
+		withAnimation(.easeInOut(duration: 0.22)) {
+			sidebarVisibility = willHideSidebar ? .detailOnly : .all
+		}
+	}
+
+	private func openEntry(_ entry: ThingsDiaryEntry) {
+		tabs.open(entry.id)
+		if draftsByEntryID[entry.id] == nil {
+			draftsByEntryID[entry.id] = entry.content
+		}
+		compactWorkspacePane = .editor
+	}
+
+	private func activateEntryTab(_ entryID: String) {
+		guard tabs.openEntryIDs.contains(entryID) else { return }
+		tabs.activeEntryID = entryID
+		compactWorkspacePane = .editor
+	}
+
+	private func closeEntryTab(_ entryID: String) {
+		tabs.close(entryID)
+		if tabs.activeEntryID == nil {
+			isEditorFocusMode = false
+			compactWorkspacePane = .editor
+		}
+	}
+
+	private func saveSelectedEntry() {
+		guard let selectedEntry else { return }
+		let content = selectedDraftContent
+		Task {
+			await model.updateEntry(selectedEntry, content: content)
+		}
+	}
+
 	private var entryListHeader: some View {
 		InlineSearchField(
 			text: $query,
@@ -1174,9 +1482,7 @@ private struct EntriesView: View {
 						.opacity(draggedEntryID == entry.id ? 0.45 : 1)
 						.contentShape(.interaction, Rectangle())
 						.onTapGesture {
-							selectedEntryID = entry.id
-							draftContent = entry.content
-							compactWorkspacePane = .editor
+							openEntry(entry)
 						}
 						.highPriorityGesture(entryDragGesture(for: entry))
 						.accessibilityElement(children: .combine)
@@ -1272,8 +1578,8 @@ private struct EntriesView: View {
 	}
 
 	private func canSave(_ entry: ThingsDiaryEntry) -> Bool {
-		!draftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-			&& draftContent != entry.content
+		!selectedDraftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+			&& selectedDraftContent != entry.content
 	}
 
 	private func entryDragGesture(for entry: ThingsDiaryEntry) -> some Gesture {
@@ -1462,7 +1768,7 @@ private struct EntriesView: View {
 			}
 
 			if clearsSelection {
-				selectedEntryID = nil
+				closeEntryTab(entry.id)
 			}
 		}
 	}
@@ -1472,7 +1778,7 @@ private struct EntriesView: View {
 		entry: ThingsDiaryEntry,
 		topicID: String?
 	) -> Bool {
-		guard selectedEntryID == entry.id else { return false }
+		guard tabs.activeEntryID == entry.id else { return false }
 		switch action {
 		case .bookmark:
 			return false

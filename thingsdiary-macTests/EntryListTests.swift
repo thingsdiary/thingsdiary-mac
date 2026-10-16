@@ -239,6 +239,66 @@ func choosesEntryWorkspaceLayout() {
 	)
 }
 
+@Test("Entry tabs activate existing notes without duplicating them")
+func opensEntryTabsOnce() {
+	var tabs = EntryTabsState()
+	tabs.open("first")
+	tabs.open("second")
+	tabs.open("first")
+
+	#expect(tabs.openEntryIDs == ["first", "second"])
+	#expect(tabs.activeEntryID == "first")
+}
+
+@Test("Closing the active entry tab selects its nearest neighbor")
+func closesEntryTabsPredictably() {
+	var tabs = EntryTabsState(
+		openEntryIDs: ["first", "second", "third"],
+		activeEntryID: "second"
+	)
+
+	tabs.close("second")
+	#expect(tabs.openEntryIDs == ["first", "third"])
+	#expect(tabs.activeEntryID == "third")
+
+	tabs.close("third")
+	#expect(tabs.openEntryIDs == ["first"])
+	#expect(tabs.activeEntryID == "first")
+}
+
+@Test("Entry tabs discard notes that no longer exist")
+func reconcilesEntryTabs() {
+	var tabs = EntryTabsState(
+		openEntryIDs: ["first", "second", "third"],
+		activeEntryID: "second"
+	)
+
+	tabs.reconcile(validEntryIDs: ["first", "third"])
+	#expect(tabs.openEntryIDs == ["first", "third"])
+	#expect(tabs.activeEntryID == "third")
+}
+
+@Test("Entry list width preserves the preference within safe bounds")
+func clampsEntryListWidth() {
+	#expect(effectiveEntryListWidth(preferredWidth: 360, availableWidth: 1_200) == 360)
+	#expect(effectiveEntryListWidth(preferredWidth: 120, availableWidth: 1_200) == 260)
+	#expect(effectiveEntryListWidth(preferredWidth: 900, availableWidth: 1_000) == 440)
+	#expect(
+		effectiveEntryListWidth(
+			preferredWidth: 360,
+			availableWidth: minimumSplitWorkspaceWidth
+		) == minimumEntryListWidth
+	)
+}
+
+@Test("Entry tabs shrink evenly before overflowing")
+func adaptsEntryTabWidth() {
+	#expect(adaptiveEntryTabWidth(availableWidth: 600, tabCount: 0) == maximumEntryTabWidth)
+	#expect(adaptiveEntryTabWidth(availableWidth: 600, tabCount: 2) == maximumEntryTabWidth)
+	#expect(adaptiveEntryTabWidth(availableWidth: 420, tabCount: 3) == 138)
+	#expect(adaptiveEntryTabWidth(availableWidth: 300, tabCount: 8) == minimumEntryTabWidth)
+}
+
 private func listEntry(
 	id: String,
 	content: String,

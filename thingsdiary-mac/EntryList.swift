@@ -27,9 +27,59 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 
 nonisolated let minimumEntryListWidth: CGFloat = 260
 nonisolated let minimumEntryEditorWidth: CGFloat = 420
+nonisolated let entryListDividerWidth: CGFloat = 9
+nonisolated let minimumEntryTabWidth: CGFloat = 92
+nonisolated let maximumEntryTabWidth: CGFloat = 170
+nonisolated let entryTabSpacing: CGFloat = 3
+nonisolated let workspaceTitlebarHeight: CGFloat = 46
 nonisolated let editorWorkspaceFocusHysteresis: CGFloat = 60
-nonisolated let minimumSplitWorkspaceWidth = minimumEntryListWidth + minimumEntryEditorWidth
+nonisolated let minimumSplitWorkspaceWidth =
+	minimumEntryListWidth + entryListDividerWidth + minimumEntryEditorWidth
 nonisolated let minimumDiaryOverviewWidth: CGFloat = 620
+
+nonisolated struct EntryTabsState: Equatable {
+	var openEntryIDs: [String] = []
+	var activeEntryID: String?
+
+	mutating func open(_ entryID: String) {
+		if !openEntryIDs.contains(entryID) {
+			openEntryIDs.append(entryID)
+		}
+		activeEntryID = entryID
+	}
+
+	mutating func close(_ entryID: String) {
+		guard let index = openEntryIDs.firstIndex(of: entryID) else { return }
+		openEntryIDs.remove(at: index)
+		guard activeEntryID == entryID else { return }
+		activeEntryID = openEntryIDs.indices.contains(index) ? openEntryIDs[index] : openEntryIDs.last
+	}
+
+	mutating func reconcile(validEntryIDs: Set<String>) {
+		openEntryIDs.removeAll { !validEntryIDs.contains($0) }
+		if let activeEntryID, !validEntryIDs.contains(activeEntryID) {
+			self.activeEntryID = openEntryIDs.last
+		}
+	}
+}
+
+nonisolated func effectiveEntryListWidth(
+	preferredWidth: CGFloat,
+	availableWidth: CGFloat
+) -> CGFloat {
+	let maximumWidth = min(440, availableWidth - entryListDividerWidth - minimumEntryEditorWidth)
+	return min(max(preferredWidth, minimumEntryListWidth), max(maximumWidth, minimumEntryListWidth))
+}
+
+nonisolated func adaptiveEntryTabWidth(
+	availableWidth: CGFloat,
+	tabCount: Int
+) -> CGFloat {
+	guard tabCount > 0 else { return maximumEntryTabWidth }
+	let separatorsWidth = CGFloat(max(tabCount - 1, 0)) * entryTabSpacing
+	let fittedWidth = floor((max(availableWidth, 0) - separatorsWidth) / CGFloat(tabCount))
+	return min(maximumEntryTabWidth, max(minimumEntryTabWidth, fittedWidth))
+}
 
 nonisolated enum CompactWorkspacePane: Equatable {
 	case list
