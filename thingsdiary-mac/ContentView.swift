@@ -510,6 +510,7 @@ private struct EntriesView: View {
 	var body: some View {
 		NavigationSplitView(columnVisibility: $sidebarVisibility) {
 			sidebarWorkspace
+				.toolbar(removing: .sidebarToggle)
 		} detail: {
 			entryWorkspace
 		}
@@ -564,7 +565,6 @@ private struct EntriesView: View {
 			minHeight: 520,
 			maxHeight: .infinity
 		)
-		.toolbar(removing: .sidebarToggle)
 		.onChange(of: selection) {
 			query = ""
 			searchIsFocused = false
