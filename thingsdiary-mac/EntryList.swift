@@ -37,6 +37,14 @@ nonisolated let minimumSplitWorkspaceWidth =
 	minimumEntryListWidth + entryListDividerWidth + minimumEntryEditorWidth
 nonisolated let minimumDiaryOverviewWidth: CGFloat = 620
 
+nonisolated func diarySettingsVisible(
+	for diaryID: String,
+	firstDiaryID: String?,
+	hoveredDiaryID: String?
+) -> Bool {
+	diaryID == (hoveredDiaryID ?? firstDiaryID)
+}
+
 nonisolated struct EntryTabsState: Equatable {
 	var openEntryIDs: [String] = []
 	var activeEntryID: String?

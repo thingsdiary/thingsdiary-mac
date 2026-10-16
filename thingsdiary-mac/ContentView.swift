@@ -1300,7 +1300,12 @@ private struct EntriesView: View {
 
 	private var diarySwitcher: some View {
 		Button {
-			showingDiaryMenu.toggle()
+			if showingDiaryMenu {
+				showingDiaryMenu = false
+			} else {
+				hoveredDiaryID = nil
+				showingDiaryMenu = true
+			}
 		} label: {
 			HStack(spacing: 8) {
 				Image(systemName: "book.closed")
@@ -1380,7 +1385,11 @@ private struct EntriesView: View {
 
 	private func diaryMenuRow(_ candidate: ThingsDiaryDiary) -> some View {
 		let isSelected = candidate.id == diary.id
-		let settingsVisible = hoveredDiaryID == candidate.id
+		let settingsVisible = diarySettingsVisible(
+			for: candidate.id,
+			firstDiaryID: model.availableDiaries.first?.id,
+			hoveredDiaryID: hoveredDiaryID
+		)
 
 		return HStack(spacing: 2) {
 			Button {
