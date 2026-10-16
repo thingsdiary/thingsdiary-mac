@@ -420,8 +420,286 @@ func diaryStoreSynchronizesPermanentDelete() async throws {
 	#expect(await store.pendingEntryWrites().isEmpty)
 }
 
+@Test("A save queued during change pulling is synchronized before its caller returns")
+func diaryStoreDrainsWritesQueuedDuringPull() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-pull-race-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let diary = ThingsDiaryDiary(
+		id: "diary-1",
+		title: "Personal",
+		description: "",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 1),
+		version: 1
+	)
+	let first = ThingsDiaryEntry(
+		id: "entry-1",
+		diaryID: diary.id,
+		content: "First",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 2),
+		version: 2
+	)
+	let second = ThingsDiaryEntry(
+		id: first.id,
+		diaryID: diary.id,
+		content: "Second",
+		createdAt: first.createdAt,
+		updatedAt: Date(timeIntervalSince1970: 3),
+		version: 3
+	)
+	let store = try DiaryStore(fileURL: fileURL)
+	try await store.replaceSelectedDiary(diary, entries: [])
+	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: first))
+	let remote = DelayedPullRemote()
+	let firstSynchronization = Task { try await store.synchronize(with: remote) }
+	for _ in 0..<100 {
+		if await remote.pullStarted { break }
+		try await Task.sleep(for: .milliseconds(1))
+	}
+	#expect(await remote.pullStarted)
+
+	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: second))
+	let secondSynchronization = Task { try await store.synchronize(with: remote) }
+	try await firstSynchronization.value
+	try await secondSynchronization.value
+
+	#expect(await remote.receivedContents == ["First", "Second"])
+	#expect(await store.pendingEntryWrites().isEmpty)
+	#expect(await store.entries(diaryID: diary.id) == [second])
+}
+
+@Test("A pulled entry cannot overwrite a local save made while it is loading")
+func diaryStorePreservesSaveDuringEntryPull() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-entry-pull-race-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let diary = ThingsDiaryDiary(
+		id: "diary-1",
+		title: "Personal",
+		description: "",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 1),
+		version: 1
+	)
+	let original = ThingsDiaryEntry(
+		id: "entry-1",
+		diaryID: diary.id,
+		content: "Original",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 1),
+		version: 1
+	)
+	let serverEntry = ThingsDiaryEntry(
+		id: original.id,
+		diaryID: diary.id,
+		content: "Server",
+		createdAt: original.createdAt,
+		updatedAt: Date(timeIntervalSince1970: 2),
+		version: 2
+	)
+	let localEntry = ThingsDiaryEntry(
+		id: original.id,
+		diaryID: diary.id,
+		content: "Local while pulling",
+		createdAt: original.createdAt,
+		updatedAt: Date(timeIntervalSince1970: 3),
+		version: 3
+	)
+	let change = ThingsDiaryChange(
+		id: "change-1",
+		createdAt: Date(timeIntervalSince1970: 2),
+		operation: .updated,
+		entityType: .entry,
+		entityID: original.id
+	)
+	let store = try DiaryStore(fileURL: fileURL)
+	try await store.replaceSelectedDiary(diary, entries: [original])
+	let remote = DelayedEntryPullRemote(change: change, serverEntry: serverEntry)
+	let synchronization = Task { try await store.synchronize(with: remote) }
+	for _ in 0..<100 {
+		if await remote.getEntryStarted { break }
+		try await Task.sleep(for: .milliseconds(1))
+	}
+	#expect(await remote.getEntryStarted)
+
+	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: localEntry))
+	try await synchronization.value
+
+	#expect(await remote.receivedUpdateContents == [localEntry.content])
+	#expect(await store.pendingEntryWrites().isEmpty)
+	#expect(await store.entries(diaryID: diary.id) == [localEntry])
+}
+
+@Test("A stale conflict cannot remove a newer write for the same note")
+func diaryStorePreservesNewerWriteAfterConflict() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-conflict-race-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let oldWrite = ThingsDiaryEntry(
+		id: "entry-1",
+		diaryID: "diary-1",
+		content: "Old local",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 2),
+		version: 2
+	)
+	let newWrite = ThingsDiaryEntry(
+		id: oldWrite.id,
+		diaryID: oldWrite.diaryID,
+		content: "Newest local",
+		createdAt: oldWrite.createdAt,
+		updatedAt: Date(timeIntervalSince1970: 3),
+		version: 3
+	)
+	let serverEntry = ThingsDiaryEntry(
+		id: oldWrite.id,
+		diaryID: oldWrite.diaryID,
+		content: "Server",
+		createdAt: oldWrite.createdAt,
+		updatedAt: Date(timeIntervalSince1970: 4),
+		version: 4
+	)
+	let store = try DiaryStore(fileURL: fileURL)
+	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: oldWrite))
+	let remote = DelayedConflictThenSuccessRemote(serverEntry: serverEntry)
+	let synchronization = Task { try await store.synchronize(with: remote) }
+	for _ in 0..<100 {
+		if await remote.firstUpdateStarted { break }
+		try await Task.sleep(for: .milliseconds(1))
+	}
+	#expect(await remote.firstUpdateStarted)
+
+	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: newWrite))
+	try await synchronization.value
+
+	#expect(await remote.receivedContents == ["Old local", "Newest local"])
+	#expect(await store.pendingEntryWrites().isEmpty)
+	#expect(await store.entryConflicts().isEmpty)
+	#expect(await store.entries(diaryID: oldWrite.diaryID) == [newWrite])
+}
+
 private enum SyncTestFailure: Error {
 	case lostResponse
+}
+
+private actor DelayedPullRemote: DiaryStoreRemote {
+	private(set) var pullStarted = false
+	private(set) var receivedContents: [String] = []
+
+	func createEntry(
+		diaryID: String,
+		entryID: String,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry {
+		throw SyncTestFailure.lostResponse
+	}
+
+	func updateEntry(
+		_ entry: ThingsDiaryEntry,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry {
+		receivedContents.append(params.content)
+		return entry
+	}
+
+	func getDiaryChanges(
+		diaryID: String,
+		since: Date?,
+		limit: Int?,
+		nextPageToken: String?
+	) async throws -> ThingsDiaryChangesPage {
+		if !pullStarted {
+			pullStarted = true
+			try await Task.sleep(for: .milliseconds(100))
+		}
+		return ThingsDiaryChangesPage(changes: [], nextPageToken: nil)
+	}
+}
+
+private actor DelayedConflictThenSuccessRemote: DiaryStoreRemote {
+	let serverEntry: ThingsDiaryEntry
+	private(set) var firstUpdateStarted = false
+	private(set) var receivedContents: [String] = []
+
+	init(serverEntry: ThingsDiaryEntry) {
+		self.serverEntry = serverEntry
+	}
+
+	func createEntry(
+		diaryID: String,
+		entryID: String,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry {
+		throw SyncTestFailure.lostResponse
+	}
+
+	func updateEntry(
+		_ entry: ThingsDiaryEntry,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry {
+		receivedContents.append(params.content)
+		if !firstUpdateStarted {
+			firstUpdateStarted = true
+			try await Task.sleep(for: .milliseconds(100))
+			throw ThingsDiaryClientError.httpStatus(409, body: Data())
+		}
+		return entry
+	}
+
+	func getEntry(
+		diaryID: String,
+		entryID: String
+	) async throws -> ThingsDiaryEntry {
+		serverEntry
+	}
+}
+
+private actor DelayedEntryPullRemote: DiaryStoreRemote {
+	let change: ThingsDiaryChange
+	let serverEntry: ThingsDiaryEntry
+	private(set) var getEntryStarted = false
+	private(set) var receivedUpdateContents: [String] = []
+
+	init(change: ThingsDiaryChange, serverEntry: ThingsDiaryEntry) {
+		self.change = change
+		self.serverEntry = serverEntry
+	}
+
+	func createEntry(
+		diaryID: String,
+		entryID: String,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry {
+		throw SyncTestFailure.lostResponse
+	}
+
+	func updateEntry(
+		_ entry: ThingsDiaryEntry,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry {
+		receivedUpdateContents.append(params.content)
+		return entry
+	}
+
+	func getDiaryChanges(
+		diaryID: String,
+		since: Date?,
+		limit: Int?,
+		nextPageToken: String?
+	) async throws -> ThingsDiaryChangesPage {
+		ThingsDiaryChangesPage(changes: [change], nextPageToken: nil)
+	}
+
+	func getEntry(
+		diaryID: String,
+		entryID: String
+	) async throws -> ThingsDiaryEntry {
+		getEntryStarted = true
+		try await Task.sleep(for: .milliseconds(100))
+		return serverEntry
+	}
 }
 
 private actor LostCreateResponseRemote: DiaryStoreRemote {

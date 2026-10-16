@@ -14,6 +14,56 @@ private struct MenuMaterialBackground: NSViewRepresentable {
 	func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
+private struct TitlebarIconButton: View {
+	enum Backdrop {
+		case clear
+		case titlebar
+	}
+
+	let systemImage: String
+	let backdrop: Backdrop
+	let iconSize: CGFloat
+	let action: () -> Void
+
+	@State private var isHovered = false
+
+	init(
+		systemImage: String,
+		backdrop: Backdrop = .clear,
+		iconSize: CGFloat = 13,
+		action: @escaping () -> Void
+	) {
+		self.systemImage = systemImage
+		self.backdrop = backdrop
+		self.iconSize = iconSize
+		self.action = action
+	}
+
+	var body: some View {
+		Button(action: action) {
+			ZStack {
+				RoundedRectangle(cornerRadius: 5, style: .continuous)
+					.fill(Color.primary.opacity(isHovered ? 0.1 : 0))
+					.frame(width: 22, height: 22)
+
+				Image(systemName: systemImage)
+					.font(.system(size: iconSize, weight: .semibold))
+			}
+			.frame(width: 28, height: 28, alignment: .center)
+			.contentShape(.rect)
+		}
+		.buttonStyle(.plain)
+		.frame(width: 28, height: 28, alignment: .center)
+		.background {
+			if backdrop == .titlebar {
+				TitlebarMaterialBackground()
+			}
+		}
+		.onHover { isHovered = $0 }
+		.animation(.easeOut(duration: 0.1), value: isHovered)
+	}
+}
+
 private final class EscapeHandlingSearchField: NSSearchField {
 	var escapeHandler: (() -> Void)?
 
@@ -456,7 +506,6 @@ private struct EntriesView: View {
 	@State private var availableWorkspaceWidth: CGFloat = 0
 	@State private var dragStartEntryListWidth: CGFloat?
 	@State private var hoveredEntryTabID: String?
-	@State private var hoveredEntryTabCloseID: String?
 	@State private var availableEntryTabsWidth: CGFloat = 0
 	@State private var entryTabReorderSession: EntryTabReorderSession?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
@@ -854,12 +903,12 @@ private struct EntriesView: View {
 					}
 				}
 
-				Button(action: beginCreatingTabDraft) {
-					Image(systemName: "plus")
-						.frame(width: 24, height: 28)
-						.contentShape(.rect)
-				}
-				.buttonStyle(.borderless)
+				TitlebarIconButton(
+					systemImage: "plus",
+					backdrop: .titlebar,
+					action: beginCreatingTabDraft
+				)
+				.frame(width: entryTabCreateButtonWidth)
 				.accessibilityIdentifier("entry-tab.create")
 				.accessibilityLabel("New Entry Tab")
 				.help("New Entry Tab")
@@ -884,9 +933,8 @@ private struct EntriesView: View {
 		let isActive = tabs.activeEntryID == entry.id
 		let isDirty = draft != entry.content
 		let isHovered = hoveredEntryTabID == entry.id
-		let isCloseHovered = hoveredEntryTabCloseID == entry.id
 		let isDragged = entryTabReorderSession?.entryID == entry.id
-		let showsCloseButton = isActive || isHovered || isCloseHovered
+		let showsCloseButton = isActive || isHovered
 
 		return Button {
 			activateEntryTab(entry.id)
@@ -913,29 +961,13 @@ private struct EntriesView: View {
 		.accessibilityIdentifier("entry-tab.\(entry.id)")
 		.overlay(alignment: .trailing) {
 			if showsCloseButton {
-				Button {
-					hoveredEntryTabCloseID = nil
+				TitlebarIconButton(systemImage: "xmark", iconSize: 10) {
 					closeEntryTab(entry.id)
-				} label: {
-					Image(systemName: "xmark")
-						.font(.system(size: 10, weight: .semibold))
-						.frame(width: 22, height: 22)
-						.background(
-							Color.primary.opacity(isCloseHovered ? 0.1 : 0),
-							in: RoundedRectangle(cornerRadius: 5, style: .continuous)
-						)
-						.frame(width: 28, height: 28)
-						.contentShape(.rect)
 				}
-				.buttonStyle(.plain)
 				.padding(.trailing, 1)
 				.accessibilityIdentifier("entry-tab.close.\(entry.id)")
 				.accessibilityLabel("Close \(title)")
 				.help("Close \(title)")
-				.onHover { hovering in
-					hoveredEntryTabCloseID = hovering ? entry.id : nil
-				}
-				.animation(.easeOut(duration: 0.1), value: isCloseHovered)
 			}
 		}
 		.background(
@@ -1020,38 +1052,34 @@ private struct EntriesView: View {
 	private func editorTitlebarActions(for entry: ThingsDiaryEntry) -> some View {
 		HStack(spacing: 10) {
 			if isEditorFocusMode {
-				Button {
+				TitlebarIconButton(systemImage: "arrow.down.right.and.arrow.up.left") {
 					isEditorFocusMode = false
 					if isEditorWorkspaceCompact {
 						compactWorkspacePane = .list
 					}
-				} label: {
-					Image(systemName: "arrow.down.right.and.arrow.up.left")
 				}
 				.accessibilityIdentifier("workspace.exit-editor-focus")
 				.accessibilityLabel("Exit Editor Focus")
 				.help("Exit Editor Focus")
 			} else if currentWorkspaceLayout == .split {
-				Button {
+				TitlebarIconButton(systemImage: "arrow.up.left.and.arrow.down.right") {
 					isEditorFocusMode = true
-				} label: {
-					Image(systemName: "arrow.up.left.and.arrow.down.right")
 				}
 				.accessibilityIdentifier("workspace.focus-editor")
 				.accessibilityLabel("Focus Editor")
 				.help("Focus Editor")
 			} else {
-				Button {
+				TitlebarIconButton(systemImage: "list.bullet") {
 					compactWorkspacePane = .list
-				} label: {
-					Image(systemName: "list.bullet")
 				}
 				.accessibilityIdentifier("workspace.show-entry-list")
 				.accessibilityLabel("Show Entry List")
 				.help("Show Entry List")
 			}
 
-			if !model.entryDraftIDs.contains(entry.id) {
+			if !model.entryDraftIDs.contains(entry.id)
+				&& !model.entryPendingCreationIDs.contains(entry.id)
+			{
 				Menu {
 					entryActions(for: entry)
 				} label: {

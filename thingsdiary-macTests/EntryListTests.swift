@@ -331,7 +331,7 @@ func newTabButtonFollowsLastTab() {
 		entryTabCreateButtonOffset(
 			availableWidth: 500,
 			tabsContentWidth: tabsWidth
-		) == 357
+		) == 352
 	)
 }
 
@@ -344,7 +344,7 @@ func newTabButtonStaysPinned() {
 		entryTabCreateButtonOffset(
 			availableWidth: 400,
 			tabsContentWidth: tabsWidth
-		) == 376
+		) == 372
 	)
 }
 

@@ -522,12 +522,67 @@ func promotesHiddenTabDraftOnFirstEdit() async {
 
 	#expect(model.entryDraftIDs.isEmpty)
 	#expect(model.entryDraftIDsHiddenFromList.isEmpty)
+	#expect(model.entryPendingCreationIDs == [draftID])
 	guard case .entries(_, let entries) = model.screen else {
 		Issue.record("Expected the selected diary")
 		return
 	}
 	#expect(entries.first?.id == draftID)
 	#expect(entries.first?.content == "Started writing")
+}
+
+@MainActor
+@Test("Editing a note while its create is in flight preserves the latest content")
+func editingEntryDuringCreatePreservesLatestContent() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-app-create-race-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let store = try DiaryStore(fileURL: fileURL)
+	let firstServerEntry = entry(
+		id: "draft-id",
+		diaryID: selectedDiary.id,
+		content: "First"
+	)
+	let latestServerEntry = entry(
+		id: "draft-id",
+		diaryID: selectedDiary.id,
+		content: "Latest"
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		stableCreateEntryResult: .success(firstServerEntry),
+		stableCreateEntryDelay: .milliseconds(100),
+		updateEntryResult: .success(latestServerEntry)
+	)
+	let model = ThingsDiaryAppModel(client: client, store: store)
+	await model.selectDiary(selectedDiary)
+	let draft = try #require(model.beginEntryDraft(appearsInList: false))
+
+	model.promoteEntryDraft(draft.id, content: "First")
+	for _ in 0..<100 {
+		if await client.receivedStableCreateParams != nil { break }
+		try await Task.sleep(for: .milliseconds(1))
+	}
+	#expect(await client.receivedStableCreateParams?.content == "First")
+	guard case .entries(_, let entries) = model.screen,
+		let promotedEntry = entries.first(where: { $0.id == draft.id })
+	else {
+		Issue.record("Expected the promoted entry")
+		return
+	}
+
+	await model.updateEntry(promotedEntry, content: "Latest")
+
+	#expect(await client.receivedUpdateParams?.content == "Latest")
+	#expect(await store.pendingEntryWrites().isEmpty)
+	#expect(await store.entries(diaryID: selectedDiary.id).first?.content == "Latest")
+	#expect(model.entryPendingCreationIDs.isEmpty)
+	guard case .entries(_, let updatedEntries) = model.screen else {
+		Issue.record("Expected the selected diary")
+		return
+	}
+	#expect(updatedEntries.first(where: { $0.id == draft.id })?.content == "Latest")
 }
 
 @MainActor
@@ -733,8 +788,8 @@ func updatesEntryOffline() async throws {
 }
 
 @MainActor
-@Test("Saving one note keeps other in-memory drafts open")
-func savingEntryPreservesOtherDrafts() async throws {
+@Test("Saving one note keeps a draft opened during synchronization")
+func savingEntryPreservesDraftOpenedDuringSync() async throws {
 	let fileURL = FileManager.default.temporaryDirectory
 		.appending(path: "thingsdiary-app-drafts-\(UUID().uuidString).json")
 	defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -744,21 +799,29 @@ func savingEntryPreservesOtherDrafts() async throws {
 	let client = StubAppClient(
 		result: .success([selectedDiary]),
 		entriesResult: .success([original]),
-		updateEntryResult: .failure(TestFailure.rejected)
+		updateEntryResult: .failure(TestFailure.rejected),
+		updateEntryDelay: .milliseconds(100)
 	)
 	let model = ThingsDiaryAppModel(client: client, store: store)
 	await model.selectDiary(selectedDiary)
-	let firstDraft = try #require(model.beginEntryDraft(appearsInList: false))
-	let secondDraft = try #require(model.beginEntryDraft(appearsInList: false))
 
-	await model.updateEntry(original, content: "After")
+	let saveTask = Task {
+		await model.updateEntry(original, content: "After")
+	}
+	for _ in 0..<100 {
+		if await client.receivedUpdateParams != nil { break }
+		try await Task.sleep(for: .milliseconds(1))
+	}
+	#expect(await client.receivedUpdateParams != nil)
+	let draft = try #require(model.beginEntryDraft(appearsInList: false))
+	await saveTask.value
 
 	guard case .entries(_, let entries) = model.screen else {
 		Issue.record("Expected the selected diary")
 		return
 	}
-	#expect(Set(entries.map(\.id)) == [original.id, firstDraft.id, secondDraft.id])
-	#expect(model.entryDraftIDs == [firstDraft.id, secondDraft.id])
+	#expect(Set(entries.map(\.id)) == [original.id, draft.id])
+	#expect(model.entryDraftIDs == [draft.id])
 }
 
 @MainActor
@@ -1035,7 +1098,10 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	let registrationResult: Result<ThingsDiaryPublicKeys, Error>
 	let entriesResult: Result<[ThingsDiaryEntry], Error>
 	let createEntryResult: Result<ThingsDiaryEntry, Error>?
+	let stableCreateEntryResult: Result<ThingsDiaryEntry, Error>?
+	let stableCreateEntryDelay: Duration?
 	let updateEntryResult: Result<ThingsDiaryEntry, Error>?
+	let updateEntryDelay: Duration?
 	let topicsResult: Result<[ThingsDiaryTopic], Error>
 	let templatesResult: Result<[ThingsDiaryTemplate], Error>
 	let createTopicResult: Result<ThingsDiaryTopic, Error>?
@@ -1050,6 +1116,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedEntriesDiaryID: String?
 	private(set) var receivedUpdateParams: ThingsDiaryEntryParams?
 	private(set) var receivedCreateParams: ThingsDiaryEntryParams?
+	private(set) var receivedStableCreateParams: ThingsDiaryEntryParams?
 	private(set) var receivedTopicsDiaryID: String?
 	private(set) var receivedTemplatesDiaryID: String?
 	private(set) var receivedCreateTopicParams: ThingsDiaryTopicParams?
@@ -1065,7 +1132,10 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		),
 		entriesResult: Result<[ThingsDiaryEntry], Error> = .success([]),
 		createEntryResult: Result<ThingsDiaryEntry, Error>? = nil,
+		stableCreateEntryResult: Result<ThingsDiaryEntry, Error>? = nil,
+		stableCreateEntryDelay: Duration? = nil,
 		updateEntryResult: Result<ThingsDiaryEntry, Error>? = nil,
+		updateEntryDelay: Duration? = nil,
 		topicsResult: Result<[ThingsDiaryTopic], Error> = .success([]),
 		templatesResult: Result<[ThingsDiaryTemplate], Error> = .success([]),
 		createTopicResult: Result<ThingsDiaryTopic, Error>? = nil,
@@ -1078,7 +1148,10 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		self.registrationResult = registrationResult
 		self.entriesResult = entriesResult
 		self.createEntryResult = createEntryResult
+		self.stableCreateEntryResult = stableCreateEntryResult
+		self.stableCreateEntryDelay = stableCreateEntryDelay
 		self.updateEntryResult = updateEntryResult
+		self.updateEntryDelay = updateEntryDelay
 		self.topicsResult = topicsResult
 		self.templatesResult = templatesResult
 		self.createTopicResult = createTopicResult
@@ -1168,11 +1241,42 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		return try createEntryResult.get()
 	}
 
+	func createEntry(
+		diaryID: String,
+		entryID: String,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry {
+		receivedStableCreateParams = params
+		if let stableCreateEntryDelay {
+			try await Task.sleep(for: stableCreateEntryDelay)
+		}
+		guard let stableCreateEntryResult else {
+			throw TestFailure.rejected
+		}
+		let entry = try stableCreateEntryResult.get()
+		return ThingsDiaryEntry(
+			id: entryID,
+			diaryID: diaryID,
+			content: entry.content,
+			topicID: entry.topicID,
+			archived: entry.archived,
+			bookmarked: entry.bookmarked,
+			previewHidden: entry.previewHidden,
+			createdAt: entry.createdAt,
+			updatedAt: entry.updatedAt,
+			deletedAt: entry.deletedAt,
+			version: entry.version
+		)
+	}
+
 	func updateEntry(
 		_ entry: ThingsDiaryEntry,
 		params: ThingsDiaryEntryParams
 	) async throws -> ThingsDiaryEntry {
 		receivedUpdateParams = params
+		if let updateEntryDelay {
+			try await Task.sleep(for: updateEntryDelay)
+		}
 		guard let updateEntryResult else {
 			throw TestFailure.rejected
 		}

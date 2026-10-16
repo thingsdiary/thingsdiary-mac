@@ -114,8 +114,14 @@ nonisolated enum DiaryStoreError: Error {
 extension ThingsDiaryClient: DiaryStoreRemote {}
 
 actor DiaryStore {
+	private struct ActiveSynchronization {
+		let id: UUID
+		let task: Task<Void, Error>
+	}
+
 	private let fileURL: URL
 	private var state: StoredState
+	private var activeSynchronization: ActiveSynchronization?
 
 	init(fileURL: URL) throws {
 		self.fileURL = fileURL
@@ -211,7 +217,37 @@ actor DiaryStore {
 	}
 
 	func synchronize(with remote: any DiaryStoreRemote) async throws {
-		for storedWrite in state.pendingEntryWrites {
+		while true {
+			let synchronization: ActiveSynchronization
+			if let activeSynchronization {
+				synchronization = activeSynchronization
+			} else {
+				let nextSynchronization = ActiveSynchronization(
+					id: UUID(),
+					task: Task { try await performSynchronization(with: remote) }
+				)
+				activeSynchronization = nextSynchronization
+				synchronization = nextSynchronization
+			}
+			do {
+				try await synchronization.task.value
+			} catch {
+				if activeSynchronization?.id == synchronization.id {
+					activeSynchronization = nil
+				}
+				throw error
+			}
+			if activeSynchronization?.id == synchronization.id {
+				activeSynchronization = nil
+			}
+			if state.pendingEntryWrites.isEmpty {
+				return
+			}
+		}
+	}
+
+	private func performSynchronization(with remote: any DiaryStoreRemote) async throws {
+		while let storedWrite = state.pendingEntryWrites.first {
 			let write = storedWrite.value
 			let params = ThingsDiaryEntryParams(
 				content: write.entry.content,
@@ -252,7 +288,7 @@ actor DiaryStore {
 						entryID: write.entry.id,
 						soft: false
 					)
-					try completeRemoval(writeID: write.id)
+					try completeRemoval(write: write)
 					continue
 				}
 			} catch ThingsDiaryClientError.httpStatus(409, _) {
@@ -260,10 +296,10 @@ actor DiaryStore {
 					diaryID: write.entry.diaryID,
 					entryID: write.entry.id
 				)
-				try recordConflict(local: write.entry, server: currentServerEntry)
+				try recordConflict(write: write, server: currentServerEntry)
 				continue
 			}
-			try complete(writeID: write.id, serverEntry: serverEntry)
+			try complete(write: write, serverEntry: serverEntry)
 		}
 
 		guard let diaryID = state.selectedDiary?.id else {
@@ -285,21 +321,41 @@ actor DiaryStore {
 				limit: nil,
 				nextPageToken: nextPageToken
 			)
-			var nextState = state
-			var nextCheckpoint = checkpoint
-			for change in page.changes where !nextCheckpoint.contains(change) {
+			for change in page.changes {
+				let currentCheckpoint = state.checkpoints[diaryID] ?? StoredCheckpoint()
+				guard !currentCheckpoint.contains(change) else { continue }
 				switch change.entityType {
 				case .entry:
+					if state.pendingEntryWrites.contains(where: {
+						$0.entry.id == change.entityID
+					}) {
+						try apply(change, diaryID: diaryID) { _ in }
+						continue
+					}
 					switch change.operation {
 					case .created, .updated, .softDeleted:
 						let serverEntry = try await remote.getEntry(
 							diaryID: diaryID,
 							entryID: change.entityID
 						)
-						nextState.entries.removeAll { $0.id == serverEntry.id }
-						nextState.entries.append(StoredEntry(serverEntry))
+						try apply(change, diaryID: diaryID) { nextState in
+							guard
+								!nextState.pendingEntryWrites.contains(where: {
+									$0.entry.id == change.entityID
+								})
+							else { return }
+							nextState.entries.removeAll { $0.id == serverEntry.id }
+							nextState.entries.append(StoredEntry(serverEntry))
+						}
 					case .removed:
-						nextState.entries.removeAll { $0.id == change.entityID }
+						try apply(change, diaryID: diaryID) { nextState in
+							guard
+								!nextState.pendingEntryWrites.contains(where: {
+									$0.entry.id == change.entityID
+								})
+							else { return }
+							nextState.entries.removeAll { $0.id == change.entityID }
+						}
 					}
 				case .topic:
 					switch change.operation {
@@ -308,10 +364,14 @@ actor DiaryStore {
 							diaryID: diaryID,
 							topicID: change.entityID
 						)
-						nextState.topics.removeAll { $0.id == topic.id }
-						nextState.topics.append(StoredTopic(topic))
+						try apply(change, diaryID: diaryID) { nextState in
+							nextState.topics.removeAll { $0.id == topic.id }
+							nextState.topics.append(StoredTopic(topic))
+						}
 					case .removed:
-						nextState.topics.removeAll { $0.id == change.entityID }
+						try apply(change, diaryID: diaryID) { nextState in
+							nextState.topics.removeAll { $0.id == change.entityID }
+						}
 					}
 				case .template:
 					switch change.operation {
@@ -320,55 +380,103 @@ actor DiaryStore {
 							diaryID: diaryID,
 							templateID: change.entityID
 						)
-						nextState.templates.removeAll { $0.id == template.id }
-						nextState.templates.append(StoredTemplate(template))
+						try apply(change, diaryID: diaryID) { nextState in
+							nextState.templates.removeAll { $0.id == template.id }
+							nextState.templates.append(StoredTemplate(template))
+						}
 					case .removed:
-						nextState.templates.removeAll { $0.id == change.entityID }
+						try apply(change, diaryID: diaryID) { nextState in
+							nextState.templates.removeAll { $0.id == change.entityID }
+						}
 					}
 				case .diary:
-					break
+					try apply(change, diaryID: diaryID) { _ in }
 				}
-				nextCheckpoint.record(change)
 			}
-			nextState.checkpoints[diaryID] = nextCheckpoint
-			try persist(nextState)
-			state = nextState
 			nextPageToken = page.nextPageToken
 		} while nextPageToken != nil
 	}
 
-	private func complete(
-		writeID: String,
-		serverEntry: ThingsDiaryEntry
+	private func apply(
+		_ change: ThingsDiaryChange,
+		diaryID: String,
+		mutation: (inout StoredState) -> Void
 	) throws {
 		var nextState = state
+		var checkpoint = nextState.checkpoints[diaryID] ?? StoredCheckpoint()
+		guard !checkpoint.contains(change) else { return }
+		mutation(&nextState)
+		checkpoint.record(change)
+		nextState.checkpoints[diaryID] = checkpoint
+		try persist(nextState)
+		state = nextState
+	}
+
+	private func complete(write: PendingEntryWrite, serverEntry: ThingsDiaryEntry) throws {
+		var nextState = state
+		guard
+			let currentWrite = nextState.pendingEntryWrites.first(where: {
+				$0.entry.id == write.id
+			})?.value
+		else { return }
+		guard currentWrite == write else {
+			if write.operation == .create, currentWrite.operation == .create {
+				nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
+				nextState.pendingEntryWrites.append(
+					StoredPendingEntryWrite(
+						PendingEntryWrite(operation: .update, entry: currentWrite.entry)
+					)
+				)
+				try persist(nextState)
+				state = nextState
+			}
+			return
+		}
 		nextState.entries.removeAll { $0.id == serverEntry.id }
 		nextState.entries.append(StoredEntry(serverEntry))
-		nextState.pendingEntryWrites.removeAll { $0.entry.id == writeID }
+		nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
 		try persist(nextState)
 		state = nextState
 	}
 
-	private func completeRemoval(writeID: String) throws {
+	private func completeRemoval(write: PendingEntryWrite) throws {
 		var nextState = state
-		nextState.entries.removeAll { $0.id == writeID }
-		nextState.pendingEntryWrites.removeAll { $0.entry.id == writeID }
+		guard nextState.pendingEntryWrites.contains(where: { $0.value == write }) else {
+			return
+		}
+		nextState.entries.removeAll { $0.id == write.id }
+		nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
 		try persist(nextState)
 		state = nextState
 	}
 
-	private func recordConflict(
-		local: ThingsDiaryEntry,
-		server: ThingsDiaryEntry
-	) throws {
+	private func recordConflict(write: PendingEntryWrite, server: ThingsDiaryEntry) throws {
 		var nextState = state
+		guard
+			let currentWrite = nextState.pendingEntryWrites.first(where: {
+				$0.entry.id == write.id
+			})?.value
+		else { return }
+		guard currentWrite == write else {
+			if write.operation == .create, currentWrite.operation == .create {
+				nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
+				nextState.pendingEntryWrites.append(
+					StoredPendingEntryWrite(
+						PendingEntryWrite(operation: .update, entry: currentWrite.entry)
+					)
+				)
+				try persist(nextState)
+				state = nextState
+			}
+			return
+		}
 		nextState.entries.removeAll { $0.id == server.id }
 		nextState.entries.append(StoredEntry(server))
-		nextState.pendingEntryWrites.removeAll { $0.entry.id == local.id }
-		nextState.entryConflicts.removeAll { $0.local.id == local.id }
+		nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
+		nextState.entryConflicts.removeAll { $0.local.id == write.id }
 		nextState.entryConflicts.append(
 			StoredEntryConflict(
-				DiaryEntryConflict(local: local, server: server)
+				DiaryEntryConflict(local: write.entry, server: server)
 			))
 		try persist(nextState)
 		state = nextState

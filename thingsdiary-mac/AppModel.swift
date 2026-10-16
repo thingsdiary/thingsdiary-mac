@@ -70,7 +70,7 @@ extension ThingsDiaryAppClient {
 		entryID: String,
 		params: ThingsDiaryEntryParams
 	) async throws -> ThingsDiaryEntry {
-		try await createEntry(diaryID: diaryID, params: params)
+		throw DiaryStoreError.unsupportedRemoteEntry
 	}
 
 	func createTopic(
@@ -289,6 +289,7 @@ final class ThingsDiaryAppModel {
 	private(set) var diaryCreationError: String?
 	private(set) var entryDraftIDs: Set<String> = []
 	private(set) var entryDraftIDsHiddenFromList: Set<String> = []
+	private(set) var entryPendingCreationIDs: Set<String> = []
 
 	var isCreatingDiary: Bool { presentation == .diaryCreation }
 	var availableDiaries: [ThingsDiaryDiary] { loadedDiaries }
@@ -401,6 +402,7 @@ final class ThingsDiaryAppModel {
 		diarySelectionID = nil
 		entryDraftIDs = []
 		entryDraftIDsHiddenFromList = []
+		entryPendingCreationIDs = []
 		topics = []
 		templates = []
 		presentation = .none
@@ -476,6 +478,7 @@ final class ThingsDiaryAppModel {
 		diarySelectionID = selectionID
 		entryDraftIDs = []
 		entryDraftIDsHiddenFromList = []
+		entryPendingCreationIDs = []
 		screen = .loading
 		do {
 			async let entriesRequest = client.entries(diaryID: diary.id)
@@ -576,6 +579,7 @@ final class ThingsDiaryAppModel {
 		else { return }
 		entryDraftIDs.remove(entryID)
 		entryDraftIDsHiddenFromList.remove(entryID)
+		entryPendingCreationIDs.insert(entryID)
 		let now = Date()
 		let entry = ThingsDiaryEntry(
 			id: draft.id,
@@ -636,17 +640,9 @@ final class ThingsDiaryAppModel {
 					))
 				screen = .entries(diary: diary, entries: entries + [localEntry])
 				try await store.synchronize(with: client)
-				let storedEntries = await store.entries(diaryID: diary.id)
-				screen = .entries(
-					diary: diary,
-					entries: entriesPreservingDrafts(storedEntries, from: entries)
-				)
+				await refreshEntriesFromStore(store, diaryID: diary.id)
 			} catch {
-				let storedEntries = await store.entries(diaryID: diary.id)
-				screen = .entries(
-					diary: diary,
-					entries: entriesPreservingDrafts(storedEntries, from: entries)
-				)
+				await refreshEntriesFromStore(store, diaryID: diary.id)
 			}
 			return
 		}
@@ -677,6 +673,12 @@ final class ThingsDiaryAppModel {
 					PendingEntryWrite(operation: .create, entry: entry)
 				)
 				try await store.synchronize(with: client)
+				let isStillPending = await store.pendingEntryWrites().contains {
+					$0.id == entry.id
+				}
+				if !isStillPending {
+					entryPendingCreationIDs.remove(entry.id)
+				}
 				let storedEntry = await store.entries(diaryID: diary.id).first {
 					$0.id == entry.id
 				}
@@ -698,6 +700,8 @@ final class ThingsDiaryAppModel {
 				entryID: entry.id,
 				params: params
 			)
+			guard created.id == entry.id else { return }
+			entryPendingCreationIDs.remove(entry.id)
 			guard case .entries(let currentDiary, let entries) = screen,
 				currentDiary.id == diary.id
 			else { return }
@@ -887,11 +891,7 @@ final class ThingsDiaryAppModel {
 				)
 				try await store.synchronize(with: client)
 			} catch {}
-			let storedEntries = await store.entries(diaryID: diary.id)
-			screen = .entries(
-				diary: diary,
-				entries: entriesPreservingDrafts(storedEntries, from: entries)
-			)
+			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
 		}
 		screen = .loading
@@ -948,11 +948,7 @@ final class ThingsDiaryAppModel {
 				)
 				try await store.synchronize(with: client)
 			} catch {}
-			let storedEntries = await store.entries(diaryID: diary.id)
-			screen = .entries(
-				diary: diary,
-				entries: entriesPreservingDrafts(storedEntries, from: entries)
-			)
+			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
 		}
 		screen = .loading
@@ -985,11 +981,7 @@ final class ThingsDiaryAppModel {
 				)
 				try await store.synchronize(with: client)
 			} catch {}
-			let storedEntries = await store.entries(diaryID: diary.id)
-			screen = .entries(
-				diary: diary,
-				entries: entriesPreservingDrafts(storedEntries, from: entries)
-			)
+			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
 		}
 		do {
@@ -1022,6 +1014,8 @@ final class ThingsDiaryAppModel {
 			return
 		}
 		if let store {
+			let operation: PendingEntryOperation =
+				entryPendingCreationIDs.contains(entry.id) ? .create : .update
 			let now = Date()
 			let localEntry = ThingsDiaryEntry(
 				id: entry.id,
@@ -1042,7 +1036,7 @@ final class ThingsDiaryAppModel {
 			do {
 				try await store.savePendingEntry(
 					PendingEntryWrite(
-						operation: .update,
+						operation: operation,
 						entry: localEntry
 					))
 				screen = .entries(
@@ -1050,17 +1044,17 @@ final class ThingsDiaryAppModel {
 					entries: entries.map { $0.id == localEntry.id ? localEntry : $0 }
 				)
 				try await store.synchronize(with: client)
-				let storedEntries = await store.entries(diaryID: diary.id)
-				screen = .entries(
-					diary: diary,
-					entries: entriesPreservingDrafts(storedEntries, from: entries)
-				)
+				if operation == .create {
+					let isStillPending = await store.pendingEntryWrites().contains {
+						$0.id == entry.id
+					}
+					if !isStillPending {
+						entryPendingCreationIDs.remove(entry.id)
+					}
+				}
+				await refreshEntriesFromStore(store, diaryID: diary.id)
 			} catch {
-				let storedEntries = await store.entries(diaryID: diary.id)
-				screen = .entries(
-					diary: diary,
-					entries: entriesPreservingDrafts(storedEntries, from: entries)
-				)
+				await refreshEntriesFromStore(store, diaryID: diary.id)
 			}
 			return
 		}
@@ -1079,15 +1073,27 @@ final class ThingsDiaryAppModel {
 		}
 	}
 
-	private func entriesPreservingDrafts(
+	private func refreshEntriesFromStore(_ store: DiaryStore, diaryID: String) async {
+		let storedEntries = await store.entries(diaryID: diaryID)
+		guard case .entries(let diary, let currentEntries) = screen,
+			diary.id == diaryID
+		else { return }
+		screen = .entries(
+			diary: diary,
+			entries: entriesPreservingTransientEntries(storedEntries, from: currentEntries)
+		)
+	}
+
+	private func entriesPreservingTransientEntries(
 		_ storedEntries: [ThingsDiaryEntry],
 		from currentEntries: [ThingsDiaryEntry]
 	) -> [ThingsDiaryEntry] {
 		let storedEntryIDs = Set(storedEntries.map(\.id))
-		let drafts = currentEntries.filter {
-			entryDraftIDs.contains($0.id) && !storedEntryIDs.contains($0.id)
+		let transientEntryIDs = entryDraftIDs.union(entryPendingCreationIDs)
+		let transientEntries = currentEntries.filter {
+			transientEntryIDs.contains($0.id) && !storedEntryIDs.contains($0.id)
 		}
-		return storedEntries + drafts
+		return storedEntries + transientEntries
 	}
 
 	func register() async {
