@@ -266,15 +266,31 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.menuItems["Move to Trash"].exists)
 	}
 
-	func testNewEntryButtonOpensCreationForm() {
+	func testNewEntryButtonCreatesDraftAndOpensEditor() {
 		let app = launchWorkspace()
-		let newEntryButton = app.buttons["entry.create"]
+		let newEntryButton = app.buttons["New Entry"]
 
 		XCTAssertTrue(newEntryButton.waitForExistence(timeout: 2))
 		newEntryButton.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).click()
 
-		XCTAssertTrue(app.descendants(matching: .any)["entry.new-content"].waitForExistence(timeout: 2))
-		XCTAssertTrue(app.buttons["Create"].exists)
+		XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["Untitled"].firstMatch.waitForExistence(timeout: 2))
+		XCTAssertFalse(app.buttons["Create"].exists)
+	}
+
+	func testTabBarPlusCreatesDraftThatAppearsAfterTyping() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+		let newTabButton = app.buttons["New Entry Tab"]
+
+		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
+		newTabButton.click()
+
+		let editor = app.textViews.firstMatch
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		editor.typeText("Draft from tab")
+
+		XCTAssertTrue(app.buttons["Draft from tab"].firstMatch.waitForExistence(timeout: 2))
 	}
 
 	func testMovingNonemptyEntryToTrashRequiresConfirmation() {

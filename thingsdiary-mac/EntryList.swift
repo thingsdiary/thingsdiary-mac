@@ -31,6 +31,9 @@ nonisolated let entryListDividerWidth: CGFloat = 9
 nonisolated let minimumEntryTabWidth: CGFloat = 92
 nonisolated let maximumEntryTabWidth: CGFloat = 170
 nonisolated let entryTabSpacing: CGFloat = 3
+nonisolated let entryTabLeadingPadding: CGFloat = 6
+nonisolated let entryTabCreateButtonWidth: CGFloat = 24
+nonisolated let entryTabCreateButtonSpacing: CGFloat = 8
 nonisolated let workspaceTitlebarHeight: CGFloat = 46
 nonisolated let editorWorkspaceFocusHysteresis: CGFloat = 60
 nonisolated let minimumSplitWorkspaceWidth =
@@ -141,6 +144,28 @@ nonisolated func adaptiveEntryTabWidth(
 	let separatorsWidth = CGFloat(max(tabCount - 1, 0)) * entryTabSpacing
 	let fittedWidth = floor((max(availableWidth, 0) - separatorsWidth) / CGFloat(tabCount))
 	return min(maximumEntryTabWidth, max(minimumEntryTabWidth, fittedWidth))
+}
+
+nonisolated func entryTabsContentWidth(tabWidth: CGFloat, tabCount: Int) -> CGFloat {
+	guard tabCount > 0 else { return 0 }
+	return entryTabLeadingPadding
+		+ CGFloat(tabCount) * tabWidth
+		+ CGFloat(tabCount - 1) * entryTabSpacing
+}
+
+nonisolated func entryTabCreateButtonOffset(
+	availableWidth: CGFloat,
+	tabsContentWidth: CGFloat
+) -> CGFloat {
+	let naturalOffset = max(
+		tabsContentWidth + entryTabCreateButtonSpacing,
+		entryTabLeadingPadding
+	)
+	let pinnedOffset = max(
+		availableWidth - entryTabCreateButtonWidth,
+		entryTabLeadingPadding
+	)
+	return min(naturalOffset, pinnedOffset)
 }
 
 nonisolated func entryTabReorderDestination(

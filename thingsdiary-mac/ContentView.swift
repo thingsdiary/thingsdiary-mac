@@ -425,10 +425,9 @@ private struct EntriesView: View {
 	@State private var searchIsFocused = false
 	@State private var searchResetID = 0
 	@State private var selection: DiaryNavigationSelection? = .entries
-	@State private var newEntryContent = ""
-	@State private var showingEntryCreator = false
 	@State private var tabs = EntryTabsState()
 	@State private var draftsByEntryID: [String: String] = [:]
+	@FocusState private var editorIsFocused: Bool
 	@State private var showingTopicsAndTemplates = false
 	@State private var showingDiaryMenu = false
 	@State private var hoveredDiaryID: String?
@@ -457,6 +456,7 @@ private struct EntriesView: View {
 	@State private var availableWorkspaceWidth: CGFloat = 0
 	@State private var dragStartEntryListWidth: CGFloat?
 	@State private var hoveredEntryTabID: String?
+	@State private var hoveredEntryTabCloseID: String?
 	@State private var availableEntryTabsWidth: CGFloat = 0
 	@State private var entryTabReorderSession: EntryTabReorderSession?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
@@ -465,7 +465,11 @@ private struct EntriesView: View {
 	@SceneStorage("entries.preferredListWidth") private var preferredEntryListWidth = 320.0
 
 	private var displayedEntries: [ThingsDiaryEntry] {
-		visibleEntries(entries, selection: activeSelection, query: query, sort: .newest)
+		visibleEntries(listEntries, selection: activeSelection, query: query, sort: .newest)
+	}
+
+	private var listEntries: [ThingsDiaryEntry] {
+		entries.filter { !model.entryDraftIDsHiddenFromList.contains($0.id) }
 	}
 
 	private var activeSelection: DiaryNavigationSelection { selection ?? .entries }
@@ -486,6 +490,7 @@ private struct EntriesView: View {
 			set: { value in
 				guard let entryID = tabs.activeEntryID else { return }
 				draftsByEntryID[entryID] = value
+				model.promoteEntryDraft(entryID, content: value)
 			}
 		)
 	}
@@ -504,7 +509,7 @@ private struct EntriesView: View {
 	}
 
 	private func count(for selection: DiaryNavigationSelection) -> Int {
-		visibleEntries(entries, selection: selection, query: "", sort: .newest).count
+		visibleEntries(listEntries, selection: selection, query: "", sort: .newest).count
 	}
 
 	var body: some View {
@@ -598,9 +603,6 @@ private struct EntriesView: View {
 		}
 		.sheet(isPresented: $showingTopicsAndTemplates) {
 			topicsAndTemplatesSheet
-		}
-		.sheet(isPresented: $showingEntryCreator) {
-			entryCreatorSheet
 		}
 		.sheet(isPresented: $showingTopicCreator) {
 			topicCreatorSheet
@@ -773,47 +775,8 @@ private struct EntriesView: View {
 		)
 
 		return HStack(spacing: 8) {
-			ScrollViewReader { scrollProxy in
-				ScrollView(.horizontal, showsIndicators: false) {
-					ZStack(alignment: .leading) {
-						if let entryTabReorderSession {
-							entryTabPlaceholder(width: tabWidth)
-								.offset(
-									x: CGFloat(entryTabReorderSession.placeholderIndex)
-										* (tabWidth + entryTabSpacing)
-								)
-								.animation(
-									.smooth(duration: 0.16),
-									value: entryTabReorderSession.placeholderIndex
-								)
-						}
-
-						HStack(spacing: entryTabSpacing) {
-							ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
-								entryTab(entry, index: index, width: tabWidth)
-									.id(entry.id)
-							}
-						}
-					}
-					.padding(.leading, 6)
-				}
-				.onChange(of: tabs.activeEntryID) {
-					guard let activeEntryID = tabs.activeEntryID else { return }
-					withAnimation(.easeInOut(duration: 0.16)) {
-						scrollProxy.scrollTo(activeEntryID, anchor: .center)
-					}
-				}
-			}
-			.frame(maxWidth: .infinity)
-			.background {
-				GeometryReader { proxy in
-					Color.clear
-						.onAppear { availableEntryTabsWidth = proxy.size.width }
-						.onChange(of: proxy.size.width) {
-							availableEntryTabsWidth = proxy.size.width
-						}
-				}
-			}
+			entryTabsStrip(tabWidth: tabWidth)
+				.frame(maxWidth: .infinity)
 
 			if let selectedEntry {
 				Divider()
@@ -843,13 +806,87 @@ private struct EntriesView: View {
 		.accessibilityIdentifier("entry-tabs.titlebar")
 	}
 
+	private func entryTabsStrip(tabWidth: CGFloat) -> some View {
+		GeometryReader { proxy in
+			let tabsContentWidth = entryTabsContentWidth(
+				tabWidth: tabWidth,
+				tabCount: openEntries.count
+			)
+			let createButtonOffset = entryTabCreateButtonOffset(
+				availableWidth: proxy.size.width,
+				tabsContentWidth: tabsContentWidth
+			)
+
+			ZStack(alignment: .leading) {
+				ScrollViewReader { scrollProxy in
+					ScrollView(.horizontal, showsIndicators: false) {
+						ZStack(alignment: .leading) {
+							if let entryTabReorderSession {
+								entryTabPlaceholder(width: tabWidth)
+									.offset(
+										x: CGFloat(entryTabReorderSession.placeholderIndex)
+											* (tabWidth + entryTabSpacing)
+									)
+									.animation(
+										.smooth(duration: 0.16),
+										value: entryTabReorderSession.placeholderIndex
+									)
+							}
+
+							HStack(spacing: entryTabSpacing) {
+								ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
+									entryTab(entry, index: index, width: tabWidth)
+										.id(entry.id)
+								}
+							}
+						}
+						.padding(.leading, entryTabLeadingPadding)
+						.padding(
+							.trailing,
+							entryTabCreateButtonWidth + entryTabCreateButtonSpacing
+						)
+					}
+					.onChange(of: tabs.activeEntryID) {
+						guard let activeEntryID = tabs.activeEntryID else { return }
+						withAnimation(.easeInOut(duration: 0.16)) {
+							scrollProxy.scrollTo(activeEntryID, anchor: .center)
+						}
+					}
+				}
+
+				Button(action: beginCreatingTabDraft) {
+					Image(systemName: "plus")
+						.frame(width: 24, height: 28)
+						.contentShape(.rect)
+				}
+				.buttonStyle(.borderless)
+				.accessibilityIdentifier("entry-tab.create")
+				.accessibilityLabel("New Entry Tab")
+				.help("New Entry Tab")
+				.offset(x: createButtonOffset)
+				.zIndex(4)
+			}
+			.frame(
+				maxWidth: .infinity,
+				maxHeight: .infinity,
+				alignment: .leading
+			)
+			.onAppear { availableEntryTabsWidth = proxy.size.width }
+			.onChange(of: proxy.size.width) {
+				availableEntryTabsWidth = proxy.size.width
+			}
+		}
+	}
+
 	private func entryTab(_ entry: ThingsDiaryEntry, index: Int, width: CGFloat) -> some View {
 		let draft = draftsByEntryID[entry.id] ?? entry.content
 		let title = entryListPresentation(content: draft).title
 		let isActive = tabs.activeEntryID == entry.id
 		let isDirty = draft != entry.content
 		let isHovered = hoveredEntryTabID == entry.id
+		let isCloseHovered = hoveredEntryTabCloseID == entry.id
 		let isDragged = entryTabReorderSession?.entryID == entry.id
+		let showsCloseButton = isActive || isHovered || isCloseHovered
 
 		return Button {
 			activateEntryTab(entry.id)
@@ -866,18 +903,27 @@ private struct EntriesView: View {
 					.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
 			}
 			.padding(.leading, 9)
-			.padding(.trailing, 30)
+			.padding(.trailing, 6)
 			.frame(width: width, height: 30)
+			.mask {
+				entryTabTitleMask(showsCloseButton: showsCloseButton)
+			}
 		}
 		.buttonStyle(.plain)
 		.accessibilityIdentifier("entry-tab.\(entry.id)")
 		.overlay(alignment: .trailing) {
-			if isActive {
+			if showsCloseButton {
 				Button {
+					hoveredEntryTabCloseID = nil
 					closeEntryTab(entry.id)
 				} label: {
 					Image(systemName: "xmark")
 						.font(.system(size: 10, weight: .semibold))
+						.frame(width: 22, height: 22)
+						.background(
+							Color.primary.opacity(isCloseHovered ? 0.1 : 0),
+							in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+						)
 						.frame(width: 28, height: 28)
 						.contentShape(.rect)
 				}
@@ -886,18 +932,24 @@ private struct EntriesView: View {
 				.accessibilityIdentifier("entry-tab.close.\(entry.id)")
 				.accessibilityLabel("Close \(title)")
 				.help("Close \(title)")
+				.onHover { hovering in
+					hoveredEntryTabCloseID = hovering ? entry.id : nil
+				}
+				.animation(.easeOut(duration: 0.1), value: isCloseHovered)
 			}
 		}
 		.background(
 			isActive
-				? Color(nsColor: .controlBackgroundColor)
-				: Color.primary.opacity(isHovered ? 0.09 : 0.045),
+				? Color.primary.opacity(0.14)
+				: Color.primary.opacity(isHovered ? 0.08 : 0),
 			in: RoundedRectangle(cornerRadius: 7, style: .continuous)
 		)
 		.overlay {
 			RoundedRectangle(cornerRadius: 7, style: .continuous)
-				.stroke(isActive ? Color(nsColor: .separatorColor) : .clear)
+				.stroke(isActive ? Color.primary.opacity(0.16) : .clear)
 		}
+		.animation(.easeOut(duration: 0.12), value: isActive)
+		.animation(.easeOut(duration: 0.12), value: isHovered)
 		.contentShape(.rect)
 		.offset(x: entryTabReorderSession?.offset(forTabAt: index, tabWidth: width) ?? 0)
 		.scaleEffect(isDragged ? 1.025 : 1)
@@ -914,6 +966,24 @@ private struct EntriesView: View {
 			} else if hoveredEntryTabID == entry.id {
 				hoveredEntryTabID = nil
 			}
+		}
+	}
+
+	@ViewBuilder
+	private func entryTabTitleMask(showsCloseButton: Bool) -> some View {
+		if showsCloseButton {
+			HStack(spacing: 0) {
+				Color.white
+				LinearGradient(
+					colors: [.white, .clear],
+					startPoint: .leading,
+					endPoint: .trailing
+				)
+				.frame(width: 12)
+				Color.clear.frame(width: 28)
+			}
+		} else {
+			Color.white
 		}
 	}
 
@@ -981,21 +1051,23 @@ private struct EntriesView: View {
 				.help("Show Entry List")
 			}
 
-			Menu {
-				entryActions(for: entry)
-			} label: {
-				Image(systemName: "ellipsis.circle")
-			}
-			.menuStyle(.borderlessButton)
-			.accessibilityIdentifier("entry.actions")
-			.help("Entry Actions")
-
-			if entry.deletedAt == nil && !entry.archived {
-				Button("Save") {
-					saveSelectedEntry()
+			if !model.entryDraftIDs.contains(entry.id) {
+				Menu {
+					entryActions(for: entry)
+				} label: {
+					Image(systemName: "ellipsis.circle")
 				}
-				.keyboardShortcut("s", modifiers: .command)
-				.disabled(!canSave(entry))
+				.menuStyle(.borderlessButton)
+				.accessibilityIdentifier("entry.actions")
+				.help("Entry Actions")
+
+				if entry.deletedAt == nil && !entry.archived {
+					Button("Save") {
+						saveSelectedEntry()
+					}
+					.keyboardShortcut("s", modifiers: .command)
+					.disabled(!canSave(entry))
+				}
 			}
 		}
 		.buttonStyle(.borderless)
@@ -1012,7 +1084,7 @@ private struct EntriesView: View {
 				isDragging: draggedEntryID != nil
 			)
 			let layout = entryWorkspaceLayout(
-				selectionIsEmpty: selectionIsEmpty,
+				selectionIsEmpty: selectionIsEmpty && selectedEntry == nil,
 				hasSelectedEntry: selectedEntry != nil,
 				availableWidth: availableWidth,
 				isEditorFocusMode: isEditorFocusMode,
@@ -1144,6 +1216,7 @@ private struct EntriesView: View {
 		if let selectedEntry {
 			TextEditor(text: selectedDraftBinding)
 				.accessibilityIdentifier("entry.editor")
+				.focused($editorIsFocused)
 				.disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
 				.padding(.horizontal, 8)
 				.padding(.vertical, 6)
@@ -1445,8 +1518,21 @@ private struct EntriesView: View {
 	}
 
 	private func beginCreatingEntry() {
-		newEntryContent = ""
-		showingEntryCreator = true
+		beginEntryDraft(appearsInList: true)
+	}
+
+	private func beginCreatingTabDraft() {
+		beginEntryDraft(appearsInList: false)
+	}
+
+	private func beginEntryDraft(appearsInList: Bool) {
+		guard let draft = model.beginEntryDraft(appearsInList: appearsInList) else { return }
+		selection = .entries
+		openEntry(draft)
+		Task { @MainActor in
+			await Task.yield()
+			editorIsFocused = true
+		}
 	}
 
 	private func toggleSidebar() {
@@ -1522,6 +1608,10 @@ private struct EntriesView: View {
 	}
 
 	private func closeEntryTab(_ entryID: String) {
+		if model.entryDraftIDs.contains(entryID) {
+			model.discardEntryDraft(entryID)
+			draftsByEntryID.removeValue(forKey: entryID)
+		}
 		tabs.close(entryID)
 		if tabs.activeEntryID == nil {
 			isEditorFocusMode = false
@@ -1561,8 +1651,7 @@ private struct EntriesView: View {
 			if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 				if activeSelection == .entries {
 					Button("New Entry", systemImage: "square.and.pencil") {
-						newEntryContent = ""
-						showingEntryCreator = true
+						beginCreatingEntry()
 					}
 					.buttonStyle(.borderedProminent)
 				} else if activeSelection == .bookmarks || isTopicSelected {
@@ -1902,47 +1991,11 @@ private struct EntriesView: View {
 		}
 	}
 
-	private var entryCreatorSheet: some View {
-		NavigationStack {
-			Form {
-				if !model.templates.isEmpty {
-					Menu("Use Template") {
-						ForEach(model.templates) { template in
-							Button(template.content.isEmpty ? "Empty Template" : String(template.content.prefix(40))) {
-								newEntryContent = template.content
-							}
-						}
-					}
-				}
-				TextEditor(text: $newEntryContent)
-					.accessibilityIdentifier("entry.new-content")
-					.frame(minHeight: 220)
-			}
-			.formStyle(.grouped)
-			.navigationTitle("New Entry")
-			.toolbar {
-				ToolbarItem(placement: .cancellationAction) {
-					Button("Cancel") { showingEntryCreator = false }
-				}
-				ToolbarItem(placement: .confirmationAction) {
-					Button("Create") {
-						let content = newEntryContent
-						Task {
-							await model.createEntry(content: content)
-							selection = .entries
-							showingEntryCreator = false
-						}
-					}
-					.disabled(newEntryContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-				}
-			}
-		}
-		.frame(minWidth: 520, minHeight: 380)
-	}
-
 	@ViewBuilder
 	private func entryListRow(_ entry: ThingsDiaryEntry) -> some View {
-		let presentation = entryListPresentation(content: entry.content)
+		let presentation = entryListPresentation(
+			content: draftsByEntryID[entry.id] ?? entry.content
+		)
 		let topic = model.topics.first { $0.id == entry.topicID }
 		VStack(alignment: .leading, spacing: 5) {
 			HStack(spacing: 7) {

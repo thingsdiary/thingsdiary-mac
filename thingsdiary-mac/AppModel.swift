@@ -29,6 +29,11 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 		diaryID: String,
 		params: ThingsDiaryEntryParams
 	) async throws -> ThingsDiaryEntry
+	func createEntry(
+		diaryID: String,
+		entryID: String,
+		params: ThingsDiaryEntryParams
+	) async throws -> ThingsDiaryEntry
 	func updateEntry(
 		_ entry: ThingsDiaryEntry,
 		params: ThingsDiaryEntryParams
@@ -282,6 +287,8 @@ final class ThingsDiaryAppModel {
 	private(set) var diarySettingsRequestID: String?
 	private var creationReturnPresentation: ThingsDiaryAppPresentation?
 	private(set) var diaryCreationError: String?
+	private(set) var entryDraftIDs: Set<String> = []
+	private(set) var entryDraftIDsHiddenFromList: Set<String> = []
 
 	var isCreatingDiary: Bool { presentation == .diaryCreation }
 	var availableDiaries: [ThingsDiaryDiary] { loadedDiaries }
@@ -392,6 +399,8 @@ final class ThingsDiaryAppModel {
 
 	func showDiaries() {
 		diarySelectionID = nil
+		entryDraftIDs = []
+		entryDraftIDsHiddenFromList = []
 		topics = []
 		templates = []
 		presentation = .none
@@ -465,6 +474,8 @@ final class ThingsDiaryAppModel {
 	func selectDiary(_ diary: ThingsDiaryDiary) async {
 		let selectionID = UUID()
 		diarySelectionID = selectionID
+		entryDraftIDs = []
+		entryDraftIDsHiddenFromList = []
 		screen = .loading
 		do {
 			async let entriesRequest = client.entries(diaryID: diary.id)
@@ -526,6 +537,68 @@ final class ThingsDiaryAppModel {
 		await createEntry(params: ThingsDiaryEntryParams(content: content))
 	}
 
+	@discardableResult
+	func beginEntryDraft(appearsInList: Bool) -> ThingsDiaryEntry? {
+		guard case .entries(let diary, let entries) = screen else { return nil }
+		let now = Date()
+		let draft = ThingsDiaryEntry(
+			id: UUID().uuidString.lowercased(),
+			diaryID: diary.id,
+			content: "",
+			createdAt: now,
+			updatedAt: now,
+			version: UInt64(now.timeIntervalSince1970 * 1_000)
+		)
+		entryDraftIDs.insert(draft.id)
+		if !appearsInList {
+			entryDraftIDsHiddenFromList.insert(draft.id)
+		}
+		screen = .entries(diary: diary, entries: entries + [draft])
+		return draft
+	}
+
+	func discardEntryDraft(_ entryID: String) {
+		guard entryDraftIDs.remove(entryID) != nil,
+			case .entries(let diary, let entries) = screen
+		else { return }
+		entryDraftIDsHiddenFromList.remove(entryID)
+		screen = .entries(
+			diary: diary,
+			entries: entries.filter { $0.id != entryID }
+		)
+	}
+
+	func promoteEntryDraft(_ entryID: String, content: String) {
+		guard entryDraftIDs.contains(entryID),
+			case .entries(let diary, let entries) = screen,
+			let draft = entries.first(where: { $0.id == entryID }),
+			content != draft.content
+		else { return }
+		entryDraftIDs.remove(entryID)
+		entryDraftIDsHiddenFromList.remove(entryID)
+		let now = Date()
+		let entry = ThingsDiaryEntry(
+			id: draft.id,
+			diaryID: draft.diaryID,
+			content: content,
+			topicID: draft.topicID,
+			archived: draft.archived,
+			bookmarked: draft.bookmarked,
+			previewHidden: draft.previewHidden,
+			createdAt: draft.createdAt,
+			updatedAt: now,
+			version: max(
+				UInt64(now.timeIntervalSince1970 * 1_000),
+				draft.version + 1
+			)
+		)
+		screen = .entries(
+			diary: diary,
+			entries: entries.map { $0.id == entry.id ? entry : $0 }
+		)
+		Task { await persistPromotedEntry(entry) }
+	}
+
 	func duplicateEntry(_ entry: ThingsDiaryEntry) async {
 		await createEntry(
 			params: ThingsDiaryEntryParams(
@@ -563,14 +636,16 @@ final class ThingsDiaryAppModel {
 					))
 				screen = .entries(diary: diary, entries: entries + [localEntry])
 				try await store.synchronize(with: client)
+				let storedEntries = await store.entries(diaryID: diary.id)
 				screen = .entries(
 					diary: diary,
-					entries: await store.entries(diaryID: diary.id)
+					entries: entriesPreservingDrafts(storedEntries, from: entries)
 				)
 			} catch {
+				let storedEntries = await store.entries(diaryID: diary.id)
 				screen = .entries(
 					diary: diary,
-					entries: await store.entries(diaryID: diary.id)
+					entries: entriesPreservingDrafts(storedEntries, from: entries)
 				)
 			}
 			return
@@ -584,6 +659,54 @@ final class ThingsDiaryAppModel {
 			screen = .entries(diary: diary, entries: entries + [created])
 		} catch {
 			screen = .error("Could not create the entry.")
+		}
+	}
+
+	private func persistPromotedEntry(_ entry: ThingsDiaryEntry) async {
+		guard case .entries(let diary, _) = screen, diary.id == entry.diaryID else { return }
+		let params = ThingsDiaryEntryParams(
+			content: entry.content,
+			topicID: entry.topicID,
+			archived: entry.archived,
+			bookmarked: entry.bookmarked,
+			previewHidden: entry.previewHidden
+		)
+		if let store {
+			do {
+				try await store.savePendingEntry(
+					PendingEntryWrite(operation: .create, entry: entry)
+				)
+				try await store.synchronize(with: client)
+				let storedEntry = await store.entries(diaryID: diary.id).first {
+					$0.id == entry.id
+				}
+				if let storedEntry,
+					case .entries(let currentDiary, let entries) = screen,
+					currentDiary.id == diary.id
+				{
+					screen = .entries(
+						diary: currentDiary,
+						entries: entries.map { $0.id == entry.id ? storedEntry : $0 }
+					)
+				}
+			} catch {}
+			return
+		}
+		do {
+			let created = try await client.createEntry(
+				diaryID: diary.id,
+				entryID: entry.id,
+				params: params
+			)
+			guard case .entries(let currentDiary, let entries) = screen,
+				currentDiary.id == diary.id
+			else { return }
+			screen = .entries(
+				diary: currentDiary,
+				entries: entries.map { $0.id == entry.id ? created : $0 }
+			)
+		} catch {
+			// The in-memory entry stays available for this session.
 		}
 	}
 
@@ -764,9 +887,10 @@ final class ThingsDiaryAppModel {
 				)
 				try await store.synchronize(with: client)
 			} catch {}
+			let storedEntries = await store.entries(diaryID: diary.id)
 			screen = .entries(
 				diary: diary,
-				entries: await store.entries(diaryID: diary.id)
+				entries: entriesPreservingDrafts(storedEntries, from: entries)
 			)
 			return
 		}
@@ -824,9 +948,10 @@ final class ThingsDiaryAppModel {
 				)
 				try await store.synchronize(with: client)
 			} catch {}
+			let storedEntries = await store.entries(diaryID: diary.id)
 			screen = .entries(
 				diary: diary,
-				entries: await store.entries(diaryID: diary.id)
+				entries: entriesPreservingDrafts(storedEntries, from: entries)
 			)
 			return
 		}
@@ -860,9 +985,10 @@ final class ThingsDiaryAppModel {
 				)
 				try await store.synchronize(with: client)
 			} catch {}
+			let storedEntries = await store.entries(diaryID: diary.id)
 			screen = .entries(
 				diary: diary,
-				entries: await store.entries(diaryID: diary.id)
+				entries: entriesPreservingDrafts(storedEntries, from: entries)
 			)
 			return
 		}
@@ -924,14 +1050,16 @@ final class ThingsDiaryAppModel {
 					entries: entries.map { $0.id == localEntry.id ? localEntry : $0 }
 				)
 				try await store.synchronize(with: client)
+				let storedEntries = await store.entries(diaryID: diary.id)
 				screen = .entries(
 					diary: diary,
-					entries: await store.entries(diaryID: diary.id)
+					entries: entriesPreservingDrafts(storedEntries, from: entries)
 				)
 			} catch {
+				let storedEntries = await store.entries(diaryID: diary.id)
 				screen = .entries(
 					diary: diary,
-					entries: await store.entries(diaryID: diary.id)
+					entries: entriesPreservingDrafts(storedEntries, from: entries)
 				)
 			}
 			return
@@ -949,6 +1077,17 @@ final class ThingsDiaryAppModel {
 		} catch {
 			screen = .error("Could not update the entry.")
 		}
+	}
+
+	private func entriesPreservingDrafts(
+		_ storedEntries: [ThingsDiaryEntry],
+		from currentEntries: [ThingsDiaryEntry]
+	) -> [ThingsDiaryEntry] {
+		let storedEntryIDs = Set(storedEntries.map(\.id))
+		let drafts = currentEntries.filter {
+			entryDraftIDs.contains($0.id) && !storedEntryIDs.contains($0.id)
+		}
+		return storedEntries + drafts
 	}
 
 	func register() async {

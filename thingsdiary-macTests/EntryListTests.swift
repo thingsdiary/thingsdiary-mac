@@ -322,6 +322,32 @@ func adaptsEntryTabWidth() {
 	#expect(adaptiveEntryTabWidth(availableWidth: 300, tabCount: 8) == minimumEntryTabWidth)
 }
 
+@Test("New tab button follows the last tab while the row fits")
+func newTabButtonFollowsLastTab() {
+	let tabsWidth = entryTabsContentWidth(tabWidth: 170, tabCount: 2)
+
+	#expect(tabsWidth == 349)
+	#expect(
+		entryTabCreateButtonOffset(
+			availableWidth: 500,
+			tabsContentWidth: tabsWidth
+		) == 357
+	)
+}
+
+@Test("New tab button stays pinned when tabs overflow")
+func newTabButtonStaysPinned() {
+	let tabsWidth = entryTabsContentWidth(tabWidth: 92, tabCount: 6)
+
+	#expect(tabsWidth > 400)
+	#expect(
+		entryTabCreateButtonOffset(
+			availableWidth: 400,
+			tabsContentWidth: tabsWidth
+		) == 376
+	)
+}
+
 @Test("Entry tab drag crosses neighboring tab centers")
 func resolvesEntryTabDragDestination() {
 	#expect(entryTabReorderDestination(startIndex: 1, translation: -100, tabWidth: 170, tabCount: 4) == 0)

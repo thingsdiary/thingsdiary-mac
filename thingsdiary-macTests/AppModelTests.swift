@@ -482,6 +482,55 @@ func createsEntryInSelectedDiary() async {
 }
 
 @MainActor
+@Test("A list draft is visible immediately and can be discarded")
+func createsVisibleEntryDraft() async {
+	let diary = diary(id: "diary-1", title: "Personal")
+	let model = ThingsDiaryAppModel(
+		client: StubAppClient(result: .success([diary]))
+	)
+	await model.selectDiary(diary)
+
+	let draft = model.beginEntryDraft(appearsInList: true)
+
+	#expect(draft != nil)
+	#expect(model.entryDraftIDs == Set([draft?.id].compactMap { $0 }))
+	#expect(model.entryDraftIDsHiddenFromList.isEmpty)
+	#expect(model.screen == .entries(diary: diary, entries: [draft].compactMap { $0 }))
+
+	model.discardEntryDraft(draft?.id ?? "")
+
+	#expect(model.entryDraftIDs.isEmpty)
+	#expect(model.screen == .entries(diary: diary, entries: []))
+}
+
+@MainActor
+@Test("Editing a tab draft promotes it into the diary")
+func promotesHiddenTabDraftOnFirstEdit() async {
+	let diary = diary(id: "diary-1", title: "Personal")
+	let client = StubAppClient(
+		result: .success([diary]),
+		createEntryResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	await model.selectDiary(diary)
+	let draft = model.beginEntryDraft(appearsInList: false)
+	let draftID = try! #require(draft?.id)
+
+	#expect(model.entryDraftIDsHiddenFromList == Set([draftID]))
+
+	model.promoteEntryDraft(draftID, content: "Started writing")
+
+	#expect(model.entryDraftIDs.isEmpty)
+	#expect(model.entryDraftIDsHiddenFromList.isEmpty)
+	guard case .entries(_, let entries) = model.screen else {
+		Issue.record("Expected the selected diary")
+		return
+	}
+	#expect(entries.first?.id == draftID)
+	#expect(entries.first?.content == "Started writing")
+}
+
+@MainActor
 @Test("Creating a note offline keeps it visible and queues synchronization")
 func createsEntryOffline() async throws {
 	let fileURL = FileManager.default.temporaryDirectory
@@ -681,6 +730,35 @@ func updatesEntryOffline() async throws {
 	#expect(pendingWrites.count == 1)
 	#expect(pendingWrites.first?.operation == .update)
 	#expect(pendingWrites.first?.entry.content == "After")
+}
+
+@MainActor
+@Test("Saving one note keeps other in-memory drafts open")
+func savingEntryPreservesOtherDrafts() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-app-drafts-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let original = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Before")
+	let store = try DiaryStore(fileURL: fileURL)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		entriesResult: .success([original]),
+		updateEntryResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(client: client, store: store)
+	await model.selectDiary(selectedDiary)
+	let firstDraft = try #require(model.beginEntryDraft(appearsInList: false))
+	let secondDraft = try #require(model.beginEntryDraft(appearsInList: false))
+
+	await model.updateEntry(original, content: "After")
+
+	guard case .entries(_, let entries) = model.screen else {
+		Issue.record("Expected the selected diary")
+		return
+	}
+	#expect(Set(entries.map(\.id)) == [original.id, firstDraft.id, secondDraft.id])
+	#expect(model.entryDraftIDs == [firstDraft.id, secondDraft.id])
 }
 
 @MainActor
