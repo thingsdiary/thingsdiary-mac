@@ -458,6 +458,7 @@ private struct EntriesView: View {
 	@State private var dragStartEntryListWidth: CGFloat?
 	@State private var hoveredEntryTabID: String?
 	@State private var availableEntryTabsWidth: CGFloat = 0
+	@State private var entryTabReorderSession: EntryTabReorderSession?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
 	@State private var sidebarToggleInSidebar = true
 	@Namespace private var sidebarToggleNamespace
@@ -630,16 +631,16 @@ private struct EntriesView: View {
 
 	private var sidebarWorkspace: some View {
 		VStack(spacing: 0) {
-			HStack(spacing: 0) {
-				Color.clear.frame(width: trafficLightsTrailingInset)
-				Spacer(minLength: 8)
-				if sidebarToggleInSidebar {
-					animatedSidebarToggleButton
+			Color.clear
+				.frame(maxWidth: .infinity)
+				.frame(height: workspaceTitlebarHeight)
+				.background(WorkspaceWindowDragArea())
+				.overlay(alignment: .trailing) {
+					if sidebarToggleInSidebar {
+						animatedSidebarToggleButton
+							.padding(.trailing, 10)
+					}
 				}
-			}
-			.frame(height: workspaceTitlebarHeight)
-			.padding(.trailing, 10)
-			.background(WorkspaceWindowDragArea())
 			sidebar
 		}
 		.ignoresSafeArea(.container, edges: .top)
@@ -678,11 +679,6 @@ private struct EntriesView: View {
 
 	private var entryListTitlebar: some View {
 		HStack(spacing: 10) {
-			if !sidebarToggleInSidebar {
-				Color.clear.frame(width: trafficLightsTrailingInset)
-				animatedSidebarToggleButton
-			}
-
 			Text(selectionTitle)
 				.font(.headline)
 				.lineLimit(1)
@@ -731,8 +727,19 @@ private struct EntriesView: View {
 			minHeight: workspaceTitlebarHeight,
 			maxHeight: workspaceTitlebarHeight
 		)
-		.padding(.horizontal, 10)
+		.padding(.leading, sidebarToggleInSidebar ? 10 : trafficLightsTrailingInset + 58)
+		.padding(.trailing, 10)
 		.background(WorkspaceWindowDragArea())
+		.overlay(alignment: .leading) {
+			if !sidebarToggleInSidebar {
+				HStack(spacing: 10) {
+					Color.clear.frame(width: trafficLightsTrailingInset)
+					animatedSidebarToggleButton
+				}
+				.padding(.leading, 10)
+			}
+		}
+		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.accessibilityIdentifier("entry-list.titlebar")
 	}
 
@@ -766,29 +773,25 @@ private struct EntriesView: View {
 		)
 
 		return HStack(spacing: 8) {
-			if !sidebarToggleInSidebar, currentWorkspaceLayout == .editorOnly {
-				Color.clear.frame(width: trafficLightsTrailingInset)
-				animatedSidebarToggleButton
-			}
-
 			ScrollViewReader { scrollProxy in
 				ScrollView(.horizontal, showsIndicators: false) {
-					HStack(spacing: 0) {
-						ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
-							entryTab(entry, width: tabWidth)
-								.id(entry.id)
-							if index < openEntries.count - 1 {
-								let nextEntry = openEntries[index + 1]
-								let touchesHighlightedTab =
-									tabs.activeEntryID == entry.id
-									|| tabs.activeEntryID == nextEntry.id
-									|| hoveredEntryTabID == entry.id
-									|| hoveredEntryTabID == nextEntry.id
-								Divider()
-									.frame(height: 16)
-									.padding(.horizontal, 1)
-									.opacity(touchesHighlightedTab ? 0 : 0.55)
-									.allowsHitTesting(false)
+					ZStack(alignment: .leading) {
+						if let entryTabReorderSession {
+							entryTabPlaceholder(width: tabWidth)
+								.offset(
+									x: CGFloat(entryTabReorderSession.placeholderIndex)
+										* (tabWidth + entryTabSpacing)
+								)
+								.animation(
+									.smooth(duration: 0.16),
+									value: entryTabReorderSession.placeholderIndex
+								)
+						}
+
+						HStack(spacing: entryTabSpacing) {
+							ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
+								entryTab(entry, index: index, width: tabWidth)
+									.id(entry.id)
 							}
 						}
 					}
@@ -821,55 +824,67 @@ private struct EntriesView: View {
 		}
 		.frame(maxWidth: .infinity)
 		.frame(height: workspaceTitlebarHeight)
+		.padding(
+			.leading,
+			!sidebarToggleInSidebar && currentWorkspaceLayout == .editorOnly
+				? trafficLightsTrailingInset + 46
+				: 0
+		)
 		.padding(.trailing, 10)
-		.background(WorkspaceWindowDragArea())
+		.overlay(alignment: .leading) {
+			if !sidebarToggleInSidebar, currentWorkspaceLayout == .editorOnly {
+				HStack(spacing: 8) {
+					Color.clear.frame(width: trafficLightsTrailingInset)
+					animatedSidebarToggleButton
+				}
+			}
+		}
+		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.accessibilityIdentifier("entry-tabs.titlebar")
 	}
 
-	private func entryTab(_ entry: ThingsDiaryEntry, width: CGFloat) -> some View {
+	private func entryTab(_ entry: ThingsDiaryEntry, index: Int, width: CGFloat) -> some View {
 		let draft = draftsByEntryID[entry.id] ?? entry.content
 		let title = entryListPresentation(content: draft).title
 		let isActive = tabs.activeEntryID == entry.id
 		let isDirty = draft != entry.content
 		let isHovered = hoveredEntryTabID == entry.id
+		let isDragged = entryTabReorderSession?.entryID == entry.id
 
-		return HStack(spacing: 6) {
-			Button {
-				activateEntryTab(entry.id)
-			} label: {
-				HStack(spacing: 6) {
-					if isDirty {
-						Circle()
-							.fill(.secondary)
-							.frame(width: 6, height: 6)
-					}
-					Text(title)
-						.lineLimit(1)
-						.frame(maxWidth: .infinity, alignment: .leading)
-						.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
+		return Button {
+			activateEntryTab(entry.id)
+		} label: {
+			HStack(spacing: 6) {
+				if isDirty {
+					Circle()
+						.fill(.secondary)
+						.frame(width: 6, height: 6)
 				}
+				Text(title)
+					.lineLimit(1)
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
+				Color.clear
+					.frame(width: 20, height: 20)
+					.accessibilityHidden(true)
 			}
-			.buttonStyle(.plain)
-			.accessibilityIdentifier("entry-tab.\(entry.id)")
-
-			Group {
-				if isActive {
-					Button {
-						closeEntryTab(entry.id)
-					} label: {
-						Image(systemName: "xmark")
-							.font(.system(size: 10, weight: .semibold))
-							.frame(width: 20, height: 20)
-					}
-					.buttonStyle(.plain)
-					.accessibilityIdentifier("entry-tab.close.\(entry.id)")
-					.accessibilityLabel("Close \(title)")
-					.help("Close \(title)")
-				} else {
-					Color.clear
+		}
+		.buttonStyle(.plain)
+		.accessibilityIdentifier("entry-tab.\(entry.id)")
+		.overlay(alignment: .trailing) {
+			if isActive {
+				Button {
+					closeEntryTab(entry.id)
+				} label: {
+					Image(systemName: "xmark")
+						.font(.system(size: 10, weight: .semibold))
 						.frame(width: 20, height: 20)
-						.accessibilityHidden(true)
 				}
+				.buttonStyle(.plain)
+				.padding(.trailing, 9)
+				.accessibilityIdentifier("entry-tab.close.\(entry.id)")
+				.accessibilityLabel("Close \(title)")
+				.help("Close \(title)")
 			}
 		}
 		.padding(.horizontal, 9)
@@ -885,7 +900,15 @@ private struct EntriesView: View {
 				.stroke(isActive ? Color(nsColor: .separatorColor) : .clear)
 		}
 		.contentShape(.rect)
-		.onTapGesture { activateEntryTab(entry.id) }
+		.offset(x: entryTabReorderSession?.offset(forTabAt: index, tabWidth: width) ?? 0)
+		.scaleEffect(isDragged ? 1.025 : 1)
+		.shadow(
+			color: .black.opacity(isDragged ? 0.16 : 0),
+			radius: 5,
+			y: 2
+		)
+		.zIndex(isDragged ? 3 : 1)
+		.highPriorityGesture(entryTabReorderGesture(for: entry.id, tabWidth: width))
 		.onHover { hovering in
 			if hovering {
 				hoveredEntryTabID = entry.id
@@ -893,6 +916,36 @@ private struct EntriesView: View {
 				hoveredEntryTabID = nil
 			}
 		}
+	}
+
+	private func entryTabPlaceholder(width: CGFloat) -> some View {
+		RoundedRectangle(cornerRadius: 7, style: .continuous)
+			.fill(Color.primary.opacity(0.035))
+			.overlay {
+				RoundedRectangle(cornerRadius: 7, style: .continuous)
+					.stroke(
+						Color.secondary.opacity(0.32),
+						style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+					)
+			}
+			.frame(width: width, height: 30)
+			.allowsHitTesting(false)
+			.accessibilityIdentifier("entry-tab.placeholder")
+	}
+
+	private func entryTabReorderGesture(for entryID: String, tabWidth: CGFloat) -> some Gesture {
+		DragGesture(minimumDistance: 4)
+			.onChanged { drag in
+				if entryTabReorderSession == nil {
+					beginReorderingEntryTab(entryID)
+				}
+				updateEntryTabReorder(
+					entryID: entryID,
+					translationX: drag.translation.width,
+					tabWidth: tabWidth
+				)
+			}
+			.onEnded { _ in finishReorderingEntryTab(entryID) }
 	}
 
 	private func editorTitlebarActions(for entry: ThingsDiaryEntry) -> some View {
@@ -947,6 +1000,7 @@ private struct EntriesView: View {
 			}
 		}
 		.buttonStyle(.borderless)
+		.fixedSize(horizontal: true, vertical: false)
 	}
 
 	private var adaptiveWorkspace: some View {
@@ -1413,6 +1467,48 @@ private struct EntriesView: View {
 		guard tabs.openEntryIDs.contains(entryID) else { return }
 		tabs.activeEntryID = entryID
 		compactWorkspacePane = .editor
+	}
+
+	private func beginReorderingEntryTab(_ entryID: String) {
+		guard
+			entryTabReorderSession == nil,
+			let startIndex = tabs.openEntryIDs.firstIndex(of: entryID)
+		else { return }
+		entryTabReorderSession = EntryTabReorderSession(
+			entryID: entryID,
+			startIndex: startIndex
+		)
+		activateEntryTab(entryID)
+		NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+	}
+
+	private func updateEntryTabReorder(
+		entryID: String,
+		translationX: CGFloat,
+		tabWidth: CGFloat
+	) {
+		if entryTabReorderSession == nil {
+			beginReorderingEntryTab(entryID)
+		}
+		guard var session = entryTabReorderSession, session.entryID == entryID else { return }
+		let previousPlaceholderIndex = session.placeholderIndex
+		session.update(
+			translation: translationX,
+			tabWidth: tabWidth,
+			tabCount: tabs.openEntryIDs.count
+		)
+		entryTabReorderSession = session
+		if session.placeholderIndex != previousPlaceholderIndex {
+			NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+		}
+	}
+
+	private func finishReorderingEntryTab(_ entryID: String) {
+		guard let session = entryTabReorderSession, session.entryID == entryID else { return }
+		withAnimation(.smooth(duration: 0.16)) {
+			session.commit(to: &tabs)
+			entryTabReorderSession = nil
+		}
 	}
 
 	private func closeEntryTab(_ entryID: String) {

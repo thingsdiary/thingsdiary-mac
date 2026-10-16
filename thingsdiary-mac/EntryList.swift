@@ -55,11 +55,65 @@ nonisolated struct EntryTabsState: Equatable {
 		activeEntryID = openEntryIDs.indices.contains(index) ? openEntryIDs[index] : openEntryIDs.last
 	}
 
+	mutating func move(_ entryID: String, to destinationIndex: Int) {
+		guard let sourceIndex = openEntryIDs.firstIndex(of: entryID) else { return }
+		let entryID = openEntryIDs.remove(at: sourceIndex)
+		let index = min(max(destinationIndex, 0), openEntryIDs.count)
+		openEntryIDs.insert(entryID, at: index)
+	}
+
 	mutating func reconcile(validEntryIDs: Set<String>) {
 		openEntryIDs.removeAll { !validEntryIDs.contains($0) }
 		if let activeEntryID, !validEntryIDs.contains(activeEntryID) {
 			self.activeEntryID = openEntryIDs.last
 		}
+	}
+}
+
+nonisolated struct EntryTabReorderSession: Equatable {
+	let entryID: String
+	let startIndex: Int
+	private(set) var placeholderIndex: Int
+	private(set) var translation: CGFloat = 0
+
+	init(entryID: String, startIndex: Int) {
+		self.entryID = entryID
+		self.startIndex = startIndex
+		placeholderIndex = startIndex
+	}
+
+	mutating func update(translation: CGFloat, tabWidth: CGFloat, tabCount: Int) {
+		self.translation = translation
+		placeholderIndex = entryTabReorderDestination(
+			startIndex: startIndex,
+			translation: translation,
+			tabWidth: tabWidth,
+			tabCount: tabCount
+		)
+	}
+
+	func previewOrder(in entryIDs: [String]) -> [String] {
+		var preview = entryIDs.filter { $0 != entryID }
+		preview.insert(entryID, at: min(max(placeholderIndex, 0), preview.count))
+		return preview
+	}
+
+	func offset(forTabAt index: Int, tabWidth: CGFloat) -> CGFloat {
+		let step = tabWidth + entryTabSpacing
+		if index == startIndex {
+			return translation
+		}
+		if placeholderIndex < startIndex, placeholderIndex..<startIndex ~= index {
+			return step
+		}
+		if placeholderIndex > startIndex, (startIndex + 1)...placeholderIndex ~= index {
+			return -step
+		}
+		return 0
+	}
+
+	func commit(to tabs: inout EntryTabsState) {
+		tabs.move(entryID, to: placeholderIndex)
 	}
 }
 
@@ -79,6 +133,18 @@ nonisolated func adaptiveEntryTabWidth(
 	let separatorsWidth = CGFloat(max(tabCount - 1, 0)) * entryTabSpacing
 	let fittedWidth = floor((max(availableWidth, 0) - separatorsWidth) / CGFloat(tabCount))
 	return min(maximumEntryTabWidth, max(minimumEntryTabWidth, fittedWidth))
+}
+
+nonisolated func entryTabReorderDestination(
+	startIndex: Int,
+	translation: CGFloat,
+	tabWidth: CGFloat,
+	tabCount: Int
+) -> Int {
+	guard tabCount > 0 else { return 0 }
+	let step = max(tabWidth + entryTabSpacing, 1)
+	let displacedTabs = Int((translation / step).rounded())
+	return min(max(startIndex + displacedTabs, 0), tabCount - 1)
 }
 
 nonisolated enum CompactWorkspacePane: Equatable {

@@ -28,6 +28,6 @@ struct ThingsDiaryApp: App {
 		WindowGroup {
 			ContentView(model: model)
 		}
-		.windowToolbarStyle(.unified)
+		.windowStyle(.hiddenTitleBar)
 	}
 }

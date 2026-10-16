@@ -195,6 +195,29 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.staticTexts["Move Entry to Trash?"].waitForExistence(timeout: 2))
 	}
 
+	func testDraggingEntryTabReordersTabsWithoutMovingWindow() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+
+		app.buttons["entry.fixture-entry"].click()
+		app.buttons["sidebar.archive"].click()
+		app.descendants(matching: .any)["entry.fixture-archived-entry"].click()
+		app.buttons["sidebar.trash"].click()
+		app.descendants(matching: .any)["entry.fixture-deleted-entry"].click()
+
+		let firstTab = app.descendants(matching: .any)["entry-tab.fixture-entry"]
+		let secondTab = app.descendants(matching: .any)["entry-tab.fixture-archived-entry"]
+		XCTAssertTrue(firstTab.waitForExistence(timeout: 2))
+		XCTAssertTrue(secondTab.exists)
+		let originalWindowFrame = window.frame
+
+		secondTab.press(forDuration: 0.2, thenDragTo: firstTab)
+
+		XCTAssertLessThan(secondTab.frame.minX, firstTab.frame.minX)
+		XCTAssertEqual(window.frame.origin.x, originalWindowFrame.origin.x, accuracy: 1)
+		XCTAssertEqual(window.frame.origin.y, originalWindowFrame.origin.y, accuracy: 1)
+	}
+
 	func testTopicButtonOpensCreationForm() {
 		let app = launchWorkspace()
 

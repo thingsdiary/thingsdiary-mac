@@ -278,6 +278,21 @@ func reconcilesEntryTabs() {
 	#expect(tabs.activeEntryID == "third")
 }
 
+@Test("Entry tabs can move to either side")
+func movesEntryTabs() {
+	var tabs = EntryTabsState(
+		openEntryIDs: ["first", "second", "third"],
+		activeEntryID: "second"
+	)
+
+	tabs.move("third", to: 0)
+	#expect(tabs.openEntryIDs == ["third", "first", "second"])
+	#expect(tabs.activeEntryID == "second")
+
+	tabs.move("third", to: 2)
+	#expect(tabs.openEntryIDs == ["first", "second", "third"])
+}
+
 @Test("Entry list width preserves the preference within safe bounds")
 func clampsEntryListWidth() {
 	#expect(effectiveEntryListWidth(preferredWidth: 360, availableWidth: 1_200) == 360)
@@ -297,6 +312,35 @@ func adaptsEntryTabWidth() {
 	#expect(adaptiveEntryTabWidth(availableWidth: 600, tabCount: 2) == maximumEntryTabWidth)
 	#expect(adaptiveEntryTabWidth(availableWidth: 420, tabCount: 3) == 138)
 	#expect(adaptiveEntryTabWidth(availableWidth: 300, tabCount: 8) == minimumEntryTabWidth)
+}
+
+@Test("Entry tab drag crosses neighboring tab centers")
+func resolvesEntryTabDragDestination() {
+	#expect(entryTabReorderDestination(startIndex: 1, translation: -100, tabWidth: 170, tabCount: 4) == 0)
+	#expect(entryTabReorderDestination(startIndex: 1, translation: 80, tabWidth: 170, tabCount: 4) == 1)
+	#expect(entryTabReorderDestination(startIndex: 1, translation: 100, tabWidth: 170, tabCount: 4) == 2)
+	#expect(entryTabReorderDestination(startIndex: 1, translation: 800, tabWidth: 170, tabCount: 4) == 3)
+}
+
+@Test("Entry tab drag keeps source order until drop")
+func previewsEntryTabMoveBeforeCommit() {
+	var tabs = EntryTabsState(
+		openEntryIDs: ["first", "second", "third"],
+		activeEntryID: "second"
+	)
+	var drag = EntryTabReorderSession(entryID: "second", startIndex: 1)
+
+	drag.update(translation: -100, tabWidth: 170, tabCount: tabs.openEntryIDs.count)
+
+	#expect(tabs.openEntryIDs == ["first", "second", "third"])
+	#expect(drag.placeholderIndex == 0)
+	#expect(drag.previewOrder(in: tabs.openEntryIDs) == ["second", "first", "third"])
+	#expect(drag.offset(forTabAt: 0, tabWidth: 170) == 173)
+	#expect(drag.offset(forTabAt: 1, tabWidth: 170) == -100)
+	#expect(drag.offset(forTabAt: 2, tabWidth: 170) == 0)
+
+	drag.commit(to: &tabs)
+	#expect(tabs.openEntryIDs == ["second", "first", "third"])
 }
 
 private func listEntry(
