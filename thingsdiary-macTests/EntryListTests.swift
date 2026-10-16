@@ -132,32 +132,111 @@ func normalizesTopicTitles() {
 	#expect(normalizedTopicTitle("abcdefghijklmnop") == "abcdefghijkl")
 }
 
-@Test("Diary overview hides before it becomes too narrow")
-func adaptsDiaryOverviewToWorkspaceWidth() {
+@Test("Editor workspace uses hysteresis around its minimum width")
+func adaptsEditorWorkspaceWidthWithoutLayoutChurn() {
 	#expect(
-		!shouldShowEntryDetailColumn(
-			selectionIsEmpty: true,
-			hasSelectedEntry: false,
-			availableWidth: 1_000
+		updatedEditorWorkspaceCompactState(
+			isCompact: false,
+			hasSelectedEntry: true,
+			availableWidth: minimumSplitWorkspaceWidth - 1,
+			isDragging: false
 		))
 	#expect(
-		!shouldShowEntryDetailColumn(
-			selectionIsEmpty: false,
-			hasSelectedEntry: false,
-			availableWidth: minimumDiaryOverviewWidth - 1
+		updatedEditorWorkspaceCompactState(
+			isCompact: true,
+			hasSelectedEntry: true,
+			availableWidth: minimumSplitWorkspaceWidth + editorWorkspaceFocusHysteresis - 1,
+			isDragging: false
 		))
 	#expect(
-		shouldShowEntryDetailColumn(
-			selectionIsEmpty: false,
-			hasSelectedEntry: false,
-			availableWidth: minimumDiaryOverviewWidth
+		!updatedEditorWorkspaceCompactState(
+			isCompact: true,
+			hasSelectedEntry: true,
+			availableWidth: minimumSplitWorkspaceWidth + editorWorkspaceFocusHysteresis,
+			isDragging: false
 		))
 	#expect(
-		shouldShowEntryDetailColumn(
+		!updatedEditorWorkspaceCompactState(
+			isCompact: true,
+			hasSelectedEntry: false,
+			availableWidth: 320,
+			isDragging: false
+		))
+	#expect(
+		!updatedEditorWorkspaceCompactState(
+			isCompact: false,
+			hasSelectedEntry: true,
+			availableWidth: 320,
+			isDragging: true
+		))
+}
+
+@Test("Workspace gives a selected editor priority in compact widths")
+func choosesEntryWorkspaceLayout() {
+	#expect(
+		entryWorkspaceLayout(
 			selectionIsEmpty: false,
 			hasSelectedEntry: true,
-			availableWidth: 520
-		))
+			availableWidth: minimumSplitWorkspaceWidth,
+			isEditorFocusMode: false,
+			isCompact: false,
+			compactPane: .editor
+		) == .split)
+	#expect(
+		entryWorkspaceLayout(
+			selectionIsEmpty: false,
+			hasSelectedEntry: true,
+			availableWidth: minimumSplitWorkspaceWidth - 1,
+			isEditorFocusMode: false,
+			isCompact: true,
+			compactPane: .editor
+		) == .editorOnly)
+	#expect(
+		entryWorkspaceLayout(
+			selectionIsEmpty: false,
+			hasSelectedEntry: true,
+			availableWidth: minimumSplitWorkspaceWidth - 1,
+			isEditorFocusMode: false,
+			isCompact: true,
+			compactPane: .list
+		) == .listOnly)
+	#expect(
+		entryWorkspaceLayout(
+			selectionIsEmpty: false,
+			hasSelectedEntry: true,
+			availableWidth: 1_200,
+			isEditorFocusMode: true,
+			isCompact: false,
+			compactPane: .editor
+		) == .editorOnly)
+	#expect(
+		entryWorkspaceLayout(
+			selectionIsEmpty: true,
+			hasSelectedEntry: false,
+			availableWidth: 1_200,
+			isEditorFocusMode: false,
+			isCompact: false,
+			compactPane: .editor
+		) == .listOnly)
+	#expect(
+		entryWorkspaceLayout(
+			selectionIsEmpty: false,
+			hasSelectedEntry: false,
+			availableWidth: minimumDiaryOverviewWidth,
+			isEditorFocusMode: false,
+			isCompact: false,
+			compactPane: .editor
+		) == .split)
+	#expect(
+		entryWorkspaceLayout(
+			selectionIsEmpty: false,
+			hasSelectedEntry: false,
+			availableWidth: minimumDiaryOverviewWidth - 1,
+			isEditorFocusMode: false,
+			isCompact: false,
+			compactPane: .editor
+		) == .listOnly
+	)
 }
 
 private func listEntry(

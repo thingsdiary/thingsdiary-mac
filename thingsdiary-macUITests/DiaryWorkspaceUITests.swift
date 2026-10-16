@@ -53,6 +53,37 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(app.splitters.count, 1)
 	}
 
+	func testEditorPriorityAndManualFocusMode() {
+		let app = launchWorkspace()
+		let entryList = app.descendants(matching: .any)["entry-list.scroll"]
+		let editor = app.descendants(matching: .any)["entry.editor"]
+
+		app.buttons["entry.fixture-entry"].click()
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertFalse(entryList.exists)
+
+		app.buttons["workspace.show-entry-list"].firstMatch.click()
+		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
+		XCTAssertFalse(editor.exists)
+		app.buttons["workspace.show-editor"].firstMatch.click()
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+
+		app.buttons["Hide Sidebar"].firstMatch.click()
+		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
+		XCTAssertTrue(editor.exists)
+
+		app.buttons["workspace.focus-editor"].firstMatch.click()
+		XCTAssertFalse(entryList.waitForExistence(timeout: 1))
+		XCTAssertTrue(editor.exists)
+		app.buttons["workspace.exit-editor-focus"].firstMatch.click()
+		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
+		XCTAssertTrue(editor.exists)
+
+		app.buttons["Show Sidebar"].firstMatch.click()
+		XCTAssertFalse(entryList.waitForExistence(timeout: 1))
+		XCTAssertTrue(editor.exists)
+	}
+
 	func testEmptyTopicExplainsHowToAddEntriesWithoutListControls() {
 		let app = launchWorkspace()
 

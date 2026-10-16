@@ -36,6 +36,17 @@ private struct DiarySwitcherAnchorKey: PreferenceKey {
 	}
 }
 
+private struct SidebarWidthPreferenceKey: PreferenceKey {
+	static var defaultValue: CGFloat = 220
+
+	static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+		let nextValue = nextValue()
+		if nextValue > 0 {
+			value = nextValue
+		}
+	}
+}
+
 struct ContentView: View {
 	@Bindable var model: ThingsDiaryAppModel
 
@@ -353,6 +364,11 @@ private struct EntriesView: View {
 	@State private var editingTemplate: ThingsDiaryTemplate?
 	@State private var templateContent = ""
 	@State private var pendingSidebarSelection: DiaryNavigationSelection?
+	@State private var isEditorFocusMode = false
+	@State private var isEditorWorkspaceCompact = false
+	@State private var compactWorkspacePane: CompactWorkspacePane = .editor
+	@State private var sidebarVisibility: NavigationSplitViewVisibility = .all
+	@State private var sidebarWidth: CGFloat = 220
 
 	private var displayedEntries: [ThingsDiaryEntry] {
 		visibleEntries(entries, selection: activeSelection, query: query, sort: sort)
@@ -370,14 +386,10 @@ private struct EntriesView: View {
 	}
 
 	var body: some View {
-		GeometryReader { proxy in
-			workspace(
-				showsDetailColumn: shouldShowEntryDetailColumn(
-					selectionIsEmpty: selectionIsEmpty,
-					hasSelectedEntry: selectedEntry != nil,
-					availableWidth: proxy.size.width
-				)
-			)
+		NavigationSplitView(columnVisibility: $sidebarVisibility) {
+			sidebar
+		} detail: {
+			adaptiveWorkspace
 		}
 		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
 			GeometryReader { proxy in
@@ -399,6 +411,10 @@ private struct EntriesView: View {
 		.navigationSplitViewStyle(.balanced)
 		.onPreferenceChange(EntryDropTargetFramesKey.self) { frames in
 			dropTargetFrames = frames
+		}
+		.onPreferenceChange(SidebarWidthPreferenceKey.self) { width in
+			guard width > 0 else { return }
+			sidebarWidth = width
 		}
 		.overlay(alignment: .topLeading) {
 			GeometryReader { proxy in
@@ -425,6 +441,14 @@ private struct EntriesView: View {
 		)
 		.onChange(of: selection) {
 			selectedEntryID = nil
+			isEditorFocusMode = false
+			compactWorkspacePane = .editor
+		}
+		.onChange(of: selectedEntry?.id) {
+			guard selectedEntry == nil, selectedEntryID != nil else { return }
+			selectedEntryID = nil
+			isEditorFocusMode = false
+			compactWorkspacePane = .editor
 		}
 		.onChange(of: model.diarySettingsRequestID) {
 			presentRequestedDiarySettings()
@@ -465,26 +489,77 @@ private struct EntriesView: View {
 		}
 	}
 
-	@ViewBuilder private func workspace(showsDetailColumn: Bool) -> some View {
-		if showsDetailColumn {
-			NavigationSplitView {
-				sidebar
-			} content: {
-				entryListPane
-					.navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 440)
-			} detail: {
-				entryDetailPane
-			}
-		} else {
-			NavigationSplitView {
-				sidebar
-			} detail: {
-				entryListPane
-			}
+	private var adaptiveWorkspace: some View {
+		GeometryReader { proxy in
+			let availableWidth = max(
+				proxy.size.width - (sidebarVisibility == .detailOnly ? 0 : sidebarWidth),
+				0
+			)
+			let compact = updatedEditorWorkspaceCompactState(
+				isCompact: isEditorWorkspaceCompact,
+				hasSelectedEntry: selectedEntry != nil,
+				availableWidth: availableWidth,
+				isDragging: draggedEntryID != nil
+			)
+			let layout = entryWorkspaceLayout(
+				selectionIsEmpty: selectionIsEmpty,
+				hasSelectedEntry: selectedEntry != nil,
+				availableWidth: availableWidth,
+				isEditorFocusMode: isEditorFocusMode,
+				isCompact: compact,
+				compactPane: compactWorkspacePane
+			)
+
+			workspace(layout: layout)
+				.onAppear {
+					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
+				}
+				.onChange(of: availableWidth) {
+					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
+				}
+				.onChange(of: selectedEntry?.id) {
+					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
+				}
+				.onChange(of: draggedEntryID) {
+					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
+				}
 		}
 	}
 
-	private var entryListPane: some View {
+	@ViewBuilder private func workspace(layout: EntryWorkspaceLayout) -> some View {
+		switch layout {
+		case .listOnly:
+			entryListPane(
+				showsEditorButton: selectedEntry != nil && compactWorkspacePane == .list
+			)
+		case .split:
+			HSplitView {
+				entryListPane(showsEditorButton: false)
+					.frame(
+						minWidth: minimumEntryListWidth,
+						idealWidth: 320,
+						maxWidth: 440,
+						maxHeight: .infinity
+					)
+				entryDetailPane(layout: layout)
+					.frame(minWidth: minimumEntryEditorWidth, maxWidth: .infinity, maxHeight: .infinity)
+			}
+			.accessibilityIdentifier("workspace.split")
+		case .editorOnly:
+			entryDetailPane(layout: layout)
+		}
+	}
+
+	private func updateEditorWorkspaceCompactState(availableWidth: CGFloat) {
+		isEditorWorkspaceCompact = updatedEditorWorkspaceCompactState(
+			isCompact: isEditorWorkspaceCompact,
+			hasSelectedEntry: selectedEntry != nil,
+			availableWidth: availableWidth,
+			isDragging: draggedEntryID != nil
+		)
+	}
+
+	private func entryListPane(showsEditorButton: Bool) -> some View {
 		Group {
 			if selectionIsEmpty {
 				emptyStateView
@@ -505,6 +580,17 @@ private struct EntriesView: View {
 		.background(.background)
 		.searchable(text: $query)
 		.toolbar {
+			if showsEditorButton {
+				Button {
+					compactWorkspacePane = .editor
+				} label: {
+					Image(systemName: "doc.text")
+				}
+				.accessibilityIdentifier("workspace.show-editor")
+				.accessibilityLabel("Show Editor")
+				.help("Show Editor")
+			}
+
 			if activeSelection == .trash && !displayedEntries.isEmpty {
 				Button("Empty Trash", role: .destructive) {
 					confirmingEmptyTrash = true
@@ -514,7 +600,7 @@ private struct EntriesView: View {
 		}
 	}
 
-	@ViewBuilder private var entryDetailPane: some View {
+	@ViewBuilder private func entryDetailPane(layout: EntryWorkspaceLayout) -> some View {
 		if let selectedEntry {
 			TextEditor(text: $draftContent)
 				.accessibilityIdentifier("entry.editor")
@@ -522,6 +608,38 @@ private struct EntriesView: View {
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 				.toolbar {
 					ToolbarItemGroup(placement: .primaryAction) {
+						if isEditorFocusMode {
+							Button {
+								isEditorFocusMode = false
+								if isEditorWorkspaceCompact {
+									compactWorkspacePane = .list
+								}
+							} label: {
+								Image(systemName: "arrow.down.right.and.arrow.up.left")
+							}
+							.accessibilityIdentifier("workspace.exit-editor-focus")
+							.accessibilityLabel("Exit Editor Focus")
+							.help("Exit Editor Focus")
+						} else if layout == .split {
+							Button {
+								isEditorFocusMode = true
+							} label: {
+								Image(systemName: "arrow.up.left.and.arrow.down.right")
+							}
+							.accessibilityIdentifier("workspace.focus-editor")
+							.accessibilityLabel("Focus Editor")
+							.help("Focus Editor")
+						} else {
+							Button {
+								compactWorkspacePane = .list
+							} label: {
+								Image(systemName: "list.bullet")
+							}
+							.accessibilityIdentifier("workspace.show-entry-list")
+							.accessibilityLabel("Show Entry List")
+							.help("Show Entry List")
+						}
+
 						Menu {
 							entryActions(for: selectedEntry)
 						} label: {
@@ -718,6 +836,11 @@ private struct EntriesView: View {
 			.frame(maxWidth: .infinity)
 		}
 		.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+		.background {
+			GeometryReader { proxy in
+				Color.clear.preference(key: SidebarWidthPreferenceKey.self, value: proxy.size.width)
+			}
+		}
 	}
 
 	private var diarySwitcher: some View {
@@ -917,6 +1040,7 @@ private struct EntriesView: View {
 						.onTapGesture {
 							selectedEntryID = entry.id
 							draftContent = entry.content
+							compactWorkspacePane = .editor
 						}
 						.highPriorityGesture(entryDragGesture(for: entry))
 						.accessibilityElement(children: .combine)

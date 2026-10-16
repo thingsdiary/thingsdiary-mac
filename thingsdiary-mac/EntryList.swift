@@ -25,15 +25,54 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 	case trash
 }
 
-nonisolated let minimumDiaryOverviewWidth: CGFloat = 820
+nonisolated let minimumEntryListWidth: CGFloat = 260
+nonisolated let minimumEntryEditorWidth: CGFloat = 420
+nonisolated let editorWorkspaceFocusHysteresis: CGFloat = 60
+nonisolated let minimumSplitWorkspaceWidth = minimumEntryListWidth + minimumEntryEditorWidth
+nonisolated let minimumDiaryOverviewWidth: CGFloat = 620
 
-nonisolated func shouldShowEntryDetailColumn(
+nonisolated enum CompactWorkspacePane: Equatable {
+	case list
+	case editor
+}
+
+nonisolated enum EntryWorkspaceLayout: Equatable {
+	case listOnly
+	case split
+	case editorOnly
+}
+
+nonisolated func updatedEditorWorkspaceCompactState(
+	isCompact: Bool,
+	hasSelectedEntry: Bool,
+	availableWidth: CGFloat,
+	isDragging: Bool
+) -> Bool {
+	guard hasSelectedEntry else { return false }
+	guard !isDragging else { return isCompact }
+	if isCompact {
+		return availableWidth < minimumSplitWorkspaceWidth + editorWorkspaceFocusHysteresis
+	}
+	return availableWidth < minimumSplitWorkspaceWidth
+}
+
+nonisolated func entryWorkspaceLayout(
 	selectionIsEmpty: Bool,
 	hasSelectedEntry: Bool,
-	availableWidth: CGFloat
-) -> Bool {
-	guard !selectionIsEmpty else { return false }
-	return hasSelectedEntry || availableWidth >= minimumDiaryOverviewWidth
+	availableWidth: CGFloat,
+	isEditorFocusMode: Bool,
+	isCompact: Bool,
+	compactPane: CompactWorkspacePane
+) -> EntryWorkspaceLayout {
+	guard !selectionIsEmpty else { return .listOnly }
+	if hasSelectedEntry {
+		if isEditorFocusMode { return .editorOnly }
+		guard !isCompact else {
+			return compactPane == .editor ? .editorOnly : .listOnly
+		}
+		return .split
+	}
+	return availableWidth >= minimumDiaryOverviewWidth ? .split : .listOnly
 }
 
 nonisolated enum EntryAction: Equatable {
