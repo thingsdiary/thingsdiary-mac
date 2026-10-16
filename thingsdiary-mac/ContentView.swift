@@ -1545,9 +1545,6 @@ private struct EntriesView: View {
 							topicTitle = String(topicTitle.prefix(maximumTopicTitleLength))
 						}
 					}
-				Text("\(topicTitle.count)/\(maximumTopicTitleLength)")
-					.font(.caption)
-					.foregroundStyle(.secondary)
 				TextField("Description", text: $topicDescription, axis: .vertical)
 					.accessibilityIdentifier("topic.description")
 					.lineLimit(2...5)
