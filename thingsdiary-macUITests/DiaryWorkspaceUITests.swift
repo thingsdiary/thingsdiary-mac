@@ -36,6 +36,19 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.descendants(matching: .any)["entry.fixture-deleted-entry"].waitForExistence(timeout: 2))
 	}
 
+	func testNewWindowMenuOpensASeparateWindow() {
+		let app = launchWorkspace()
+		let initialWindowCount = app.windows.count
+		XCTAssertGreaterThan(initialWindowCount, 0)
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["New Window"].click()
+
+		let newWindow = app.windows.element(boundBy: initialWindowCount)
+		XCTAssertTrue(newWindow.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.windows.count, initialWindowCount + 1)
+	}
+
 	func testEntryListHeaderAndRowsUseSeparateContainers() {
 		let app = launchWorkspace()
 		let header = app.descendants(matching: .any)["entry-list.header"].firstMatch
@@ -255,9 +268,14 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(header.value as? String, "Expanded")
 	}
 
-	func testEntryActionsAreAvailableFromRowAndEditorToolbar() {
+	func testEntryActionsStayInRowContextMenuAndAreHiddenFromEditorToolbar() {
 		let app = launchWorkspace()
-		let entry = app.descendants(matching: .any)["entry.fixture-entry"]
+		let entries = app.descendants(matching: .any)
+			.matching(identifier: "entry.fixture-entry")
+			.allElementsBoundByIndex
+		guard let entry = entries.first(where: \.isHittable) else {
+			return XCTFail("Expected a visible fixture entry")
+		}
 
 		entry.rightClick()
 		XCTAssertTrue(app.menuItems["Bookmark"].waitForExistence(timeout: 2))
@@ -266,12 +284,8 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		app.typeKey(.escape, modifierFlags: [])
 
 		entry.click()
-		let actions = app.descendants(matching: .any)["entry.actions"]
-		XCTAssertTrue(actions.waitForExistence(timeout: 2))
-		actions.click()
-		XCTAssertTrue(app.menuItems["Bookmark"].waitForExistence(timeout: 2))
-		XCTAssertTrue(app.menuItems["Archive"].exists)
-		XCTAssertTrue(app.menuItems["Move to Trash"].exists)
+		XCTAssertFalse(app.descendants(matching: .any)["entry.actions"].exists)
+		XCTAssertFalse(app.buttons["Save"].exists)
 	}
 
 	func testNewEntryButtonCreatesDraftAndOpensEditor() {

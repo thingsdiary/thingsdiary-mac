@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension Notification.Name {
@@ -20,6 +21,8 @@ struct ThingsDiaryApp: App {
 	@State private var model: ThingsDiaryAppModel
 
 	init() {
+		NSWindow.allowsAutomaticWindowTabbing = false
+
 		#if DEBUG
 			if ProcessInfo.processInfo.arguments.contains("--ui-testing-workspace") {
 				_model = State(initialValue: ThingsDiaryAppModel.uiTestingWorkspace())

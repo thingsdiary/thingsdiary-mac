@@ -68,6 +68,7 @@ final class WorkspaceWindowChromeView: NSView {
 	private var originalToolbarVisibility: Bool?
 	private var originalMovableByBackground: Bool?
 	private var originalSeparatorStyle: NSTitlebarSeparatorStyle?
+	private var originalTabbingMode: NSWindow.TabbingMode?
 	private var lastTrafficLightsInset: CGFloat?
 
 	override func viewDidMoveToWindow() {
@@ -100,6 +101,7 @@ final class WorkspaceWindowChromeView: NSView {
 			originalToolbarVisibility = window.toolbar?.isVisible
 			originalMovableByBackground = window.isMovableByWindowBackground
 			originalSeparatorStyle = window.titlebarSeparatorStyle
+			originalTabbingMode = window.tabbingMode
 		}
 
 		window.title = title
@@ -109,6 +111,7 @@ final class WorkspaceWindowChromeView: NSView {
 		window.toolbar?.isVisible = false
 		window.isMovableByWindowBackground = false
 		window.titlebarSeparatorStyle = .none
+		window.tabbingMode = .disallowed
 		for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
 			window.standardWindowButton(buttonType)?.isHidden = false
 		}
@@ -152,6 +155,9 @@ final class WorkspaceWindowChromeView: NSView {
 		}
 		if let originalSeparatorStyle {
 			window.titlebarSeparatorStyle = originalSeparatorStyle
+		}
+		if let originalTabbingMode {
+			window.tabbingMode = originalTabbingMode
 		}
 		configuredWindow = nil
 	}

@@ -934,11 +934,11 @@ private struct EntriesView: View {
 			entryTabsStrip(tabWidth: tabWidth)
 				.frame(maxWidth: .infinity)
 
-			if let selectedEntry {
+			if selectedEntry != nil {
 				Divider()
 					.frame(height: 24)
 					.allowsHitTesting(false)
-				editorTitlebarActions(for: selectedEntry)
+				editorTitlebarActions
 			}
 		}
 		.frame(maxWidth: .infinity)
@@ -1176,7 +1176,7 @@ private struct EntriesView: View {
 			.onEnded { _ in finishReorderingEntryTab(entryID) }
 	}
 
-	private func editorTitlebarActions(for entry: ThingsDiaryEntry) -> some View {
+	private var editorTitlebarActions: some View {
 		HStack(spacing: 10) {
 			if isEditorFocusMode {
 				TitlebarIconButton(systemImage: "arrow.down.right.and.arrow.up.left") {
@@ -1202,26 +1202,6 @@ private struct EntriesView: View {
 				.accessibilityIdentifier("workspace.show-entry-list")
 				.accessibilityLabel("Show Entry List")
 				.help("Show Entry List")
-			}
-
-			if !model.entryDraftIDs.contains(entry.id)
-				&& !model.entryPendingCreationIDs.contains(entry.id)
-			{
-				Menu {
-					entryActions(for: entry)
-				} label: {
-					Image(systemName: "ellipsis.circle")
-				}
-				.menuStyle(.borderlessButton)
-				.accessibilityIdentifier("entry.actions")
-				.help("Entry Actions")
-
-				if entry.deletedAt == nil && !entry.archived {
-					Button("Save") {
-						saveSelectedEntry()
-					}
-					.disabled(!canSave(entry))
-				}
 			}
 		}
 		.buttonStyle(.borderless)
