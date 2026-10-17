@@ -239,6 +239,19 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(window.frame.origin.y, originalWindowFrame.origin.y, accuracy: 1)
 	}
 
+	func testEntryTabContextMenuOpensOutsideItsText() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+
+		let tab = app.descendants(matching: .any)["entry-tab.fixture-entry"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+
+		tab.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).rightClick()
+
+		XCTAssertTrue(app.menuItems["Close"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.menuItems["Pin Tab"].exists)
+	}
+
 	func testTopicButtonOpensCreationForm() {
 		let app = launchWorkspace()
 
@@ -278,7 +291,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		}
 
 		entry.rightClick()
-		XCTAssertTrue(app.menuItems["Bookmark"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.menuItems["Add Bookmark"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.menuItems["Archive"].exists)
 		XCTAssertTrue(app.menuItems["Move to Trash"].exists)
 		app.typeKey(.escape, modifierFlags: [])
@@ -387,6 +400,37 @@ final class DiaryWorkspaceUITests: XCTestCase {
 			app.textViews.firstMatch.value as? String,
 			"Fixture Entry\nA useful preview for UI testing."
 		)
+	}
+
+	func testCloseOtherTabsContinuesAfterSavingDirtyTab() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+		let dirtyTab = app.buttons["entry-tab.fixture-entry"]
+		let editor = app.textViews.firstMatch
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		editor.click()
+		editor.typeText(" Saved before bulk close")
+
+		app.buttons["sidebar.archive"].click()
+		app.descendants(matching: .any)["entry.fixture-archived-entry"].click()
+		let followingTab = app.buttons["entry-tab.fixture-archived-entry"]
+		app.buttons["sidebar.trash"].click()
+		app.descendants(matching: .any)["entry.fixture-deleted-entry"].click()
+		let keptTab = app.buttons["entry-tab.fixture-deleted-entry"]
+
+		XCTAssertTrue(dirtyTab.exists)
+		XCTAssertTrue(followingTab.exists)
+		XCTAssertTrue(keptTab.waitForExistence(timeout: 2))
+		keptTab.rightClick()
+		app.menuItems["Close Other Tabs"].click()
+
+		let closeAlert = app.sheets.firstMatch
+		XCTAssertTrue(closeAlert.buttons["Save"].waitForExistence(timeout: 2))
+		closeAlert.buttons["Save"].click()
+
+		XCTAssertFalse(dirtyTab.waitForExistence(timeout: 2))
+		XCTAssertFalse(followingTab.exists)
+		XCTAssertTrue(keptTab.exists)
 	}
 
 	func testMovingNonemptyEntryToTrashRequiresConfirmation() {

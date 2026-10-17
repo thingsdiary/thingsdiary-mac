@@ -522,6 +522,7 @@ private struct EntriesView: View {
 	@State private var topicsHeaderHovered = false
 	@State private var pendingEntryAction: PendingEntryAction?
 	@State private var pendingEntryTabClose: PendingEntryTabClose?
+	@State private var pendingEntryTabCloseQueue: [String] = []
 	@State private var entryTabCloseSaveError: String?
 	@State private var entryIDSavingBeforeClose: String?
 	@State private var targetedDropDestination: EntryDropDestination?
@@ -821,10 +822,10 @@ private struct EntriesView: View {
 				.help("Empty Trash")
 			} else if activeSelection != .archive {
 				IconButton(systemImage: "square.and.pencil", action: beginCreatingEntry)
-				.accessibilityIdentifier("entry.create")
-				.accessibilityLabel("New Entry")
-				.keyboardShortcut("n", modifiers: .command)
-				.help("Create a new entry")
+					.accessibilityIdentifier("entry.create")
+					.accessibilityLabel("New Entry")
+					.keyboardShortcut("n", modifiers: .command)
+					.help("Create a new entry")
 			}
 		}
 		.buttonStyle(.borderless)
@@ -851,9 +852,9 @@ private struct EntriesView: View {
 
 	private var sidebarToggleButton: some View {
 		IconButton(systemImage: "sidebar.left", action: toggleSidebar)
-		.accessibilityIdentifier("sidebar.toggle")
-		.accessibilityLabel(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
-		.help(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
+			.accessibilityIdentifier("sidebar.toggle")
+			.accessibilityLabel(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
+			.help(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
 	}
 
 	private var animatedSidebarToggleButton: some View {
@@ -910,8 +911,15 @@ private struct EntriesView: View {
 		) { request in
 			Button("Don't Save", role: .destructive) {
 				closeEntryTabImmediately(request.entryID)
+				pendingEntryTabClose = nil
+				DispatchQueue.main.async {
+					processNextEntryTabClose()
+				}
 			}
-			Button("Cancel", role: .cancel) {}
+			Button("Cancel", role: .cancel) {
+				pendingEntryTabClose = nil
+				pendingEntryTabCloseQueue = []
+			}
 			Button("Save") {
 				saveEntryTabBeforeClosing(request)
 			}
@@ -961,30 +969,7 @@ private struct EntriesView: View {
 
 							HStack(spacing: entryTabSpacing) {
 								ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
-									let draft = draftsByEntryID[entry.id] ?? entry.content
-									EntryTab(
-										entryID: entry.id,
-										title: entryListPresentation(content: draft).title,
-										width: tabWidth,
-										isActive: tabs.activeEntryID == entry.id,
-										isDirty: draft != entry.content,
-										isDragged: entryTabReorderSession?.entryID == entry.id,
-										horizontalOffset: entryTabReorderSession?.offset(
-											forTabAt: index,
-											tabWidth: tabWidth
-										) ?? 0,
-										activate: { activateEntryTab(entry.id) },
-										close: { closeEntryTab(entry.id) },
-										reorder: { translation in
-											updateEntryTabReorder(
-												entryID: entry.id,
-												translationX: translation,
-												tabWidth: tabWidth
-											)
-										},
-										finishReordering: { finishReorderingEntryTab(entry.id) }
-									)
-										.id(entry.id)
+									entryTabView(entry, at: index, width: tabWidth)
 								}
 							}
 						}
@@ -1034,6 +1019,46 @@ private struct EntriesView: View {
 			.onChange(of: proxy.size.width) {
 				availableEntryTabsWidth = proxy.size.width
 			}
+		}
+	}
+
+	private func entryTabView(
+		_ entry: ThingsDiaryEntry,
+		at index: Int,
+		width: CGFloat
+	) -> some View {
+		let draft = draftsByEntryID[entry.id] ?? entry.content
+		return ZStack {
+			Color.clear
+			EntryTab(
+				entryID: entry.id,
+				title: entryListPresentation(content: draft).title,
+				width: width,
+				isActive: tabs.activeEntryID == entry.id,
+				isDirty: draft != entry.content,
+				isPinned: tabs.isPinned(entry.id),
+				isDragged: entryTabReorderSession?.entryID == entry.id,
+				horizontalOffset: entryTabReorderSession?.offset(
+					forTabAt: index,
+					tabWidth: width
+				) ?? 0,
+				activate: { activateEntryTab(entry.id) },
+				close: { closeEntryTab(entry.id) },
+				reorder: { translation in
+					updateEntryTabReorder(
+						entryID: entry.id,
+						translationX: translation,
+						tabWidth: width
+					)
+				},
+				finishReordering: { finishReorderingEntryTab(entry.id) }
+			)
+		}
+		.frame(width: width, height: 30)
+		.contentShape(Rectangle())
+		.id(entry.id)
+		.contextMenu {
+			entryTabContextMenu(for: entry, at: index)
 		}
 	}
 
@@ -1601,7 +1626,8 @@ private struct EntriesView: View {
 		session.update(
 			translation: translationX,
 			tabWidth: tabWidth,
-			tabCount: tabs.openEntryIDs.count
+			tabCount: tabs.openEntryIDs.count,
+			allowedRange: tabs.reorderRange(for: entryID)
 		)
 		entryTabReorderSession = session
 		if session.placeholderIndex != previousPlaceholderIndex {
@@ -1617,24 +1643,112 @@ private struct EntriesView: View {
 		}
 	}
 
-	private func closeEntryTab(_ entryID: String) {
-		guard entryIDSavingBeforeClose != entryID,
-			let entry = entries.first(where: { $0.id == entryID })
-		else { return }
-		let draft = draftsByEntryID[entryID] ?? entry.content
-		switch entryTabCloseDisposition(
-			persistedContent: entry.content,
-			draftContent: draft
+	@ViewBuilder private func entryTabContextMenu(
+		for entry: ThingsDiaryEntry,
+		at index: Int
+	) -> some View {
+		let isEphemeral = model.entryDraftIDs.contains(entry.id)
+		let isDeleted = entry.deletedAt != nil
+		let otherTabsToClose = tabs.closeableOtherEntryIDs(keeping: entry.id)
+		let tabsToTheRight = Array(tabs.openEntryIDs.dropFirst(index + 1))
+
+		Button("Close", systemImage: "xmark") {
+			closeEntryTab(entry.id)
+		}
+		Button("Close Other Tabs", systemImage: "xmark.square") {
+			requestCloseEntryTabs(otherTabsToClose)
+		}
+		.disabled(otherTabsToClose.isEmpty)
+		Button("Close Tabs to the Right", systemImage: "arrow.right.to.line") {
+			requestCloseEntryTabs(tabsToTheRight)
+		}
+		.disabled(tabsToTheRight.isEmpty)
+
+		Divider()
+
+		Button(
+			tabs.isPinned(entry.id) ? "Unpin Tab" : "Pin Tab",
+			systemImage: tabs.isPinned(entry.id) ? "pin.slash" : "pin"
 		) {
-		case .close:
-			closeEntryTabImmediately(entryID)
-		case .confirmDiscard:
-			activateEntryTab(entryID)
-			entryTabCloseSaveError = nil
-			pendingEntryTabClose = PendingEntryTabClose(
-				entryID: entryID,
-				title: entryListPresentation(content: draft).title
-			)
+			tabs.togglePin(entry.id)
+		}
+
+		Divider()
+
+		Button(
+			entry.bookmarked ? "Remove Bookmark" : "Add Bookmark",
+			systemImage: entry.bookmarked ? "bookmark.slash" : "bookmark"
+		) {
+			perform(.toggleBookmark, on: entry, topicID: nil)
+		}
+		.disabled(isDeleted)
+
+		Button("Duplicate", systemImage: "plus.square.on.square") {
+			perform(.duplicate, on: entry, topicID: nil)
+		}
+		.disabled(isEphemeral || isDeleted)
+
+		Menu("Move to Topic", systemImage: "tag") {
+			Button("Unfiled", systemImage: "tray") {
+				perform(.moveToTopic, on: entry, topicID: nil)
+			}
+			ForEach(model.topics) { topic in
+				Button(topic.title, systemImage: "tag") {
+					perform(.moveToTopic, on: entry, topicID: topic.id)
+				}
+			}
+		}
+		.disabled(model.topics.isEmpty || isDeleted)
+
+		Divider()
+
+		Button(
+			entry.archived ? "Restore from Archive" : "Archive",
+			systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox"
+		) {
+			perform(.toggleArchive, on: entry, topicID: nil)
+		}
+		.disabled(isEphemeral || isDeleted)
+
+		Button("Move to Trash", systemImage: "trash", role: .destructive) {
+			perform(.moveToTrash, on: entry, topicID: nil)
+		}
+		.disabled(isEphemeral || isDeleted)
+	}
+
+	private func closeEntryTab(_ entryID: String) {
+		requestCloseEntryTabs([entryID])
+	}
+
+	private func requestCloseEntryTabs(_ entryIDs: [String]) {
+		guard pendingEntryTabClose == nil else { return }
+		pendingEntryTabCloseQueue = entryIDs.filter(tabs.openEntryIDs.contains)
+		processNextEntryTabClose()
+	}
+
+	private func processNextEntryTabClose() {
+		guard pendingEntryTabClose == nil else { return }
+		while !pendingEntryTabCloseQueue.isEmpty {
+			let entryID = pendingEntryTabCloseQueue.removeFirst()
+			guard entryIDSavingBeforeClose != entryID,
+				let entry = entries.first(where: { $0.id == entryID })
+			else { continue }
+			let draft = draftsByEntryID[entryID] ?? entry.content
+			switch entryTabCloseDisposition(
+				persistedContent: entry.content,
+				draftContent: draft
+			) {
+			case .close:
+				closeEntryTabImmediately(entryID)
+			case .confirmDiscard:
+				activateEntryTab(entryID)
+				entryTabCloseSaveError = nil
+				pendingEntryTabClose = PendingEntryTabClose(
+					entryID: entryID,
+					title: entryListPresentation(content: draft).title
+				)
+				return
+			}
 		}
 	}
 
@@ -1682,9 +1796,12 @@ private struct EntriesView: View {
 			switch outcome {
 			case .saved:
 				closeEntryTabImmediately(request.entryID)
+				processNextEntryTabClose()
 			case .changedWhileSaving:
-				break
+				pendingEntryTabCloseQueue.insert(request.entryID, at: 0)
+				processNextEntryTabClose()
 			case .failed:
+				pendingEntryTabCloseQueue = []
 				guard tabs.openEntryIDs.contains(request.entryID) else { return }
 				entryTabCloseSaveError =
 					"The entry couldn't be saved. Your changes are still open."
@@ -1998,7 +2115,11 @@ private struct EntriesView: View {
 	}
 
 	private func entryActions(for entry: ThingsDiaryEntry) -> some View {
-		EntryActionsMenuContent(entry: entry, topics: model.topics) { action, topicID in
+		EntryActionsMenuContent(
+			entry: entry,
+			topics: model.topics,
+			isEphemeral: model.entryDraftIDs.contains(entry.id)
+		) { action, topicID in
 			perform(action, on: entry, topicID: topicID)
 		}
 	}
@@ -2394,6 +2515,7 @@ private struct EntriesView: View {
 private struct EntryActionsMenuContent: View {
 	let entry: ThingsDiaryEntry
 	let topics: [ThingsDiaryTopic]
+	let isEphemeral: Bool
 	let perform: (EntryAction, String?) -> Void
 
 	var body: some View {
@@ -2407,20 +2529,18 @@ private struct EntryActionsMenuContent: View {
 
 		if actions.contains(.toggleBookmark) {
 			Button(
-				entry.bookmarked ? "Remove Bookmark" : "Bookmark",
+				entry.bookmarked ? "Remove Bookmark" : "Add Bookmark",
 				systemImage: entry.bookmarked ? "bookmark.slash" : "bookmark"
 			) {
 				perform(.toggleBookmark, nil)
 			}
 		}
 
-		if actions.contains(.toggleArchive) {
-			Button(
-				entry.archived ? "Restore from Archive" : "Archive",
-				systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox"
-			) {
-				perform(.toggleArchive, nil)
+		if actions.contains(.duplicate) {
+			Button("Duplicate", systemImage: "plus.square.on.square") {
+				perform(.duplicate, nil)
 			}
+			.disabled(isEphemeral)
 		}
 
 		if actions.contains(.moveToTopic) {
@@ -2436,20 +2556,25 @@ private struct EntryActionsMenuContent: View {
 			}
 		}
 
-		if actions.contains(.duplicate) {
-			Button("Duplicate", systemImage: "plus.square.on.square") {
-				perform(.duplicate, nil)
-			}
-		}
-
 		if actions.contains(.moveToTrash) || actions.contains(.deletePermanently) {
 			Divider()
+		}
+
+		if actions.contains(.toggleArchive) {
+			Button(
+				entry.archived ? "Restore from Archive" : "Archive",
+				systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox"
+			) {
+				perform(.toggleArchive, nil)
+			}
+			.disabled(isEphemeral)
 		}
 
 		if actions.contains(.moveToTrash) {
 			Button("Move to Trash", systemImage: "trash", role: .destructive) {
 				perform(.moveToTrash, nil)
 			}
+			.disabled(isEphemeral)
 		}
 
 		if actions.contains(.deletePermanently) {

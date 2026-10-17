@@ -323,6 +323,81 @@ func movesEntryTabs() {
 	#expect(tabs.openEntryIDs == ["first", "second", "third"])
 }
 
+@Test("Pinned entry tabs stay before regular tabs")
+func pinsEntryTabsAtTheLeadingEdge() {
+	var tabs = EntryTabsState(
+		openEntryIDs: ["first", "second", "third"],
+		activeEntryID: "second"
+	)
+
+	tabs.togglePin("third")
+	#expect(tabs.openEntryIDs == ["third", "first", "second"])
+	#expect(tabs.isPinned("third"))
+
+	tabs.move("second", to: 0)
+	#expect(tabs.openEntryIDs == ["third", "second", "first"])
+
+	tabs.move("third", to: 2)
+	#expect(tabs.openEntryIDs == ["third", "second", "first"])
+
+	tabs.togglePin("third")
+	#expect(tabs.openEntryIDs == ["third", "second", "first"])
+	#expect(!tabs.isPinned("third"))
+}
+
+@Test("Regular entry tabs cannot cross the pinned boundary")
+func keepsRegularEntryTabsAfterPinnedTabs() {
+	var tabs = EntryTabsState(
+		openEntryIDs: ["first", "second", "third", "fourth"],
+		activeEntryID: "third",
+		pinnedEntryIDs: ["first", "second"]
+	)
+
+	tabs.move("fourth", to: 0)
+	#expect(tabs.openEntryIDs == ["first", "second", "fourth", "third"])
+
+	var drag = EntryTabReorderSession(entryID: "third", startIndex: 3)
+	drag.update(
+		translation: -1_000,
+		tabWidth: 170,
+		tabCount: tabs.openEntryIDs.count,
+		allowedRange: tabs.reorderRange(for: "third")
+	)
+	#expect(drag.placeholderIndex == 2)
+}
+
+@Test("Closing and reconciling tabs removes stale pins")
+func removesStalePinnedEntryTabs() {
+	var tabs = EntryTabsState(
+		openEntryIDs: ["first", "second", "third"],
+		activeEntryID: "second",
+		pinnedEntryIDs: ["first", "second"]
+	)
+
+	tabs.close("first")
+	#expect(!tabs.isPinned("first"))
+
+	tabs.reconcile(validEntryIDs: ["third"])
+	#expect(tabs.pinnedEntryIDs.isEmpty)
+}
+
+@Test("Close other tabs keeps pinned tabs")
+func keepsPinnedTabsWhenClosingOtherTabs() {
+	let tabs = EntryTabsState(
+		openEntryIDs: ["pinned-first", "pinned-second", "regular-first", "regular-second"],
+		activeEntryID: "regular-first",
+		pinnedEntryIDs: ["pinned-first", "pinned-second"]
+	)
+
+	#expect(
+		tabs.closeableOtherEntryIDs(keeping: "regular-first") == ["regular-second"]
+	)
+	#expect(
+		tabs.closeableOtherEntryIDs(keeping: "pinned-first")
+			== ["regular-first", "regular-second"]
+	)
+}
+
 @Test("Entry list width preserves the preference within safe bounds")
 func clampsEntryListWidth() {
 	#expect(effectiveEntryListWidth(preferredWidth: 360, availableWidth: 1_200) == 360)

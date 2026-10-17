@@ -51,6 +51,7 @@ nonisolated func diarySettingsVisible(
 nonisolated struct EntryTabsState: Equatable {
 	var openEntryIDs: [String] = []
 	var activeEntryID: String?
+	var pinnedEntryIDs: Set<String> = []
 
 	mutating func open(_ entryID: String) {
 		if !openEntryIDs.contains(entryID) {
@@ -62,22 +63,55 @@ nonisolated struct EntryTabsState: Equatable {
 	mutating func close(_ entryID: String) {
 		guard let index = openEntryIDs.firstIndex(of: entryID) else { return }
 		openEntryIDs.remove(at: index)
+		pinnedEntryIDs.remove(entryID)
 		guard activeEntryID == entryID else { return }
 		activeEntryID = openEntryIDs.indices.contains(index) ? openEntryIDs[index] : openEntryIDs.last
 	}
 
+	mutating func togglePin(_ entryID: String) {
+		guard openEntryIDs.contains(entryID) else { return }
+		if pinnedEntryIDs.remove(entryID) == nil {
+			pinnedEntryIDs.insert(entryID)
+		}
+		normalizePinnedOrder()
+	}
+
+	func isPinned(_ entryID: String) -> Bool {
+		pinnedEntryIDs.contains(entryID)
+	}
+
+	func closeableOtherEntryIDs(keeping entryID: String) -> [String] {
+		openEntryIDs.filter { $0 != entryID && !isPinned($0) }
+	}
+
 	mutating func move(_ entryID: String, to destinationIndex: Int) {
 		guard let sourceIndex = openEntryIDs.firstIndex(of: entryID) else { return }
+		let range = reorderRange(for: entryID)
 		let entryID = openEntryIDs.remove(at: sourceIndex)
-		let index = min(max(destinationIndex, 0), openEntryIDs.count)
+		let index = min(max(destinationIndex, range.lowerBound), range.upperBound)
 		openEntryIDs.insert(entryID, at: index)
+	}
+
+	func reorderRange(for entryID: String) -> ClosedRange<Int> {
+		let pinnedCount = pinnedEntryIDs.count
+		if isPinned(entryID) {
+			return 0...max(pinnedCount - 1, 0)
+		}
+		return min(pinnedCount, openEntryIDs.count - 1)...max(openEntryIDs.count - 1, pinnedCount)
 	}
 
 	mutating func reconcile(validEntryIDs: Set<String>) {
 		openEntryIDs.removeAll { !validEntryIDs.contains($0) }
+		pinnedEntryIDs.formIntersection(validEntryIDs)
 		if let activeEntryID, !validEntryIDs.contains(activeEntryID) {
 			self.activeEntryID = openEntryIDs.last
 		}
+	}
+
+	private mutating func normalizePinnedOrder() {
+		openEntryIDs =
+			openEntryIDs.filter(pinnedEntryIDs.contains)
+			+ openEntryIDs.filter { !pinnedEntryIDs.contains($0) }
 	}
 }
 
@@ -105,14 +139,27 @@ nonisolated struct EntryTabReorderSession: Equatable {
 		placeholderIndex = startIndex
 	}
 
-	mutating func update(translation: CGFloat, tabWidth: CGFloat, tabCount: Int) {
+	mutating func update(
+		translation: CGFloat,
+		tabWidth: CGFloat,
+		tabCount: Int,
+		allowedRange: ClosedRange<Int>? = nil
+	) {
 		self.translation = translation
-		placeholderIndex = entryTabReorderDestination(
+		let destination = entryTabReorderDestination(
 			startIndex: startIndex,
 			translation: translation,
 			tabWidth: tabWidth,
 			tabCount: tabCount
 		)
+		if let allowedRange {
+			placeholderIndex = min(
+				max(destination, allowedRange.lowerBound),
+				allowedRange.upperBound
+			)
+		} else {
+			placeholderIndex = destination
+		}
 	}
 
 	func previewOrder(in entryIDs: [String]) -> [String] {

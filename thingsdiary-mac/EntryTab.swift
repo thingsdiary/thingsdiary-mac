@@ -85,6 +85,7 @@ struct EntryTab: View {
 	let width: CGFloat
 	let isActive: Bool
 	let isDirty: Bool
+	let isPinned: Bool
 	let isDragged: Bool
 	let horizontalOffset: CGFloat
 	let activate: () -> Void
@@ -101,6 +102,12 @@ struct EntryTab: View {
 	var body: some View {
 		Button(action: activate) {
 			HStack(spacing: 6) {
+				if isPinned {
+					Image(systemName: "pin.fill")
+						.font(.system(size: 9, weight: .semibold))
+						.foregroundStyle(.secondary)
+				}
+
 				if isDirty {
 					Circle()
 						.fill(.secondary)
@@ -119,7 +126,9 @@ struct EntryTab: View {
 		}
 		.buttonStyle(.plain)
 		.accessibilityIdentifier("entry-tab.\(entryID)")
-		.accessibilityValue(isDirty ? "Unsaved changes" : "Saved")
+		.accessibilityValue(
+			(isPinned ? "Pinned, " : "") + (isDirty ? "Unsaved changes" : "Saved")
+		)
 		.overlay(alignment: .trailing) {
 			if showsCloseButton {
 				TabIconButton(systemImage: "xmark", iconSize: 10, action: close)
