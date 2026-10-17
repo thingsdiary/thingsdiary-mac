@@ -934,6 +934,14 @@ private struct EntriesView: View {
 				availableWidth: proxy.size.width,
 				tabsContentWidth: tabsContentWidth
 			)
+			let createButtonIsPinned = entryTabCreateButtonIsPinned(
+				availableWidth: proxy.size.width,
+				tabsContentWidth: tabsContentWidth
+			)
+			let hidesCreateButton = shouldHideEntryTabCreateButton(
+				isReordering: entryTabReorderSession != nil,
+				isPinned: createButtonIsPinned
+			)
 
 			ZStack(alignment: .leading) {
 				ScrollViewReader { scrollProxy in
@@ -986,6 +994,14 @@ private struct EntriesView: View {
 							entryTabCreateButtonWidth + entryTabCreateButtonSpacing
 						)
 					}
+					.mask(alignment: .leading) {
+						Rectangle()
+							.frame(
+								width: createButtonIsPinned
+									? max(createButtonOffset, 0)
+									: proxy.size.width
+							)
+					}
 					.onChange(of: tabs.activeEntryID) {
 						guard let activeEntryID = tabs.activeEntryID else { return }
 						withAnimation(.easeInOut(duration: 0.16)) {
@@ -1004,6 +1020,9 @@ private struct EntriesView: View {
 				.accessibilityLabel("New Entry Tab")
 				.help("New Entry Tab")
 				.offset(x: createButtonOffset)
+				.opacity(hidesCreateButton ? 0 : 1)
+				.allowsHitTesting(!hidesCreateButton)
+				.accessibilityHidden(hidesCreateButton)
 				.zIndex(4)
 			}
 			.frame(

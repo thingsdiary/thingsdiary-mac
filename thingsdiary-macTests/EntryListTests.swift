@@ -355,6 +355,12 @@ func newTabButtonFollowsLastTab() {
 			tabsContentWidth: tabsWidth
 		) == 352
 	)
+	#expect(
+		!entryTabCreateButtonIsPinned(
+			availableWidth: 500,
+			tabsContentWidth: tabsWidth
+		)
+	)
 }
 
 @Test("New tab button stays pinned when tabs overflow")
@@ -368,6 +374,19 @@ func newTabButtonStaysPinned() {
 			tabsContentWidth: tabsWidth
 		) == 370
 	)
+	#expect(
+		entryTabCreateButtonIsPinned(
+			availableWidth: 400,
+			tabsContentWidth: tabsWidth
+		)
+	)
+}
+
+@Test("New tab button hides only while an inline tab is being reordered")
+func newTabButtonHidesOnlyDuringInlineReorder() {
+	#expect(shouldHideEntryTabCreateButton(isReordering: true, isPinned: false))
+	#expect(!shouldHideEntryTabCreateButton(isReordering: false, isPinned: false))
+	#expect(!shouldHideEntryTabCreateButton(isReordering: true, isPinned: true))
 }
 
 @Test("A completed save clears only the submitted draft")

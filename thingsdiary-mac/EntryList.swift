@@ -180,6 +180,28 @@ nonisolated func entryTabCreateButtonOffset(
 	return min(naturalOffset, pinnedOffset)
 }
 
+nonisolated func entryTabCreateButtonIsPinned(
+	availableWidth: CGFloat,
+	tabsContentWidth: CGFloat
+) -> Bool {
+	let naturalOffset = max(
+		tabsContentWidth + entryTabCreateButtonSpacing,
+		entryTabLeadingPadding
+	)
+	let pinnedOffset = max(
+		availableWidth - entryTabCreateButtonWidth,
+		entryTabLeadingPadding
+	)
+	return naturalOffset >= pinnedOffset
+}
+
+nonisolated func shouldHideEntryTabCreateButton(
+	isReordering: Bool,
+	isPinned: Bool
+) -> Bool {
+	isReordering && !isPinned
+}
+
 nonisolated func reconciledEntryDraftAfterSave(
 	currentDraft: String,
 	submittedContent: String,

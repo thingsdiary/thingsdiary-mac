@@ -24,6 +24,10 @@ struct ThingsDiaryApp: App {
 		NSWindow.allowsAutomaticWindowTabbing = false
 
 		#if DEBUG
+			if ProcessInfo.processInfo.arguments.contains("--tab-overlap-lab") {
+				_model = State(initialValue: ThingsDiaryAppModel.uiTestingWorkspace())
+				return
+			}
 			if ProcessInfo.processInfo.arguments.contains("--ui-testing-workspace") {
 				_model = State(initialValue: ThingsDiaryAppModel.uiTestingWorkspace())
 				return
@@ -44,7 +48,15 @@ struct ThingsDiaryApp: App {
 
 	var body: some Scene {
 		WindowGroup {
-			ContentView(model: model)
+			#if DEBUG
+				if ProcessInfo.processInfo.arguments.contains("--tab-overlap-lab") {
+					TabOverlapLab()
+				} else {
+					ContentView(model: model)
+				}
+			#else
+				ContentView(model: model)
+			#endif
 		}
 		.windowStyle(.hiddenTitleBar)
 		.commands {
