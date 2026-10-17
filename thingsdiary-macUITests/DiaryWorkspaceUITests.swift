@@ -1,5 +1,13 @@
 import XCTest
 
+extension XCUIElement {
+	fileprivate func waitForValue(_ expectedValue: String, timeout: TimeInterval) -> Bool {
+		let predicate = NSPredicate(format: "value == %@", expectedValue)
+		let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
+		return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+	}
+}
+
 final class DiaryWorkspaceUITests: XCTestCase {
 	override func tearDown() {
 		XCUIApplication().terminate()
@@ -291,6 +299,80 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		editor.typeText("Draft from tab")
 
 		XCTAssertTrue(app.buttons["Draft from tab"].firstMatch.waitForExistence(timeout: 2))
+	}
+
+	func testPendingEntryKeepsSaveShortcutEnabledAfterFurtherEditing() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+		app.buttons["New Entry Tab"].click()
+
+		let editor = app.textViews.firstMatch
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		editor.typeText("First edit")
+		editor.typeText(" and more")
+
+		app.menuBars.menuBarItems["File"].click()
+		let saveItem = app.menuItems["Save"]
+		XCTAssertTrue(saveItem.waitForExistence(timeout: 2))
+		XCTAssertTrue(saveItem.isEnabled)
+	}
+
+	func testCommandAndControlSaveClearDirtyState() {
+		let app = launchWorkspace()
+		let workspace = app.dialogs.firstMatch.exists ? app.dialogs.firstMatch : app.windows.firstMatch
+		workspace.buttons["entry.fixture-entry"].click()
+		let editor = workspace.textViews.firstMatch
+		let tab = workspace.buttons["entry-tab.fixture-entry"]
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+
+		editor.click()
+		editor.typeText(" Command edit")
+		XCTAssertEqual(tab.value as? String, "Unsaved changes")
+		app.typeKey("s", modifierFlags: .command)
+		XCTAssertTrue(
+			tab.waitForValue("Saved", timeout: 2)
+		)
+
+		editor.click()
+		editor.typeText(" Control edit")
+		XCTAssertEqual(tab.value as? String, "Unsaved changes")
+		app.typeKey("s", modifierFlags: .control)
+		XCTAssertTrue(
+			tab.waitForValue("Saved", timeout: 2)
+		)
+	}
+
+	func testClosingDirtyEntryCanBeCancelledOrDiscarded() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+		let editor = app.textViews.firstMatch
+		let tab = app.buttons["entry-tab.fixture-entry"]
+		let closeButton = app.buttons["entry-tab.close.fixture-entry"]
+
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		editor.click()
+		editor.typeText(" Unsaved")
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		tab.hover()
+		XCTAssertTrue(closeButton.waitForExistence(timeout: 2))
+		closeButton.click()
+
+		let closeAlert = app.sheets.firstMatch
+		XCTAssertTrue(closeAlert.buttons["Don't Save"].waitForExistence(timeout: 2))
+		closeAlert.buttons["Cancel"].click()
+		tab.hover()
+		XCTAssertTrue(closeButton.waitForExistence(timeout: 2))
+
+		closeButton.click()
+		XCTAssertTrue(closeAlert.buttons["Don't Save"].waitForExistence(timeout: 2))
+		closeAlert.buttons["Don't Save"].click()
+		XCTAssertFalse(closeButton.waitForExistence(timeout: 1))
+
+		app.buttons["entry.fixture-entry"].click()
+		XCTAssertEqual(
+			app.textViews.firstMatch.value as? String,
+			"Fixture Entry\nA useful preview for UI testing."
+		)
 	}
 
 	func testMovingNonemptyEntryToTrashRequiresConfirmation() {

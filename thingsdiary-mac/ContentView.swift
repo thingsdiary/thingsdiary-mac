@@ -14,6 +14,75 @@ private struct MenuMaterialBackground: NSViewRepresentable {
 	func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
+private struct EntrySaveShortcutMonitor: NSViewRepresentable {
+	let save: () -> Bool
+
+	final class MonitorView: NSView {
+		var windowDidChange: ((NSWindow?) -> Void)?
+
+		override func viewDidMoveToWindow() {
+			super.viewDidMoveToWindow()
+			windowDidChange?(window)
+		}
+	}
+
+	final class Coordinator {
+		weak var window: NSWindow?
+		var save: () -> Bool
+		private var monitor: Any?
+
+		init(save: @escaping () -> Bool) {
+			self.save = save
+		}
+
+		func install() {
+			guard monitor == nil else { return }
+			monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+				guard let self, window?.isKeyWindow == true else { return event }
+				let modifiers = event.modifierFlags.intersection([
+					.command, .control, .option, .shift,
+				])
+				guard
+					event.keyCode == 1,
+					modifiers == .command || modifiers == .control
+				else { return event }
+				return save() ? nil : event
+			}
+		}
+
+		func remove() {
+			guard let monitor else { return }
+			NSEvent.removeMonitor(monitor)
+			self.monitor = nil
+		}
+
+		deinit {
+			remove()
+		}
+	}
+
+	func makeCoordinator() -> Coordinator {
+		Coordinator(save: save)
+	}
+
+	func makeNSView(context: Context) -> NSView {
+		let view = MonitorView(frame: .zero)
+		view.windowDidChange = { [weak coordinator = context.coordinator] window in
+			coordinator?.window = window
+		}
+		context.coordinator.install()
+		return view
+	}
+
+	func updateNSView(_ view: NSView, context: Context) {
+		context.coordinator.save = save
+	}
+
+	static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+		coordinator.remove()
+	}
+}
+
 private struct TitlebarIconButton: View {
 	enum Backdrop {
 		case clear
@@ -467,6 +536,17 @@ private struct PendingEntryAction {
 	let topicID: String?
 }
 
+private struct PendingEntryTabClose {
+	let entryID: String
+	let title: String
+}
+
+private enum EntryDraftSaveOutcome {
+	case saved
+	case changedWhileSaving
+	case failed
+}
+
 private struct EntriesView: View {
 	@Bindable var model: ThingsDiaryAppModel
 	let diary: ThingsDiaryDiary
@@ -491,6 +571,9 @@ private struct EntriesView: View {
 	@State private var topicsExpanded = true
 	@State private var topicsHeaderHovered = false
 	@State private var pendingEntryAction: PendingEntryAction?
+	@State private var pendingEntryTabClose: PendingEntryTabClose?
+	@State private var entryTabCloseSaveError: String?
+	@State private var entryIDSavingBeforeClose: String?
 	@State private var targetedDropDestination: EntryDropDestination?
 	@State private var dropTargetFrames: [EntryDropDestination: CGRect] = [:]
 	@State private var draggedEntryID: String?
@@ -557,6 +640,18 @@ private struct EntriesView: View {
 		)
 	}
 
+	private var entryTabCloseAlertPresented: Binding<Bool> {
+		Binding(
+			get: { pendingEntryTabClose != nil },
+			set: { isPresented in
+				if !isPresented {
+					pendingEntryTabClose = nil
+					entryTabCloseSaveError = nil
+				}
+			}
+		)
+	}
+
 	private func count(for selection: DiaryNavigationSelection) -> Int {
 		visibleEntries(listEntries, selection: selection, query: "", sort: .newest).count
 	}
@@ -569,6 +664,18 @@ private struct EntriesView: View {
 			entryWorkspace
 		}
 		.navigationSplitViewStyle(.balanced)
+		.background {
+			EntrySaveShortcutMonitor {
+				guard let selectedEntry, canSave(selectedEntry) else { return false }
+				saveSelectedEntry()
+				return true
+			}
+			.frame(width: 0, height: 0)
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .entrySaveRequested)) { _ in
+			guard let selectedEntry, canSave(selectedEntry) else { return }
+			saveSelectedEntry()
+		}
 		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
 			GeometryReader { proxy in
 				if showingDiaryMenu, let anchor {
@@ -853,6 +960,25 @@ private struct EntriesView: View {
 		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.accessibilityIdentifier("entry-tabs.titlebar")
+		.alert(
+			"Save changes to \"\(pendingEntryTabClose?.title ?? "this entry")\"?",
+			isPresented: entryTabCloseAlertPresented,
+			presenting: pendingEntryTabClose
+		) { request in
+			Button("Don't Save", role: .destructive) {
+				closeEntryTabImmediately(request.entryID)
+			}
+			Button("Cancel", role: .cancel) {}
+			Button("Save") {
+				saveEntryTabBeforeClosing(request)
+			}
+			.keyboardShortcut(.defaultAction)
+		} message: { _ in
+			Text(
+				entryTabCloseSaveError
+					?? "If you don't save, your changes will be lost."
+			)
+		}
 	}
 
 	private func entryTabsStrip(tabWidth: CGFloat) -> some View {
@@ -959,6 +1085,7 @@ private struct EntriesView: View {
 		}
 		.buttonStyle(.plain)
 		.accessibilityIdentifier("entry-tab.\(entry.id)")
+		.accessibilityValue(isDirty ? "Unsaved changes" : "Saved")
 		.overlay(alignment: .trailing) {
 			if showsCloseButton {
 				TitlebarIconButton(systemImage: "xmark", iconSize: 10) {
@@ -1093,7 +1220,6 @@ private struct EntriesView: View {
 					Button("Save") {
 						saveSelectedEntry()
 					}
-					.keyboardShortcut("s", modifiers: .command)
 					.disabled(!canSave(entry))
 				}
 			}
@@ -1636,10 +1762,31 @@ private struct EntriesView: View {
 	}
 
 	private func closeEntryTab(_ entryID: String) {
+		guard entryIDSavingBeforeClose != entryID,
+			let entry = entries.first(where: { $0.id == entryID })
+		else { return }
+		let draft = draftsByEntryID[entryID] ?? entry.content
+		switch entryTabCloseDisposition(
+			persistedContent: entry.content,
+			draftContent: draft
+		) {
+		case .close:
+			closeEntryTabImmediately(entryID)
+		case .confirmDiscard:
+			activateEntryTab(entryID)
+			entryTabCloseSaveError = nil
+			pendingEntryTabClose = PendingEntryTabClose(
+				entryID: entryID,
+				title: entryListPresentation(content: draft).title
+			)
+		}
+	}
+
+	private func closeEntryTabImmediately(_ entryID: String) {
 		if model.entryDraftIDs.contains(entryID) {
 			model.discardEntryDraft(entryID)
-			draftsByEntryID.removeValue(forKey: entryID)
 		}
+		draftsByEntryID.removeValue(forKey: entryID)
 		tabs.close(entryID)
 		if tabs.activeEntryID == nil {
 			isEditorFocusMode = false
@@ -1649,10 +1796,69 @@ private struct EntriesView: View {
 
 	private func saveSelectedEntry() {
 		guard let selectedEntry else { return }
-		let content = selectedDraftContent
+		let entryID = selectedEntry.id
+		let submittedContent = selectedDraftContent
 		Task {
-			await model.updateEntry(selectedEntry, content: content)
+			_ = await saveEntryDraft(
+				selectedEntry,
+				entryID: entryID,
+				submittedContent: submittedContent
+			)
 		}
+	}
+
+	private func saveEntryTabBeforeClosing(_ request: PendingEntryTabClose) {
+		guard
+			entryIDSavingBeforeClose == nil,
+			let entry = entries.first(where: { $0.id == request.entryID })
+		else { return }
+		let submittedContent = draftsByEntryID[request.entryID] ?? entry.content
+		pendingEntryTabClose = nil
+		entryTabCloseSaveError = nil
+		entryIDSavingBeforeClose = request.entryID
+		Task {
+			let outcome = await saveEntryDraft(
+				entry,
+				entryID: request.entryID,
+				submittedContent: submittedContent
+			)
+			entryIDSavingBeforeClose = nil
+			switch outcome {
+			case .saved:
+				closeEntryTabImmediately(request.entryID)
+			case .changedWhileSaving:
+				break
+			case .failed:
+				guard tabs.openEntryIDs.contains(request.entryID) else { return }
+				entryTabCloseSaveError =
+					"The entry couldn't be saved. Your changes are still open."
+				pendingEntryTabClose = request
+			}
+		}
+	}
+
+	private func saveEntryDraft(
+		_ entry: ThingsDiaryEntry,
+		entryID: String,
+		submittedContent: String
+	) async -> EntryDraftSaveOutcome {
+		let didSave = await model.updateEntry(entry, content: submittedContent)
+		let currentDraft = draftsByEntryID[entryID] ?? submittedContent
+		guard currentDraft == submittedContent else {
+			return .changedWhileSaving
+		}
+		guard
+			didSave,
+			case .entries(_, let currentEntries) = model.screen,
+			let persistedEntry = currentEntries.first(where: { $0.id == entryID }),
+			let reconciledDraft = reconciledEntryDraftAfterSave(
+				currentDraft: currentDraft,
+				submittedContent: submittedContent,
+				persistedContent: persistedEntry.content
+			)
+		else { return .failed }
+		draftsByEntryID[entryID] = reconciledDraft
+		return .saved
 	}
 
 	private var entryListHeader: some View {
@@ -1801,7 +2007,10 @@ private struct EntriesView: View {
 	}
 
 	private func canSave(_ entry: ThingsDiaryEntry) -> Bool {
-		!selectedDraftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+		entry.deletedAt == nil
+			&& !entry.archived
+			&& !model.entryDraftIDs.contains(entry.id)
+			&& !selectedDraftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 			&& selectedDraftContent != entry.content
 	}
 

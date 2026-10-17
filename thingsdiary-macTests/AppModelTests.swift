@@ -632,9 +632,29 @@ func updatesEntryInSelectedDiary() async {
 	await model.submit()
 	await model.selectDiary(diary)
 
-	await model.updateEntry(original, content: "After")
+	let didSave = await model.updateEntry(original, content: "After")
 
+	#expect(didSave)
 	#expect(model.screen == .entries(diary: diary, entries: [updated]))
+}
+
+@MainActor
+@Test("A failed remote note update reports that it was not saved")
+func failedEntryUpdateReportsFailure() async {
+	let diary = diary(id: "diary-1", title: "Personal")
+	let original = entry(id: "entry-1", diaryID: diary.id, content: "Before")
+	let client = StubAppClient(
+		result: .success([diary]),
+		entriesResult: .success([original]),
+		updateEntryResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	await model.selectDiary(diary)
+
+	let didSave = await model.updateEntry(original, content: "After")
+
+	#expect(!didSave)
+	#expect(model.screen == .entries(diary: diary, entries: [original]))
 }
 
 @MainActor
@@ -770,8 +790,9 @@ func updatesEntryOffline() async throws {
 	let model = ThingsDiaryAppModel(client: client, store: store)
 	await model.selectDiary(selectedDiary)
 
-	await model.updateEntry(original, content: "After")
+	let didSave = await model.updateEntry(original, content: "After")
 
+	#expect(didSave)
 	guard case .entries(let diary, let entries) = model.screen else {
 		Issue.record("Expected the selected diary with its local edit")
 		return

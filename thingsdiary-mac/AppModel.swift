@@ -258,6 +258,76 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 	}
 }
 
+#if DEBUG
+	nonisolated private struct UITestingAppClient: ThingsDiaryAppClient {
+		func register(
+			login: String,
+			password: String,
+			secretKey: String,
+			kdfSalt: String
+		) async throws -> ThingsDiaryPublicKeys {
+			throw DiaryStoreError.unsupportedRemoteEntry
+		}
+
+		func login(login: String, password: String, secretKey: String) async throws {}
+
+		func diaries() async throws -> [ThingsDiaryDiary] { [] }
+
+		func entries(diaryID: String) async throws -> [ThingsDiaryEntry] { [] }
+
+		func createEntry(
+			diaryID: String,
+			params: ThingsDiaryEntryParams
+		) async throws -> ThingsDiaryEntry {
+			try await createEntry(
+				diaryID: diaryID,
+				entryID: UUID().uuidString.lowercased(),
+				params: params
+			)
+		}
+
+		func createEntry(
+			diaryID: String,
+			entryID: String,
+			params: ThingsDiaryEntryParams
+		) async throws -> ThingsDiaryEntry {
+			let now = Date()
+			return ThingsDiaryEntry(
+				id: entryID,
+				diaryID: diaryID,
+				content: params.content,
+				topicID: params.topicID,
+				archived: params.archived,
+				bookmarked: params.bookmarked,
+				previewHidden: params.previewHidden,
+				createdAt: now,
+				updatedAt: now,
+				version: UInt64(now.timeIntervalSince1970 * 1_000)
+			)
+		}
+
+		func updateEntry(
+			_ entry: ThingsDiaryEntry,
+			params: ThingsDiaryEntryParams
+		) async throws -> ThingsDiaryEntry {
+			let now = Date()
+			return ThingsDiaryEntry(
+				id: entry.id,
+				diaryID: entry.diaryID,
+				content: params.content,
+				topicID: params.topicID,
+				archived: params.archived,
+				bookmarked: params.bookmarked,
+				previewHidden: params.previewHidden,
+				createdAt: entry.createdAt,
+				updatedAt: now,
+				deletedAt: entry.deletedAt,
+				version: max(entry.version + 1, UInt64(now.timeIntervalSince1970 * 1_000))
+			)
+		}
+	}
+#endif
+
 enum ThingsDiaryAppScreen: Equatable {
 	case login
 	case registration
@@ -365,7 +435,7 @@ final class ThingsDiaryAppModel {
 				updatedAt: now,
 				version: 1
 			)
-			let model = ThingsDiaryAppModel()
+			let model = ThingsDiaryAppModel(client: UITestingAppClient())
 			model.loadedDiaries = [diary]
 			model.topics = [topic]
 			model.screen = .entries(diary: diary, entries: [entry, archivedEntry, deletedEntry])
@@ -714,12 +784,13 @@ final class ThingsDiaryAppModel {
 		}
 	}
 
-	func updateEntry(_ entry: ThingsDiaryEntry, content: String) async {
+	@discardableResult
+	func updateEntry(_ entry: ThingsDiaryEntry, content: String) async -> Bool {
 		let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard !content.isEmpty else {
-			return
+			return false
 		}
-		await saveEntry(
+		return await saveEntry(
 			entry,
 			params: ThingsDiaryEntryParams(
 				content: content,
@@ -1006,12 +1077,13 @@ final class ThingsDiaryAppModel {
 		}
 	}
 
+	@discardableResult
 	private func saveEntry(
 		_ entry: ThingsDiaryEntry,
 		params: ThingsDiaryEntryParams
-	) async {
+	) async -> Bool {
 		guard case .entries(let diary, let entries) = screen else {
-			return
+			return false
 		}
 		if let store {
 			let operation: PendingEntryOperation =
@@ -1043,6 +1115,11 @@ final class ThingsDiaryAppModel {
 					diary: diary,
 					entries: entries.map { $0.id == localEntry.id ? localEntry : $0 }
 				)
+			} catch {
+				await refreshEntriesFromStore(store, diaryID: diary.id)
+				return false
+			}
+			do {
 				try await store.synchronize(with: client)
 				if operation == .create {
 					let isStillPending = await store.pendingEntryWrites().contains {
@@ -1052,11 +1129,9 @@ final class ThingsDiaryAppModel {
 						entryPendingCreationIDs.remove(entry.id)
 					}
 				}
-				await refreshEntriesFromStore(store, diaryID: diary.id)
-			} catch {
-				await refreshEntriesFromStore(store, diaryID: diary.id)
-			}
-			return
+			} catch {}
+			await refreshEntriesFromStore(store, diaryID: diary.id)
+			return true
 		}
 		screen = .loading
 		do {
@@ -1068,8 +1143,10 @@ final class ThingsDiaryAppModel {
 				current.id == updated.id ? updated : current
 			}
 			screen = .entries(diary: diary, entries: updatedEntries)
+			return true
 		} catch {
-			screen = .error("Could not update the entry.")
+			screen = .entries(diary: diary, entries: entries)
+			return false
 		}
 	}
 

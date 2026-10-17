@@ -1,5 +1,20 @@
 import SwiftUI
 
+extension Notification.Name {
+	static let entrySaveRequested = Notification.Name("entrySaveRequested")
+}
+
+private struct EntryCommands: Commands {
+	var body: some Commands {
+		CommandGroup(replacing: .saveItem) {
+			Button("Save") {
+				NotificationCenter.default.post(name: .entrySaveRequested, object: nil)
+			}
+			.keyboardShortcut("s", modifiers: .command)
+		}
+	}
+}
+
 @main
 struct ThingsDiaryApp: App {
 	@State private var model: ThingsDiaryAppModel
@@ -29,5 +44,8 @@ struct ThingsDiaryApp: App {
 			ContentView(model: model)
 		}
 		.windowStyle(.hiddenTitleBar)
+		.commands {
+			EntryCommands()
+		}
 	}
 }

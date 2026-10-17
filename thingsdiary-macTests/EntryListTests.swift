@@ -274,6 +274,28 @@ func closesEntryTabsPredictably() {
 	#expect(tabs.activeEntryID == "first")
 }
 
+@Test("Closing a tab asks only when its draft differs from persisted content")
+func resolvesEntryTabCloseDisposition() {
+	#expect(
+		entryTabCloseDisposition(
+			persistedContent: "Saved",
+			draftContent: "Saved"
+		) == .close
+	)
+	#expect(
+		entryTabCloseDisposition(
+			persistedContent: "Saved",
+			draftContent: "Changed"
+		) == .confirmDiscard
+	)
+	#expect(
+		entryTabCloseDisposition(
+			persistedContent: "",
+			draftContent: ""
+		) == .close
+	)
+}
+
 @Test("Entry tabs discard notes that no longer exist")
 func reconcilesEntryTabs() {
 	var tabs = EntryTabsState(
@@ -345,6 +367,24 @@ func newTabButtonStaysPinned() {
 			availableWidth: 400,
 			tabsContentWidth: tabsWidth
 		) == 372
+	)
+}
+
+@Test("A completed save clears only the submitted draft")
+func reconcilesSavedEntryDraft() {
+	#expect(
+		reconciledEntryDraftAfterSave(
+			currentDraft: "Saved text\n",
+			submittedContent: "Saved text\n",
+			persistedContent: "Saved text"
+		) == "Saved text"
+	)
+	#expect(
+		reconciledEntryDraftAfterSave(
+			currentDraft: "Typed while saving",
+			submittedContent: "Submitted",
+			persistedContent: "Submitted"
+		) == nil
 	)
 }
 

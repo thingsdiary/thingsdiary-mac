@@ -81,6 +81,18 @@ nonisolated struct EntryTabsState: Equatable {
 	}
 }
 
+nonisolated enum EntryTabCloseDisposition: Equatable {
+	case close
+	case confirmDiscard
+}
+
+nonisolated func entryTabCloseDisposition(
+	persistedContent: String,
+	draftContent: String
+) -> EntryTabCloseDisposition {
+	draftContent == persistedContent ? .close : .confirmDiscard
+}
+
 nonisolated struct EntryTabReorderSession: Equatable {
 	let entryID: String
 	let startIndex: Int
@@ -166,6 +178,19 @@ nonisolated func entryTabCreateButtonOffset(
 		entryTabLeadingPadding
 	)
 	return min(naturalOffset, pinnedOffset)
+}
+
+nonisolated func reconciledEntryDraftAfterSave(
+	currentDraft: String,
+	submittedContent: String,
+	persistedContent: String
+) -> String? {
+	guard currentDraft == submittedContent else { return nil }
+	let normalizedSubmission = submittedContent.trimmingCharacters(
+		in: .whitespacesAndNewlines
+	)
+	guard persistedContent == normalizedSubmission else { return nil }
+	return persistedContent
 }
 
 nonisolated func entryTabReorderDestination(
