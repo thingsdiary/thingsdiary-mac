@@ -83,56 +83,6 @@ private struct EntrySaveShortcutMonitor: NSViewRepresentable {
 	}
 }
 
-private struct TitlebarIconButton: View {
-	enum Backdrop {
-		case clear
-		case titlebar
-	}
-
-	let systemImage: String
-	let backdrop: Backdrop
-	let iconSize: CGFloat
-	let action: () -> Void
-
-	@State private var isHovered = false
-
-	init(
-		systemImage: String,
-		backdrop: Backdrop = .clear,
-		iconSize: CGFloat = 13,
-		action: @escaping () -> Void
-	) {
-		self.systemImage = systemImage
-		self.backdrop = backdrop
-		self.iconSize = iconSize
-		self.action = action
-	}
-
-	var body: some View {
-		Button(action: action) {
-			ZStack {
-				RoundedRectangle(cornerRadius: 5, style: .continuous)
-					.fill(Color.primary.opacity(isHovered ? 0.1 : 0))
-					.frame(width: 22, height: 22)
-
-				Image(systemName: systemImage)
-					.font(.system(size: iconSize, weight: .semibold))
-			}
-			.frame(width: 28, height: 28, alignment: .center)
-			.contentShape(.rect)
-		}
-		.buttonStyle(.plain)
-		.frame(width: 28, height: 28, alignment: .center)
-		.background {
-			if backdrop == .titlebar {
-				TitlebarMaterialBackground()
-			}
-		}
-		.onHover { isHovered = $0 }
-		.animation(.easeOut(duration: 0.1), value: isHovered)
-	}
-}
-
 private final class EscapeHandlingSearchField: NSSearchField {
 	var escapeHandler: (() -> Void)?
 
@@ -588,7 +538,6 @@ private struct EntriesView: View {
 	@State private var currentWorkspaceLayout = EntryWorkspaceLayout.listOnly
 	@State private var availableWorkspaceWidth: CGFloat = 0
 	@State private var dragStartEntryListWidth: CGFloat?
-	@State private var hoveredEntryTabID: String?
 	@State private var availableEntryTabsWidth: CGFloat = 0
 	@State private var entryTabReorderSession: EntryTabReorderSession?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
@@ -1013,7 +962,29 @@ private struct EntriesView: View {
 
 							HStack(spacing: entryTabSpacing) {
 								ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
-									entryTab(entry, index: index, width: tabWidth)
+									let draft = draftsByEntryID[entry.id] ?? entry.content
+									EntryTab(
+										entryID: entry.id,
+										title: entryListPresentation(content: draft).title,
+										width: tabWidth,
+										isActive: tabs.activeEntryID == entry.id,
+										isDirty: draft != entry.content,
+										isDragged: entryTabReorderSession?.entryID == entry.id,
+										horizontalOffset: entryTabReorderSession?.offset(
+											forTabAt: index,
+											tabWidth: tabWidth
+										) ?? 0,
+										activate: { activateEntryTab(entry.id) },
+										close: { closeEntryTab(entry.id) },
+										reorder: { translation in
+											updateEntryTabReorder(
+												entryID: entry.id,
+												translationX: translation,
+												tabWidth: tabWidth
+											)
+										},
+										finishReordering: { finishReorderingEntryTab(entry.id) }
+									)
 										.id(entry.id)
 								}
 							}
@@ -1032,9 +1003,9 @@ private struct EntriesView: View {
 					}
 				}
 
-				TitlebarIconButton(
+				IconButton(
 					systemImage: "plus",
-					backdrop: .titlebar,
+					usesTitlebarBackground: true,
 					action: beginCreatingTabDraft
 				)
 				.frame(width: entryTabCreateButtonWidth)
@@ -1056,99 +1027,6 @@ private struct EntriesView: View {
 		}
 	}
 
-	private func entryTab(_ entry: ThingsDiaryEntry, index: Int, width: CGFloat) -> some View {
-		let draft = draftsByEntryID[entry.id] ?? entry.content
-		let title = entryListPresentation(content: draft).title
-		let isActive = tabs.activeEntryID == entry.id
-		let isDirty = draft != entry.content
-		let isHovered = hoveredEntryTabID == entry.id
-		let isDragged = entryTabReorderSession?.entryID == entry.id
-		let showsCloseButton = isActive || isHovered
-
-		return Button {
-			activateEntryTab(entry.id)
-		} label: {
-			HStack(spacing: 6) {
-				if isDirty {
-					Circle()
-						.fill(.secondary)
-						.frame(width: 6, height: 6)
-				}
-				Text(title)
-					.lineLimit(1)
-					.frame(maxWidth: .infinity, alignment: .leading)
-					.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
-			}
-			.padding(.leading, 9)
-			.padding(.trailing, 6)
-			.frame(width: width, height: 30)
-			.mask {
-				entryTabTitleMask(showsCloseButton: showsCloseButton)
-			}
-		}
-		.buttonStyle(.plain)
-		.accessibilityIdentifier("entry-tab.\(entry.id)")
-		.accessibilityValue(isDirty ? "Unsaved changes" : "Saved")
-		.overlay(alignment: .trailing) {
-			if showsCloseButton {
-				TitlebarIconButton(systemImage: "xmark", iconSize: 10) {
-					closeEntryTab(entry.id)
-				}
-				.padding(.trailing, 1)
-				.accessibilityIdentifier("entry-tab.close.\(entry.id)")
-				.accessibilityLabel("Close \(title)")
-				.help("Close \(title)")
-			}
-		}
-		.background(
-			isActive
-				? Color.primary.opacity(0.14)
-				: Color.primary.opacity(isHovered ? 0.08 : 0),
-			in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-		)
-		.overlay {
-			RoundedRectangle(cornerRadius: 7, style: .continuous)
-				.stroke(isActive ? Color.primary.opacity(0.16) : .clear)
-		}
-		.animation(.easeOut(duration: 0.12), value: isActive)
-		.animation(.easeOut(duration: 0.12), value: isHovered)
-		.contentShape(.rect)
-		.offset(x: entryTabReorderSession?.offset(forTabAt: index, tabWidth: width) ?? 0)
-		.scaleEffect(isDragged ? 1.025 : 1)
-		.shadow(
-			color: .black.opacity(isDragged ? 0.16 : 0),
-			radius: 5,
-			y: 2
-		)
-		.zIndex(isDragged ? 3 : 1)
-		.highPriorityGesture(entryTabReorderGesture(for: entry.id, tabWidth: width))
-		.onHover { hovering in
-			if hovering {
-				hoveredEntryTabID = entry.id
-			} else if hoveredEntryTabID == entry.id {
-				hoveredEntryTabID = nil
-			}
-		}
-	}
-
-	@ViewBuilder
-	private func entryTabTitleMask(showsCloseButton: Bool) -> some View {
-		if showsCloseButton {
-			HStack(spacing: 0) {
-				Color.white
-				LinearGradient(
-					colors: [.white, .clear],
-					startPoint: .leading,
-					endPoint: .trailing
-				)
-				.frame(width: 12)
-				Color.clear.frame(width: 28)
-			}
-		} else {
-			Color.white
-		}
-	}
-
 	private func entryTabPlaceholder(width: CGFloat) -> some View {
 		RoundedRectangle(cornerRadius: 7, style: .continuous)
 			.fill(Color.primary.opacity(0.035))
@@ -1164,25 +1042,10 @@ private struct EntriesView: View {
 			.accessibilityIdentifier("entry-tab.placeholder")
 	}
 
-	private func entryTabReorderGesture(for entryID: String, tabWidth: CGFloat) -> some Gesture {
-		DragGesture(minimumDistance: 4)
-			.onChanged { drag in
-				if entryTabReorderSession == nil {
-					beginReorderingEntryTab(entryID)
-				}
-				updateEntryTabReorder(
-					entryID: entryID,
-					translationX: drag.translation.width,
-					tabWidth: tabWidth
-				)
-			}
-			.onEnded { _ in finishReorderingEntryTab(entryID) }
-	}
-
 	private var editorTitlebarActions: some View {
 		HStack(spacing: 10) {
 			if isEditorFocusMode {
-				TitlebarIconButton(systemImage: "arrow.down.right.and.arrow.up.left") {
+				IconButton(systemImage: "arrow.down.right.and.arrow.up.left") {
 					isEditorFocusMode = false
 					if isEditorWorkspaceCompact {
 						compactWorkspacePane = .list
@@ -1192,14 +1055,14 @@ private struct EntriesView: View {
 				.accessibilityLabel("Exit Editor Focus")
 				.help("Exit Editor Focus")
 			} else if currentWorkspaceLayout == .split {
-				TitlebarIconButton(systemImage: "arrow.up.left.and.arrow.down.right") {
+				IconButton(systemImage: "arrow.up.left.and.arrow.down.right") {
 					isEditorFocusMode = true
 				}
 				.accessibilityIdentifier("workspace.focus-editor")
 				.accessibilityLabel("Focus Editor")
 				.help("Focus Editor")
 			} else {
-				TitlebarIconButton(systemImage: "list.bullet") {
+				IconButton(systemImage: "list.bullet") {
 					compactWorkspacePane = .list
 				}
 				.accessibilityIdentifier("workspace.show-entry-list")

@@ -366,7 +366,7 @@ func newTabButtonStaysPinned() {
 		entryTabCreateButtonOffset(
 			availableWidth: 400,
 			tabsContentWidth: tabsWidth
-		) == 372
+		) == 370
 	)
 }
 
