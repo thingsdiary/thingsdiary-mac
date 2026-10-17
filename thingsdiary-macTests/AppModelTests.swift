@@ -532,6 +532,117 @@ func promotesHiddenTabDraftOnFirstEdit() async {
 }
 
 @MainActor
+@Test("Bookmarking a draft promotes and persists it")
+func bookmarkingDraftPromotesAndPersistsIt() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-app-bookmark-draft-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let store = try DiaryStore(fileURL: fileURL)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		stableCreateEntryResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(client: client, store: store)
+	await model.selectDiary(selectedDiary)
+	let draft = try #require(model.beginEntryDraft(appearsInList: false))
+
+	await model.toggleBookmark(draft)
+
+	#expect(model.entryDraftIDs.isEmpty)
+	#expect(model.entryDraftIDsHiddenFromList.isEmpty)
+	#expect(model.entryPendingCreationIDs == [draft.id])
+	guard case .entries(_, let entries) = model.screen else {
+		Issue.record("Expected the selected diary")
+		return
+	}
+	#expect(entries.first(where: { $0.id == draft.id })?.bookmarked == true)
+
+	for _ in 0..<100 {
+		if await store.pendingEntryWrites().contains(where: { $0.id == draft.id }) {
+			break
+		}
+		try await Task.sleep(for: .milliseconds(1))
+	}
+	let storedEntry = await store.entries(diaryID: selectedDiary.id).first {
+		$0.id == draft.id
+	}
+	#expect(storedEntry?.bookmarked == true)
+	#expect(
+		await store.pendingEntryWrites().contains {
+			$0.id == draft.id && $0.operation == .create
+		}
+	)
+}
+
+@MainActor
+@Test("Moving a draft to a topic promotes and persists it")
+func movingDraftToTopicPromotesAndPersistsIt() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-app-move-draft-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let store = try DiaryStore(fileURL: fileURL)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		stableCreateEntryResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(client: client, store: store)
+	await model.selectDiary(selectedDiary)
+	let draft = try #require(model.beginEntryDraft(appearsInList: false))
+
+	await model.moveEntry(draft, toTopicID: "topic-1")
+
+	#expect(model.entryDraftIDs.isEmpty)
+	#expect(model.entryDraftIDsHiddenFromList.isEmpty)
+	#expect(model.entryPendingCreationIDs == [draft.id])
+	guard case .entries(_, let entries) = model.screen else {
+		Issue.record("Expected the selected diary")
+		return
+	}
+	#expect(entries.first(where: { $0.id == draft.id })?.topicID == "topic-1")
+
+	for _ in 0..<100 {
+		if await store.pendingEntryWrites().contains(where: { $0.id == draft.id }) {
+			break
+		}
+		try await Task.sleep(for: .milliseconds(1))
+	}
+	let storedEntry = await store.entries(diaryID: selectedDiary.id).first {
+		$0.id == draft.id
+	}
+	#expect(storedEntry?.topicID == "topic-1")
+	#expect(
+		await store.pendingEntryWrites().contains {
+			$0.id == draft.id && $0.operation == .create
+		}
+	)
+}
+
+@MainActor
+@Test("Destructive actions ignore ephemeral drafts")
+func destructiveActionsIgnoreEphemeralDrafts() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-app-ephemeral-actions-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let store = try DiaryStore(fileURL: fileURL)
+	let model = ThingsDiaryAppModel(
+		client: StubAppClient(result: .success([selectedDiary])),
+		store: store
+	)
+	await model.selectDiary(selectedDiary)
+	let draft = try #require(model.beginEntryDraft(appearsInList: true))
+
+	await model.toggleArchive(draft)
+	await model.moveToTrash(draft)
+
+	#expect(model.entryDraftIDs == [draft.id])
+	#expect(model.screen == .entries(diary: selectedDiary, entries: [draft]))
+	#expect(await store.pendingEntryWrites().isEmpty)
+}
+
+@MainActor
 @Test("Editing a note while its create is in flight preserves the latest content")
 func editingEntryDuringCreatePreservesLatestContent() async throws {
 	let fileURL = FileManager.default.temporaryDirectory

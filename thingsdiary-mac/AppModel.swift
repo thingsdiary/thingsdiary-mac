@@ -642,23 +642,48 @@ final class ThingsDiaryAppModel {
 	}
 
 	func promoteEntryDraft(_ entryID: String, content: String) {
-		guard entryDraftIDs.contains(entryID),
-			case .entries(let diary, let entries) = screen,
-			let draft = entries.first(where: { $0.id == entryID }),
-			content != draft.content
+		guard case .entries(_, let entries) = screen,
+			let draft = entries.first(where: { $0.id == entryID })
 		else { return }
-		entryDraftIDs.remove(entryID)
-		entryDraftIDsHiddenFromList.remove(entryID)
-		entryPendingCreationIDs.insert(entryID)
+		promoteEntryDraft(
+			draft,
+			params: ThingsDiaryEntryParams(
+				content: content,
+				topicID: draft.topicID,
+				archived: draft.archived,
+				bookmarked: draft.bookmarked,
+				previewHidden: draft.previewHidden
+			)
+		)
+	}
+
+	private func promoteEntryDraft(
+		_ draft: ThingsDiaryEntry,
+		params: ThingsDiaryEntryParams
+	) {
+		guard entryDraftIDs.contains(draft.id),
+			case .entries(let diary, let entries) = screen,
+			entries.contains(where: { $0.id == draft.id })
+		else { return }
+		guard
+			params.content != draft.content
+				|| params.topicID != draft.topicID
+				|| params.archived != draft.archived
+				|| params.bookmarked != draft.bookmarked
+				|| params.previewHidden != draft.previewHidden
+		else { return }
+		entryDraftIDs.remove(draft.id)
+		entryDraftIDsHiddenFromList.remove(draft.id)
+		entryPendingCreationIDs.insert(draft.id)
 		let now = Date()
 		let entry = ThingsDiaryEntry(
 			id: draft.id,
 			diaryID: draft.diaryID,
-			content: content,
-			topicID: draft.topicID,
-			archived: draft.archived,
-			bookmarked: draft.bookmarked,
-			previewHidden: draft.previewHidden,
+			content: params.content,
+			topicID: params.topicID,
+			archived: params.archived,
+			bookmarked: params.bookmarked,
+			previewHidden: params.previewHidden,
 			createdAt: draft.createdAt,
 			updatedAt: now,
 			version: max(
@@ -803,6 +828,19 @@ final class ThingsDiaryAppModel {
 	}
 
 	func moveEntry(_ entry: ThingsDiaryEntry, toTopicID topicID: String?) async {
+		if entryDraftIDs.contains(entry.id) {
+			promoteEntryDraft(
+				entry,
+				params: ThingsDiaryEntryParams(
+					content: entry.content,
+					topicID: topicID,
+					archived: entry.archived,
+					bookmarked: entry.bookmarked,
+					previewHidden: entry.previewHidden
+				)
+			)
+			return
+		}
 		await saveEntry(
 			entry,
 			params: ThingsDiaryEntryParams(
@@ -903,6 +941,19 @@ final class ThingsDiaryAppModel {
 	}
 
 	func toggleBookmark(_ entry: ThingsDiaryEntry) async {
+		if entryDraftIDs.contains(entry.id) {
+			promoteEntryDraft(
+				entry,
+				params: ThingsDiaryEntryParams(
+					content: entry.content,
+					topicID: entry.topicID,
+					archived: entry.archived,
+					bookmarked: !entry.bookmarked,
+					previewHidden: entry.previewHidden
+				)
+			)
+			return
+		}
 		await saveEntry(
 			entry,
 			params: ThingsDiaryEntryParams(
@@ -916,6 +967,7 @@ final class ThingsDiaryAppModel {
 	}
 
 	func toggleArchive(_ entry: ThingsDiaryEntry) async {
+		guard !entryDraftIDs.contains(entry.id) else { return }
 		await saveEntry(
 			entry,
 			params: ThingsDiaryEntryParams(
@@ -929,7 +981,9 @@ final class ThingsDiaryAppModel {
 	}
 
 	func moveToTrash(_ entry: ThingsDiaryEntry) async {
-		guard case .entries(let diary, let entries) = screen else {
+		guard !entryDraftIDs.contains(entry.id),
+			case .entries(let diary, let entries) = screen
+		else {
 			return
 		}
 		let now = Date()
