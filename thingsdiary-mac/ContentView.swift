@@ -723,7 +723,6 @@ private struct EntriesView: View {
 		}
 		.frame(
 			maxWidth: .infinity,
-			minHeight: 520,
 			maxHeight: .infinity
 		)
 		.onChange(of: selection) {
@@ -792,6 +791,8 @@ private struct EntriesView: View {
 			Color.clear
 				.frame(maxWidth: .infinity)
 				.frame(height: workspaceTitlebarHeight)
+				.fixedSize(horizontal: false, vertical: true)
+				.layoutPriority(1)
 				.background(WorkspaceWindowDragArea())
 				.overlay(alignment: .trailing) {
 					if sidebarToggleInSidebar {
@@ -832,6 +833,8 @@ private struct EntriesView: View {
 			}
 		}
 		.frame(height: workspaceTitlebarHeight)
+		.fixedSize(horizontal: false, vertical: true)
+		.layoutPriority(1)
 		.background(TitlebarMaterialBackground())
 	}
 
