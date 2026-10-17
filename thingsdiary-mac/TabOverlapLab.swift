@@ -313,7 +313,7 @@
 
 		private var createTabButton: some View {
 			IconButton(
-				systemImage: "plus",
+				icon: .plus,
 				usesTitlebarBackground: true,
 				action: addTab
 			)

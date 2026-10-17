@@ -821,7 +821,7 @@ private struct EntriesView: View {
 				.accessibilityLabel("Empty Trash")
 				.help("Empty Trash")
 			} else if activeSelection != .archive {
-				IconButton(systemImage: "square.and.pencil", action: beginCreatingEntry)
+				IconButton(icon: .newEntry, action: beginCreatingEntry)
 					.accessibilityIdentifier("entry.create")
 					.accessibilityLabel("New Entry")
 					.keyboardShortcut("n", modifiers: .command)
@@ -851,7 +851,7 @@ private struct EntriesView: View {
 	}
 
 	private var sidebarToggleButton: some View {
-		IconButton(systemImage: "sidebar.left", action: toggleSidebar)
+		IconButton(icon: .panelLeft, action: toggleSidebar)
 			.accessibilityIdentifier("sidebar.toggle")
 			.accessibilityLabel(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
 			.help(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
@@ -996,7 +996,7 @@ private struct EntriesView: View {
 				}
 
 				IconButton(
-					systemImage: "plus",
+					icon: .plus,
 					usesTitlebarBackground: true,
 					action: beginCreatingTabDraft
 				)
@@ -1080,7 +1080,7 @@ private struct EntriesView: View {
 	private var editorTitlebarActions: some View {
 		HStack(spacing: 10) {
 			if isEditorFocusMode {
-				IconButton(systemImage: "arrow.down.right.and.arrow.up.left") {
+				IconButton(icon: .system("arrow.down.right.and.arrow.up.left"), iconSize: 13) {
 					isEditorFocusMode = false
 					if isEditorWorkspaceCompact {
 						compactWorkspacePane = .list
@@ -1090,14 +1090,14 @@ private struct EntriesView: View {
 				.accessibilityLabel("Exit Editor Focus")
 				.help("Exit Editor Focus")
 			} else if currentWorkspaceLayout == .split {
-				IconButton(systemImage: "arrow.up.left.and.arrow.down.right") {
+				IconButton(icon: .system("arrow.up.left.and.arrow.down.right"), iconSize: 13) {
 					isEditorFocusMode = true
 				}
 				.accessibilityIdentifier("workspace.focus-editor")
 				.accessibilityLabel("Focus Editor")
 				.help("Focus Editor")
 			} else {
-				IconButton(systemImage: "list.bullet") {
+				IconButton(icon: .menu) {
 					compactWorkspacePane = .list
 				}
 				.accessibilityIdentifier("workspace.show-entry-list")

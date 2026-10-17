@@ -1,18 +1,48 @@
 import SwiftUI
 
+enum AppIcon {
+	case asset(ImageResource)
+	case system(String)
+
+	static let close = Self.asset(.iconX)
+	static let menu = Self.asset(.iconMenu)
+	static let newEntry = Self.asset(.iconSquarePen)
+	static let panelLeft = Self.asset(.iconPanelLeft)
+	static let plus = Self.asset(.iconPlus)
+}
+
+struct AppIconImage: View {
+	let icon: AppIcon
+	let size: CGFloat
+
+	var body: some View {
+		switch icon {
+		case .asset(let resource):
+			Image(resource)
+				.renderingMode(.template)
+				.resizable()
+				.scaledToFit()
+				.frame(width: size, height: size)
+		case .system(let name):
+			Image(systemName: name)
+				.font(.system(size: size, weight: .semibold))
+		}
+	}
+}
+
 struct TabIconButton: View {
-	let systemImage: String
+	let icon: AppIcon
 	let iconSize: CGFloat
 	let action: () -> Void
 
 	@State private var isHovered = false
 
 	init(
-		systemImage: String,
+		icon: AppIcon,
 		iconSize: CGFloat = 13,
 		action: @escaping () -> Void
 	) {
-		self.systemImage = systemImage
+		self.icon = icon
 		self.iconSize = iconSize
 		self.action = action
 	}
@@ -24,8 +54,7 @@ struct TabIconButton: View {
 					.fill(Color.primary.opacity(isHovered ? 0.1 : 0))
 					.frame(width: 22, height: 22)
 
-				Image(systemName: systemImage)
-					.font(.system(size: iconSize, weight: .semibold))
+				AppIconImage(icon: icon, size: iconSize)
 			}
 			.frame(width: 28, height: 28)
 			.contentShape(.rect)
@@ -38,19 +67,22 @@ struct TabIconButton: View {
 }
 
 struct IconButton: View {
-	let systemImage: String
+	let icon: AppIcon
 	let usesTitlebarBackground: Bool
+	let iconSize: CGFloat
 	let action: () -> Void
 
 	@State private var isHovered = false
 
 	init(
-		systemImage: String,
+		icon: AppIcon,
 		usesTitlebarBackground: Bool = false,
+		iconSize: CGFloat = 18,
 		action: @escaping () -> Void
 	) {
-		self.systemImage = systemImage
+		self.icon = icon
 		self.usesTitlebarBackground = usesTitlebarBackground
+		self.iconSize = iconSize
 		self.action = action
 	}
 
@@ -61,8 +93,7 @@ struct IconButton: View {
 					.fill(Color.primary.opacity(isHovered ? 0.1 : 0))
 					.frame(width: 30, height: 30)
 
-				Image(systemName: systemImage)
-					.font(.system(size: 13, weight: .semibold))
+				AppIconImage(icon: icon, size: iconSize)
 			}
 			.frame(width: 30, height: 30)
 			.contentShape(.rect)
@@ -131,7 +162,7 @@ struct EntryTab: View {
 		)
 		.overlay(alignment: .trailing) {
 			if showsCloseButton {
-				TabIconButton(systemImage: "xmark", iconSize: 10, action: close)
+				TabIconButton(icon: .close, iconSize: 12, action: close)
 					.padding(.trailing, 1)
 					.accessibilityIdentifier("entry-tab.close.\(entryID)")
 					.accessibilityLabel("Close \(title)")
