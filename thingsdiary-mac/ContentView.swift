@@ -820,11 +820,7 @@ private struct EntriesView: View {
 				.accessibilityLabel("Empty Trash")
 				.help("Empty Trash")
 			} else if activeSelection != .archive {
-				Button(action: beginCreatingEntry) {
-					Image(systemName: "square.and.pencil")
-						.font(.system(size: 16, weight: .medium))
-				}
-				.frame(width: 28, height: 28)
+				IconButton(systemImage: "square.and.pencil", action: beginCreatingEntry)
 				.accessibilityIdentifier("entry.create")
 				.accessibilityLabel("New Entry")
 				.keyboardShortcut("n", modifiers: .command)
@@ -854,12 +850,7 @@ private struct EntriesView: View {
 	}
 
 	private var sidebarToggleButton: some View {
-		Button(action: toggleSidebar) {
-			Image(systemName: "sidebar.left")
-				.font(.system(size: 16, weight: .medium))
-		}
-		.frame(width: 28, height: 28)
-		.buttonStyle(.borderless)
+		IconButton(systemImage: "sidebar.left", action: toggleSidebar)
 		.accessibilityIdentifier("sidebar.toggle")
 		.accessibilityLabel(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
 		.help(sidebarToggleInSidebar ? "Hide Sidebar" : "Show Sidebar")
