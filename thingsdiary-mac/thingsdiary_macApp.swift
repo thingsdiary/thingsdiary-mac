@@ -29,7 +29,13 @@ struct ThingsDiaryApp: App {
 				return
 			}
 			if ProcessInfo.processInfo.arguments.contains("--ui-testing-workspace") {
-				_model = State(initialValue: ThingsDiaryAppModel.uiTestingWorkspace())
+				_model = State(
+					initialValue: ThingsDiaryAppModel.uiTestingWorkspace(
+						includesDeletedEntry: !ProcessInfo.processInfo.arguments.contains(
+							"--ui-testing-empty-trash"
+						)
+					)
+				)
 				return
 			}
 		#endif

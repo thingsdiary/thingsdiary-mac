@@ -1422,6 +1422,16 @@ private struct EntriesView: View {
 						showsCount: false,
 						dropDestination: .trash
 					)
+					.overlay {
+						WorkspaceContextMenuArea(
+							title: "Empty Trash",
+							systemImage: "trash",
+							isEnabled: count(for: .trash) > 0,
+							primaryAction: { selection = .trash },
+							menuAction: { confirmingEmptyTrash = true }
+						)
+						.accessibilityHidden(true)
+					}
 				}
 				.padding(10)
 				.frame(maxWidth: .infinity, alignment: .leading)

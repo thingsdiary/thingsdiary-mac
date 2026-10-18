@@ -39,6 +39,64 @@ final class WorkspaceWindowDragAreaView: NSView {
 	}
 }
 
+struct WorkspaceContextMenuArea: NSViewRepresentable {
+	let title: String
+	let systemImage: String
+	let isEnabled: Bool
+	let primaryAction: () -> Void
+	let menuAction: () -> Void
+
+	func makeNSView(context: Context) -> WorkspaceContextMenuAreaView {
+		WorkspaceContextMenuAreaView()
+	}
+
+	func updateNSView(_ nsView: WorkspaceContextMenuAreaView, context: Context) {
+		nsView.title = title
+		nsView.systemImage = systemImage
+		nsView.isMenuItemEnabled = isEnabled
+		nsView.primaryAction = primaryAction
+		nsView.menuAction = menuAction
+	}
+}
+
+final class WorkspaceContextMenuAreaView: NSView {
+	var title = ""
+	var systemImage = ""
+	var isMenuItemEnabled = false
+	var primaryAction: (() -> Void)?
+	var menuAction: (() -> Void)?
+
+	override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+		true
+	}
+
+	override func mouseDown(with event: NSEvent) {
+	}
+
+	override func mouseUp(with event: NSEvent) {
+		primaryAction?()
+	}
+
+	override func rightMouseDown(with event: NSEvent) {
+		let menu = NSMenu()
+		menu.autoenablesItems = false
+		let item = NSMenuItem(
+			title: title,
+			action: #selector(performMenuAction),
+			keyEquivalent: ""
+		)
+		item.target = self
+		item.isEnabled = isMenuItemEnabled
+		item.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)
+		menu.addItem(item)
+		NSMenu.popUpContextMenu(menu, with: event, for: self)
+	}
+
+	@objc private func performMenuAction() {
+		menuAction?()
+	}
+}
+
 struct WorkspaceHorizontalResizeHandle: NSViewRepresentable {
 	let accessibilityIdentifier: String
 	let onChanged: (CGFloat) -> Void

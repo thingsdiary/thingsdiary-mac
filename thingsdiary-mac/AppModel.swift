@@ -389,7 +389,7 @@ final class ThingsDiaryAppModel {
 	}
 
 	#if DEBUG
-		static func uiTestingWorkspace() -> ThingsDiaryAppModel {
+		static func uiTestingWorkspace(includesDeletedEntry: Bool = true) -> ThingsDiaryAppModel {
 			let now = Date(timeIntervalSince1970: 1_700_000_000)
 			let diary = ThingsDiaryDiary(
 				id: "fixture-diary",
@@ -446,7 +446,7 @@ final class ThingsDiaryAppModel {
 			model.topics = [topic]
 			model.screen = .entries(
 				diary: diary,
-				entries: entries + [archivedEntry, deletedEntry]
+				entries: entries + [archivedEntry] + (includesDeletedEntry ? [deletedEntry] : [])
 			)
 			return model
 		}

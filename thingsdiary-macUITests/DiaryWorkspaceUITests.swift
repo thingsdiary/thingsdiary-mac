@@ -14,9 +14,9 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		super.tearDown()
 	}
 
-	private func launchWorkspace() -> XCUIApplication {
+	private func launchWorkspace(additionalArguments: [String] = []) -> XCUIApplication {
 		let app = XCUIApplication()
-		app.launchArguments = ["--ui-testing-workspace"]
+		app.launchArguments = ["--ui-testing-workspace"] + additionalArguments
 		app.launch()
 		return app
 	}
@@ -598,10 +598,33 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let app = launchWorkspace()
 
 		app.buttons["sidebar.trash"].click()
-		app.buttons["trash.empty"].firstMatch.click()
+		let emptyTrash = app.windows.firstMatch.buttons["Empty Trash"].firstMatch
+		XCTAssertTrue(emptyTrash.waitForExistence(timeout: 2))
+		emptyTrash.click()
 
 		XCTAssertTrue(app.staticTexts["Empty Trash?"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.buttons["Cancel"].exists)
+	}
+
+	func testTrashContextMenuDisablesEmptyTrashWhenTrashIsEmpty() {
+		let app = launchWorkspace()
+		let trash = app.buttons["sidebar.trash"]
+
+		trash.rightClick()
+		let emptyTrash = app.menuItems["Empty Trash"]
+		XCTAssertTrue(emptyTrash.waitForExistence(timeout: 2))
+		XCTAssertTrue(emptyTrash.isEnabled)
+		emptyTrash.click()
+
+		XCTAssertTrue(app.staticTexts["Empty Trash?"].waitForExistence(timeout: 2))
+		app.sheets.firstMatch.buttons["Cancel"].click()
+		app.terminate()
+
+		let emptyApp = launchWorkspace(additionalArguments: ["--ui-testing-empty-trash"])
+		emptyApp.buttons["sidebar.trash"].rightClick()
+		let disabledEmptyTrash = emptyApp.menuItems["Empty Trash"]
+		XCTAssertTrue(disabledEmptyTrash.waitForExistence(timeout: 2))
+		XCTAssertFalse(disabledEmptyTrash.isEnabled)
 	}
 
 	func testDoubleClickingTopicOpensEditor() {
