@@ -31,6 +31,113 @@ final class WorkspaceWindowDragAreaView: NSView {
 	override var mouseDownCanMoveWindow: Bool { true }
 }
 
+struct WorkspaceHorizontalResizeHandle: NSViewRepresentable {
+	let accessibilityIdentifier: String
+	let onChanged: (CGFloat) -> Void
+	let onEnded: () -> Void
+
+	func makeNSView(context: Context) -> WorkspaceHorizontalResizeHandleView {
+		let view = WorkspaceHorizontalResizeHandleView()
+		view.setAccessibilityElement(true)
+		view.setAccessibilityRole(.splitter)
+		view.setAccessibilityIdentifier(accessibilityIdentifier)
+		view.onChanged = onChanged
+		view.onEnded = onEnded
+		return view
+	}
+
+	func updateNSView(_ view: WorkspaceHorizontalResizeHandleView, context: Context) {
+		view.setAccessibilityIdentifier(accessibilityIdentifier)
+		view.onChanged = onChanged
+		view.onEnded = onEnded
+	}
+}
+
+final class WorkspaceHorizontalResizeHandleView: NSView {
+	var onChanged: ((CGFloat) -> Void)?
+	var onEnded: (() -> Void)?
+
+	private var dragStartX: CGFloat?
+	private var pointerIsInside = false
+	private var resizeTrackingArea: NSTrackingArea?
+	private var windowWasMovable: Bool?
+
+	override var mouseDownCanMoveWindow: Bool { false }
+
+	override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+		true
+	}
+
+	override func resetCursorRects() {
+		addCursorRect(bounds, cursor: .resizeLeftRight)
+	}
+
+	override func updateTrackingAreas() {
+		super.updateTrackingAreas()
+		if let resizeTrackingArea {
+			removeTrackingArea(resizeTrackingArea)
+		}
+		let trackingArea = NSTrackingArea(
+			rect: bounds,
+			options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+			owner: self,
+			userInfo: nil
+		)
+		addTrackingArea(trackingArea)
+		resizeTrackingArea = trackingArea
+	}
+
+	override func mouseEntered(with event: NSEvent) {
+		pointerIsInside = true
+		blockWindowMovement()
+	}
+
+	override func mouseExited(with event: NSEvent) {
+		pointerIsInside = false
+		if dragStartX == nil {
+			restoreWindowMovement()
+		}
+	}
+
+	override func mouseDown(with event: NSEvent) {
+		blockWindowMovement()
+		dragStartX = event.locationInWindow.x
+	}
+
+	override func mouseDragged(with event: NSEvent) {
+		guard let dragStartX else { return }
+		onChanged?(event.locationInWindow.x - dragStartX)
+	}
+
+	override func mouseUp(with event: NSEvent) {
+		dragStartX = nil
+		if !pointerIsInside {
+			restoreWindowMovement()
+		}
+		onEnded?()
+	}
+
+	override func viewWillMove(toWindow newWindow: NSWindow?) {
+		if newWindow !== window {
+			restoreWindowMovement()
+		}
+		super.viewWillMove(toWindow: newWindow)
+	}
+
+	private func blockWindowMovement() {
+		guard windowWasMovable == nil, let window else { return }
+		windowWasMovable = window.isMovable
+		window.isMovable = false
+	}
+
+	private func restoreWindowMovement() {
+		if let windowWasMovable {
+			window?.isMovable = windowWasMovable
+		}
+		windowWasMovable = nil
+	}
+}
+
 struct WorkspaceWindowChrome: NSViewRepresentable {
 	let title: String
 	@Binding var trafficLightsTrailingInset: CGFloat

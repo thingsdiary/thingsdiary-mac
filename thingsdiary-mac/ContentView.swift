@@ -775,7 +775,11 @@ private struct EntriesView: View {
 				HStack(spacing: 0) {
 					entryListTitlebar
 						.frame(width: effectiveListWidth)
-					entryListDivider(isInteractive: true, height: workspaceTitlebarHeight)
+					entryListDivider(
+						isInteractive: true,
+						height: workspaceTitlebarHeight,
+						accessibilityIdentifier: "workspace.entry-list-divider.header"
+					)
 					entryTabsBar
 				}
 			case .editorOnly:
@@ -1165,7 +1169,10 @@ private struct EntriesView: View {
 				entryListPane()
 					.frame(width: listWidth)
 					.frame(maxHeight: .infinity)
-				entryListDivider(isInteractive: true)
+				entryListDivider(
+					isInteractive: true,
+					accessibilityIdentifier: "workspace.entry-list-divider.content"
+				)
 				entryDetailPane(layout: layout)
 					.frame(minWidth: minimumEntryEditorWidth, maxWidth: .infinity, maxHeight: .infinity)
 			}
@@ -1177,43 +1184,41 @@ private struct EntriesView: View {
 
 	@ViewBuilder private func entryListDivider(
 		isInteractive: Bool,
-		height: CGFloat? = nil
+		height: CGFloat? = nil,
+		accessibilityIdentifier: String
 	) -> some View {
-		let divider = ZStack {
-			Color.clear
-			Rectangle()
-				.fill(Color(nsColor: .separatorColor))
-				.frame(width: 1)
-		}
-		.frame(width: entryListDividerWidth, height: height)
-		.contentShape(.rect)
-		.accessibilityIdentifier("workspace.entry-list-divider")
+		let separator = Rectangle()
+			.fill(Color(nsColor: .separatorColor))
+			.frame(width: 1)
+			.allowsHitTesting(false)
 
 		if isInteractive {
-			divider
-				.gesture(
-					DragGesture(minimumDistance: 0, coordinateSpace: .global)
-						.onChanged { value in
-							let start = dragStartEntryListWidth ?? effectiveListWidth
-							dragStartEntryListWidth = start
-							preferredEntryListWidth = Double(
-								min(
-									max(start + value.translation.width, minimumEntryListWidth),
-									440
-								)
-							)
-						}
-						.onEnded { _ in dragStartEntryListWidth = nil }
-				)
-				.onHover { hovering in
-					if hovering {
-						NSCursor.resizeLeftRight.set()
-					} else {
-						NSCursor.arrow.set()
-					}
-				}
+			WorkspaceHorizontalResizeHandle(
+				accessibilityIdentifier: accessibilityIdentifier,
+				onChanged: { translation in
+					let start = dragStartEntryListWidth ?? effectiveListWidth
+					dragStartEntryListWidth = start
+					preferredEntryListWidth = Double(
+						min(
+							max(start + translation, minimumEntryListWidth),
+							440
+						)
+					)
+				},
+				onEnded: { dragStartEntryListWidth = nil }
+			)
+			.frame(width: entryListDividerWidth, height: height)
+			.overlay {
+				separator
+			}
 		} else {
-			divider
+			ZStack {
+				Color.clear
+				separator
+			}
+			.frame(width: entryListDividerWidth, height: height)
+			.contentShape(.rect)
+			.accessibilityIdentifier(accessibilityIdentifier)
 		}
 	}
 

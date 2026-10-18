@@ -239,6 +239,28 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(window.frame.origin.y, originalWindowFrame.origin.y, accuracy: 1)
 	}
 
+	func testHeaderEntryListDividerResizesListWithoutMovingWindow() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+		app.buttons["entry.fixture-entry"].click()
+
+		let headerDivider = app.descendants(matching: .any)[
+			"workspace.entry-list-divider.header"
+		].firstMatch
+		XCTAssertTrue(headerDivider.waitForExistence(timeout: 2))
+
+		let originalWindowOrigin = window.frame.origin
+		let originalDividerXInWindow = headerDivider.frame.midX - window.frame.minX
+		let start = headerDivider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+		let end = start.withOffset(CGVector(dx: 40, dy: 0))
+		start.press(forDuration: 0.1, thenDragTo: end)
+
+		let dividerXInWindow = headerDivider.frame.midX - window.frame.minX
+		XCTAssertGreaterThan(dividerXInWindow, originalDividerXInWindow + 20)
+		XCTAssertEqual(window.frame.origin.x, originalWindowOrigin.x, accuracy: 1)
+		XCTAssertEqual(window.frame.origin.y, originalWindowOrigin.y, accuracy: 1)
+	}
+
 	func testEntryTabContextMenuOpensOutsideItsText() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].click()
