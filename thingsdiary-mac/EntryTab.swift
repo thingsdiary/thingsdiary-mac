@@ -9,6 +9,8 @@ enum AppIcon {
 	static let newEntry = Self.asset(.iconSquarePen)
 	static let panelLeft = Self.asset(.iconPanelLeft)
 	static let plus = Self.asset(.iconPlus)
+	static let trash = Self.asset(.iconTrash)
+	static let trashEmpty = Self.asset(.iconTrashEmpty)
 }
 
 struct AppIconImage: View {

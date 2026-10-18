@@ -816,12 +816,12 @@ private struct EntriesView: View {
 			}
 
 			if activeSelection == .trash {
-				Button(role: .destructive) {
+				IconButton(
+					icon: displayedEntries.isEmpty ? .trashEmpty : .trash,
+					iconSize: 18
+				) {
 					confirmingEmptyTrash = true
-				} label: {
-					Image(systemName: "trash")
 				}
-				.frame(width: 28, height: 28)
 				.disabled(displayedEntries.isEmpty)
 				.accessibilityIdentifier("trash.empty")
 				.accessibilityLabel("Empty Trash")
