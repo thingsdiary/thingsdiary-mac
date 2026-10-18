@@ -399,14 +399,20 @@ final class ThingsDiaryAppModel {
 				updatedAt: now,
 				version: 1
 			)
-			let entry = ThingsDiaryEntry(
-				id: "fixture-entry",
-				diaryID: diary.id,
-				content: "Fixture Entry\nA useful preview for UI testing.",
-				createdAt: now,
-				updatedAt: now,
-				version: 1
-			)
+			let entries = (1...19).map { index in
+				let timestamp = now.addingTimeInterval(TimeInterval(-(index - 1) * 60))
+				return ThingsDiaryEntry(
+					id: index == 1 ? "fixture-entry" : "fixture-entry-\(index)",
+					diaryID: diary.id,
+					content:
+						index == 1
+						? "Fixture Entry\nA useful preview for UI testing."
+						: "Fixture Entry \(index)\nSample note \(index) for UI testing.",
+					createdAt: timestamp,
+					updatedAt: timestamp,
+					version: 1
+				)
+			}
 			let archivedEntry = ThingsDiaryEntry(
 				id: "fixture-archived-entry",
 				diaryID: diary.id,
@@ -438,7 +444,10 @@ final class ThingsDiaryAppModel {
 			let model = ThingsDiaryAppModel(client: UITestingAppClient())
 			model.loadedDiaries = [diary]
 			model.topics = [topic]
-			model.screen = .entries(diary: diary, entries: [entry, archivedEntry, deletedEntry])
+			model.screen = .entries(
+				diary: diary,
+				entries: entries + [archivedEntry, deletedEntry]
+			)
 			return model
 		}
 	#endif
