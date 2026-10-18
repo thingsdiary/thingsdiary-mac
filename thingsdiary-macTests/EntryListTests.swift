@@ -258,6 +258,52 @@ func opensEntryTabsOnce() {
 	#expect(tabs.activeEntryID == "first")
 }
 
+@Test("Entry previews reuse one tab until the note is opened again")
+func reusesEntryPreviewTab() {
+	var tabs = EntryTabsState()
+
+	tabs.preview("first")
+	#expect(tabs.openEntryIDs == ["first"])
+	#expect(tabs.activeEntryID == "first")
+	#expect(tabs.previewEntryID == "first")
+
+	tabs.preview("second")
+	#expect(tabs.openEntryIDs == ["second"])
+	#expect(tabs.activeEntryID == "second")
+	#expect(tabs.previewEntryID == "second")
+
+	tabs.preview("second")
+	#expect(tabs.openEntryIDs == ["second"])
+	#expect(tabs.previewEntryID == nil)
+}
+
+@Test("Entry previews do not replace permanent tabs")
+func preservesPermanentTabsWhenPreviewing() {
+	var tabs = EntryTabsState()
+	tabs.open("permanent")
+
+	tabs.preview("preview-first")
+	tabs.preview("preview-second")
+	tabs.preview("permanent")
+
+	#expect(tabs.openEntryIDs == ["permanent", "preview-second"])
+	#expect(tabs.activeEntryID == "permanent")
+	#expect(tabs.previewEntryID == "preview-second")
+}
+
+@Test("Editing and pinning promote an entry preview")
+func promotesEntryPreview() {
+	var tabs = EntryTabsState()
+	tabs.preview("edited")
+	tabs.promote("edited")
+	#expect(tabs.previewEntryID == nil)
+
+	tabs.preview("pinned")
+	tabs.togglePin("pinned")
+	#expect(tabs.previewEntryID == nil)
+	#expect(tabs.isPinned("pinned"))
+}
+
 @Test("Closing the active entry tab selects its nearest neighbor")
 func closesEntryTabsPredictably() {
 	var tabs = EntryTabsState(

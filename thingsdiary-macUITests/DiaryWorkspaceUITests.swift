@@ -220,9 +220,9 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let app = launchWorkspace()
 		let window = app.windows.firstMatch
 
-		app.buttons["entry.fixture-entry"].click()
+		app.buttons["entry.fixture-entry"].doubleClick()
 		app.buttons["sidebar.archive"].click()
-		app.descendants(matching: .any)["entry.fixture-archived-entry"].click()
+		app.descendants(matching: .any)["entry.fixture-archived-entry"].doubleClick()
 		app.buttons["sidebar.trash"].click()
 		app.descendants(matching: .any)["entry.fixture-deleted-entry"].click()
 
@@ -274,9 +274,34 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.menuItems["Pin Tab"].exists)
 	}
 
+	func testEntryPreviewIsReusedAndPromotedOnSecondClick() {
+		let app = launchWorkspace()
+
+		app.buttons["entry.fixture-entry"].click()
+		let firstTab = app.buttons["entry-tab.fixture-entry"]
+		XCTAssertTrue(firstTab.waitForExistence(timeout: 2))
+		XCTAssertEqual(firstTab.value as? String, "Preview, Saved")
+
+		let showEntryList = app.buttons["workspace.show-entry-list"].firstMatch
+		if showEntryList.exists {
+			showEntryList.click()
+		}
+		app.buttons["entry.fixture-entry-2"].click()
+		let secondTab = app.buttons["entry-tab.fixture-entry-2"]
+		XCTAssertTrue(secondTab.waitForExistence(timeout: 2))
+		XCTAssertFalse(firstTab.exists)
+		XCTAssertEqual(secondTab.value as? String, "Preview, Saved")
+
+		if showEntryList.exists {
+			showEntryList.click()
+		}
+		app.buttons["entry.fixture-entry-2"].click()
+		XCTAssertEqual(secondTab.value as? String, "Saved")
+	}
+
 	func testEntryTabActivatesWhenClickingOutsideItsText() {
 		let app = launchWorkspace()
-		app.buttons["entry.fixture-entry"].click()
+		app.buttons["entry.fixture-entry"].doubleClick()
 		app.buttons["sidebar.archive"].click()
 		app.descendants(matching: .any)["entry.fixture-archived-entry"].click()
 
@@ -451,7 +476,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		editor.typeText(" Saved before bulk close")
 
 		app.buttons["sidebar.archive"].click()
-		app.descendants(matching: .any)["entry.fixture-archived-entry"].click()
+		app.descendants(matching: .any)["entry.fixture-archived-entry"].doubleClick()
 		let followingTab = app.buttons["entry-tab.fixture-archived-entry"]
 		app.buttons["sidebar.trash"].click()
 		app.descendants(matching: .any)["entry.fixture-deleted-entry"].click()

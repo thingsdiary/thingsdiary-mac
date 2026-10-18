@@ -117,6 +117,7 @@ struct EntryTab: View {
 	let isActive: Bool
 	let isDirty: Bool
 	let isPinned: Bool
+	let isPreview: Bool
 	let isDragged: Bool
 	let horizontalOffset: CGFloat
 	let activate: () -> Void
@@ -146,6 +147,7 @@ struct EntryTab: View {
 				}
 
 				Text(title)
+					.italic(isPreview)
 					.lineLimit(1)
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
@@ -159,7 +161,9 @@ struct EntryTab: View {
 		.buttonStyle(.plain)
 		.accessibilityIdentifier("entry-tab.\(entryID)")
 		.accessibilityValue(
-			(isPinned ? "Pinned, " : "") + (isDirty ? "Unsaved changes" : "Saved")
+			(isPinned ? "Pinned, " : "")
+				+ (isPreview ? "Preview, " : "")
+				+ (isDirty ? "Unsaved changes" : "Saved")
 		)
 		.overlay(alignment: .trailing) {
 			if showsCloseButton {

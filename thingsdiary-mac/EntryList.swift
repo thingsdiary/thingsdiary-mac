@@ -52,24 +52,59 @@ nonisolated struct EntryTabsState: Equatable {
 	var openEntryIDs: [String] = []
 	var activeEntryID: String?
 	var pinnedEntryIDs: Set<String> = []
+	var previewEntryID: String?
 
 	mutating func open(_ entryID: String) {
 		if !openEntryIDs.contains(entryID) {
 			openEntryIDs.append(entryID)
 		}
+		promote(entryID)
 		activeEntryID = entryID
+	}
+
+	mutating func preview(_ entryID: String) {
+		if openEntryIDs.contains(entryID) {
+			activeEntryID = entryID
+			if previewEntryID == entryID {
+				promote(entryID)
+			}
+			return
+		}
+
+		if let previewEntryID,
+			let previewIndex = openEntryIDs.firstIndex(of: previewEntryID)
+		{
+			openEntryIDs[previewIndex] = entryID
+		} else {
+			openEntryIDs.append(entryID)
+		}
+		previewEntryID = entryID
+		activeEntryID = entryID
+	}
+
+	mutating func promote(_ entryID: String) {
+		guard previewEntryID == entryID else { return }
+		previewEntryID = nil
+	}
+
+	func isPreview(_ entryID: String) -> Bool {
+		previewEntryID == entryID
 	}
 
 	mutating func close(_ entryID: String) {
 		guard let index = openEntryIDs.firstIndex(of: entryID) else { return }
 		openEntryIDs.remove(at: index)
 		pinnedEntryIDs.remove(entryID)
+		if previewEntryID == entryID {
+			previewEntryID = nil
+		}
 		guard activeEntryID == entryID else { return }
 		activeEntryID = openEntryIDs.indices.contains(index) ? openEntryIDs[index] : openEntryIDs.last
 	}
 
 	mutating func togglePin(_ entryID: String) {
 		guard openEntryIDs.contains(entryID) else { return }
+		promote(entryID)
 		if pinnedEntryIDs.remove(entryID) == nil {
 			pinnedEntryIDs.insert(entryID)
 		}
@@ -103,6 +138,9 @@ nonisolated struct EntryTabsState: Equatable {
 	mutating func reconcile(validEntryIDs: Set<String>) {
 		openEntryIDs.removeAll { !validEntryIDs.contains($0) }
 		pinnedEntryIDs.formIntersection(validEntryIDs)
+		if let previewEntryID, !validEntryIDs.contains(previewEntryID) {
+			self.previewEntryID = nil
+		}
 		if let activeEntryID, !validEntryIDs.contains(activeEntryID) {
 			self.activeEntryID = openEntryIDs.last
 		}

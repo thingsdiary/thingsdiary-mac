@@ -571,6 +571,7 @@ private struct EntriesView: View {
 			get: { selectedDraftContent },
 			set: { value in
 				guard let entryID = tabs.activeEntryID else { return }
+				tabs.promote(entryID)
 				draftsByEntryID[entryID] = value
 				model.promoteEntryDraft(entryID, content: value)
 			}
@@ -1041,6 +1042,7 @@ private struct EntriesView: View {
 				isActive: tabs.activeEntryID == entry.id,
 				isDirty: draft != entry.content,
 				isPinned: tabs.isPinned(entry.id),
+				isPreview: tabs.isPreview(entry.id),
 				isDragged: entryTabReorderSession?.entryID == entry.id,
 				horizontalOffset: entryTabReorderSession?.offset(
 					forTabAt: index,
@@ -1591,6 +1593,18 @@ private struct EntriesView: View {
 		}
 	}
 
+	private func previewEntry(_ entry: ThingsDiaryEntry) {
+		let replacedPreviewEntryID = tabs.previewEntryID
+		tabs.preview(entry.id)
+		if replacedPreviewEntryID != tabs.previewEntryID, let replacedPreviewEntryID {
+			draftsByEntryID.removeValue(forKey: replacedPreviewEntryID)
+		}
+		if draftsByEntryID[entry.id] == nil {
+			draftsByEntryID[entry.id] = entry.content
+		}
+		compactWorkspacePane = .editor
+	}
+
 	private func openEntry(_ entry: ThingsDiaryEntry) {
 		tabs.open(entry.id)
 		if draftsByEntryID[entry.id] == nil {
@@ -1891,7 +1905,7 @@ private struct EntriesView: View {
 						.opacity(draggedEntryID == entry.id ? 0.45 : 1)
 						.contentShape(.interaction, Rectangle())
 						.onTapGesture {
-							openEntry(entry)
+							previewEntry(entry)
 						}
 						.highPriorityGesture(entryDragGesture(for: entry))
 						.accessibilityElement(children: .combine)
@@ -2152,6 +2166,9 @@ private struct EntriesView: View {
 		on entry: ThingsDiaryEntry,
 		topicID: String?
 	) {
+		if action != .duplicate {
+			tabs.promote(entry.id)
+		}
 		let clearsSelection = shouldClearSelection(
 			after: action,
 			entry: entry,

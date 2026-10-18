@@ -272,6 +272,7 @@
 								isActive: activeTabID == tabID,
 								isDirty: tabID == "two",
 								isPinned: false,
+								isPreview: false,
 								isDragged: reorderSession?.entryID == tabID,
 								horizontalOffset: reorderSession?.offset(
 									forTabAt: index,
