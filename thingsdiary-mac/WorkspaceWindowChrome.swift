@@ -29,6 +29,14 @@ struct WorkspaceWindowDragArea: NSViewRepresentable {
 
 final class WorkspaceWindowDragAreaView: NSView {
 	override var mouseDownCanMoveWindow: Bool { true }
+
+	override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+		true
+	}
+
+	override func mouseDown(with event: NSEvent) {
+		window?.performDrag(with: event)
+	}
 }
 
 struct WorkspaceHorizontalResizeHandle: NSViewRepresentable {

@@ -65,6 +65,46 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(app.windows.firstMatch.title, "Entries")
 	}
 
+	func testAppBarBackgroundAndTitleDragWindow() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+		let listTitlebar = app.descendants(matching: .any)["entry-list.titlebar"].firstMatch
+		XCTAssertTrue(listTitlebar.waitForExistence(timeout: 2))
+
+		var originalOrigin = window.frame.origin
+		let titleDragStart = listTitlebar.coordinate(
+			withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)
+		)
+		titleDragStart.press(
+			forDuration: 0.1,
+			thenDragTo: titleDragStart.withOffset(CGVector(dx: 40, dy: 30))
+		)
+		XCTAssertNotEqual(window.frame.origin, originalOrigin)
+
+		app.buttons["entry.fixture-entry"].click()
+		let newTabButton = app.buttons["New Entry Tab"]
+		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
+
+		let blankX = (newTabButton.frame.maxX + window.frame.maxX - 50) / 2
+		let appBarYPositions = [
+			newTabButton.frame.minY - 2,
+			newTabButton.frame.midY,
+			newTabButton.frame.maxY + 2,
+		]
+
+		for y in appBarYPositions {
+			originalOrigin = window.frame.origin
+			let dragStart = window.coordinate(withNormalizedOffset: .zero).withOffset(
+				CGVector(dx: blankX - window.frame.minX, dy: y - window.frame.minY)
+			)
+			dragStart.press(
+				forDuration: 0.1,
+				thenDragTo: dragStart.withOffset(CGVector(dx: 20, dy: 10))
+			)
+			XCTAssertNotEqual(window.frame.origin, originalOrigin)
+		}
+	}
+
 	func testSearchScopeChangesWhenSectionChanges() {
 		let app = launchWorkspace()
 		let workspace = app.dialogs.firstMatch.exists ? app.dialogs.firstMatch : app.windows.firstMatch
@@ -403,6 +443,39 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		editor.typeText("Draft from tab")
 
 		XCTAssertTrue(app.buttons["Draft from tab"].firstMatch.waitForExistence(timeout: 2))
+	}
+
+	func testTabBarPlusFollowsNewDraftWithoutScrollGap() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+		let newTabButton = app.buttons["New Entry Tab"]
+
+		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
+		newTabButton.click()
+
+		let draftTab = app.buttons["Untitled"].firstMatch
+		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
+		let gap = newTabButton.frame.minX - draftTab.frame.maxX
+		XCTAssertGreaterThanOrEqual(gap, 0)
+		XCTAssertLessThanOrEqual(gap, 4)
+	}
+
+	func testPinnedTabBarPlusHasNoGapAfterLastTab() {
+		let app = launchWorkspace()
+
+		for index in 1...8 {
+			app.buttons["entry.fixture-entry\(index == 1 ? "" : "-\(index)")"].doubleClick()
+		}
+
+		let newTabButton = app.buttons["New Entry Tab"]
+		let lastTab = app.descendants(matching: .any)["entry-tab.fixture-entry-8"]
+		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
+		XCTAssertTrue(lastTab.waitForExistence(timeout: 2))
+		XCTAssertTrue(lastTab.isHittable)
+
+		let gap = newTabButton.frame.minX - lastTab.frame.maxX
+		XCTAssertGreaterThanOrEqual(gap, 0)
+		XCTAssertLessThanOrEqual(gap, 4)
 	}
 
 	func testPendingEntryKeepsSaveShortcutEnabledAfterFurtherEditing() {

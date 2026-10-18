@@ -745,6 +745,7 @@ private struct EntriesView: View {
 				.fixedSize(horizontal: false, vertical: true)
 				.layoutPriority(1)
 				.background(WorkspaceWindowDragArea())
+				.gesture(WindowDragGesture())
 				.overlay(alignment: .trailing) {
 					if sidebarToggleInSidebar {
 						animatedSidebarToggleButton
@@ -899,12 +900,24 @@ private struct EntriesView: View {
 				: 0
 		)
 		.padding(.trailing, 10)
+		.background {
+			Color.clear
+				.contentShape(Rectangle())
+				.gesture(WindowDragGesture())
+		}
 		.overlay(alignment: .leading) {
 			if !sidebarToggleInSidebar, currentWorkspaceLayout == .editorOnly {
 				HStack(spacing: 8) {
 					Color.clear.frame(width: trafficLightsTrailingInset)
 					animatedSidebarToggleButton
 				}
+			}
+		}
+		.overlay {
+			VStack(spacing: 0) {
+				appBarDragStrip
+				Spacer(minLength: 0)
+				appBarDragStrip
 			}
 		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
@@ -937,6 +950,11 @@ private struct EntriesView: View {
 		}
 	}
 
+	private var appBarDragStrip: some View {
+		WorkspaceWindowDragArea()
+			.frame(height: 8)
+	}
+
 	private func entryTabsStrip(tabWidth: CGFloat) -> some View {
 		GeometryReader { proxy in
 			let tabsContentWidth = entryTabsContentWidth(
@@ -957,6 +975,10 @@ private struct EntriesView: View {
 			)
 
 			ZStack(alignment: .leading) {
+				Color.clear
+					.contentShape(Rectangle())
+					.gesture(WindowDragGesture())
+
 				ScrollViewReader { scrollProxy in
 					ScrollView(.horizontal, showsIndicators: false) {
 						ZStack(alignment: .leading) {
@@ -979,26 +1001,20 @@ private struct EntriesView: View {
 							}
 						}
 						.padding(.leading, entryTabLeadingPadding)
-						.padding(
-							.trailing,
-							entryTabCreateButtonWidth + entryTabCreateButtonSpacing
-						)
 					}
-					.mask(alignment: .leading) {
-						Rectangle()
-							.frame(
-								width: createButtonIsPinned
-									? max(createButtonOffset, 0)
-									: proxy.size.width
-							)
-					}
+					.frame(width: max(createButtonOffset, 0), height: 30)
+					.clipped()
 					.onChange(of: tabs.activeEntryID) {
-						guard let activeEntryID = tabs.activeEntryID else { return }
+						guard
+							createButtonIsPinned,
+							let activeEntryID = tabs.activeEntryID
+						else { return }
 						withAnimation(.easeInOut(duration: 0.16)) {
 							scrollProxy.scrollTo(activeEntryID, anchor: .center)
 						}
 					}
 				}
+				.frame(width: max(createButtonOffset, 0), height: 30, alignment: .leading)
 
 				IconButton(
 					icon: .plus,
