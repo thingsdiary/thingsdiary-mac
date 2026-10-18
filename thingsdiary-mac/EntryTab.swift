@@ -153,6 +153,7 @@ struct EntryTab: View {
 			.padding(.leading, 9)
 			.padding(.trailing, 6)
 			.frame(width: width, height: 30)
+			.contentShape(.rect)
 			.mask { titleMask }
 		}
 		.buttonStyle(.plain)

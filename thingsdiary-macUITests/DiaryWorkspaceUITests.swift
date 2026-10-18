@@ -252,6 +252,23 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.menuItems["Pin Tab"].exists)
 	}
 
+	func testEntryTabActivatesWhenClickingOutsideItsText() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+		app.buttons["sidebar.archive"].click()
+		app.descendants(matching: .any)["entry.fixture-archived-entry"].click()
+
+		let firstTab = app.buttons["entry-tab.fixture-entry"]
+		XCTAssertTrue(firstTab.waitForExistence(timeout: 2))
+
+		firstTab.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).click()
+
+		XCTAssertEqual(
+			app.textViews.firstMatch.value as? String,
+			"Fixture Entry\nA useful preview for UI testing."
+		)
+	}
+
 	func testTopicButtonOpensCreationForm() {
 		let app = launchWorkspace()
 
