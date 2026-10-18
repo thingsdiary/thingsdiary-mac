@@ -1637,7 +1637,9 @@ private struct EntriesView: View {
 
 	private func finishReorderingEntryTab(_ entryID: String) {
 		guard let session = entryTabReorderSession, session.entryID == entryID else { return }
-		withAnimation(.smooth(duration: 0.16)) {
+		var transaction = Transaction()
+		transaction.disablesAnimations = true
+		withTransaction(transaction) {
 			session.commit(to: &tabs)
 			entryTabReorderSession = nil
 		}
