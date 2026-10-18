@@ -1568,8 +1568,20 @@ private struct EntriesView: View {
 	}
 
 	private func beginEntryDraft(appearsInList: Bool) {
-		guard let draft = model.beginEntryDraft(appearsInList: appearsInList) else { return }
-		selection = .entries
+		let topicID: String? =
+			switch activeSelection {
+			case .topic(let topicID): topicID
+			default: nil
+			}
+		guard
+			let draft = model.beginEntryDraft(
+				appearsInList: appearsInList,
+				topicID: topicID
+			)
+		else { return }
+		if topicID == nil {
+			selection = .entries
+		}
 		openEntry(draft)
 		Task { @MainActor in
 			await Task.yield()
@@ -1877,12 +1889,12 @@ private struct EntriesView: View {
 			Text(emptyStateDescription)
 		} actions: {
 			if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-				if activeSelection == .entries {
+				if activeSelection == .entries || isTopicSelected {
 					Button("New Entry", systemImage: "square.and.pencil") {
 						beginCreatingEntry()
 					}
 					.buttonStyle(.borderedProminent)
-				} else if activeSelection == .bookmarks || isTopicSelected {
+				} else if activeSelection == .bookmarks {
 					Button("Browse Entries") {
 						selection = .entries
 					}
@@ -2299,7 +2311,7 @@ private struct EntriesView: View {
 		return switch activeSelection {
 		case .entries: "Create your first entry to start writing in this diary."
 		case .bookmarks: "Bookmark entries you want to find quickly."
-		case .topic: "Move an existing entry into this topic to keep related writing together."
+		case .topic: "Create a new entry here or move an existing entry into this topic."
 		case .archive: "Archive entries you want to keep without showing in your main list."
 		case .trash: "Deleted entries appear here until permanently removed."
 		}

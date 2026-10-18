@@ -138,11 +138,24 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		XCTAssertTrue(app.staticTexts["No Entries in This Topic"].waitForExistence(timeout: 2))
 		XCTAssertTrue(
-			app.staticTexts["Move an existing entry into this topic to keep related writing together."].exists
+			app.staticTexts["Create a new entry here or move an existing entry into this topic."].exists
 		)
-		XCTAssertTrue(app.buttons["Browse Entries"].exists)
+		XCTAssertTrue(app.buttons["New Entry"].exists)
 		XCTAssertFalse(app.descendants(matching: .any)["entry-list.header"].exists)
 		XCTAssertFalse(app.searchFields["Search Work Topic"].exists)
+	}
+
+	func testCreatingEntryInTopicKeepsTopicSelected() {
+		let app = launchWorkspace()
+
+		app.buttons["sidebar.topic.fixture-topic"].click()
+		app.buttons["New Entry"].firstMatch.click()
+
+		let editor = app.textViews.firstMatch
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		editor.typeText("Topic draft")
+
+		XCTAssertEqual(app.windows.firstMatch.title, "Work Topic")
 	}
 
 	func testDiaryMenuClosesWithoutLeavingWorkspace() {

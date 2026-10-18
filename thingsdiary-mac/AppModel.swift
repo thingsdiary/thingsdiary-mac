@@ -620,13 +620,14 @@ final class ThingsDiaryAppModel {
 	}
 
 	@discardableResult
-	func beginEntryDraft(appearsInList: Bool) -> ThingsDiaryEntry? {
+	func beginEntryDraft(appearsInList: Bool, topicID: String? = nil) -> ThingsDiaryEntry? {
 		guard case .entries(let diary, let entries) = screen else { return nil }
 		let now = Date()
 		let draft = ThingsDiaryEntry(
 			id: UUID().uuidString.lowercased(),
 			diaryID: diary.id,
 			content: "",
+			topicID: topicID,
 			createdAt: now,
 			updatedAt: now,
 			version: UInt64(now.timeIntervalSince1970 * 1_000)

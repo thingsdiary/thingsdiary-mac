@@ -504,6 +504,21 @@ func createsVisibleEntryDraft() async {
 }
 
 @MainActor
+@Test("A draft created in a topic keeps its topic assignment")
+func createsEntryDraftInTopic() async {
+	let diary = diary(id: "diary-1", title: "Personal")
+	let model = ThingsDiaryAppModel(
+		client: StubAppClient(result: .success([diary]))
+	)
+	await model.selectDiary(diary)
+
+	let draft = model.beginEntryDraft(appearsInList: true, topicID: "topic-1")
+
+	#expect(draft?.topicID == "topic-1")
+	#expect(model.screen == .entries(diary: diary, entries: [draft].compactMap { $0 }))
+}
+
+@MainActor
 @Test("Editing a tab draft promotes it into the diary")
 func promotesHiddenTabDraftOnFirstEdit() async {
 	let diary = diary(id: "diary-1", title: "Personal")
