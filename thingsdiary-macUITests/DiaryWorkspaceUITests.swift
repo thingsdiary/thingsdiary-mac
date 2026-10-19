@@ -67,6 +67,31 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		editor.typeKey(.delete, modifierFlags: [])
 	}
 
+	private func showEntryListIfNeeded(in app: XCUIApplication) {
+		let showEntryList = app.buttons["workspace.show-entry-list"].firstMatch
+		if showEntryList.exists {
+			showEntryList.click()
+		}
+	}
+
+	private func openTopicMenu(for element: XCUIElement, app: XCUIApplication) {
+		element.rightClick()
+		let moveToTopic = app.menuItems["Move to Topic"]
+		XCTAssertTrue(moveToTopic.waitForExistence(timeout: 2))
+		moveToTopic.hover()
+	}
+
+	private func chooseTopic(
+		_ title: String,
+		for element: XCUIElement,
+		app: XCUIApplication
+	) {
+		openTopicMenu(for: element, app: app)
+		let topic = app.menuItems[title]
+		XCTAssertTrue(topic.waitForExistence(timeout: 2))
+		topic.click()
+	}
+
 	@discardableResult
 	private func createAndSaveTemplate(_ content: String, app: XCUIApplication) -> XCUIElement {
 		let workspace = workspace(in: app)
@@ -419,6 +444,52 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		XCTAssertTrue(app.menuItems["Close"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.menuItems["Pin Tab"].exists)
+	}
+
+	func testEntryCanBeAddedToTopic() {
+		let app = launchWorkspace()
+		let entry = app.buttons["entry.fixture-entry"]
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+
+		chooseTopic("Work Topic", for: entry, app: app)
+		app.buttons["sidebar.topic.fixture-topic"].click()
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+	}
+
+	func testEntryCanMoveFromOneTopicToAnotherFromTabMenu() {
+		let app = launchWorkspace()
+		let entry = app.buttons["entry.fixture-entry"]
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+		chooseTopic("Work Topic", for: entry, app: app)
+		entry.click()
+
+		let tab = app.descendants(matching: .any)["entry-tab.fixture-entry"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		chooseTopic("Personal Topic", for: tab, app: app)
+
+		app.buttons["sidebar.topic.fixture-topic"].click()
+		showEntryListIfNeeded(in: app)
+		XCTAssertTrue(entry.waitForNonExistence(timeout: 2))
+		app.buttons["sidebar.topic.fixture-topic-2"].click()
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+	}
+
+	func testEntryCanBeRemovedFromTopicFromTabMenu() {
+		let app = launchWorkspace()
+		let entry = app.buttons["entry.fixture-entry"]
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+		chooseTopic("Work Topic", for: entry, app: app)
+		entry.click()
+
+		let tab = app.descendants(matching: .any)["entry-tab.fixture-entry"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		chooseTopic("No Topic", for: tab, app: app)
+
+		app.buttons["sidebar.topic.fixture-topic"].click()
+		showEntryListIfNeeded(in: app)
+		XCTAssertTrue(entry.waitForNonExistence(timeout: 2))
+		app.buttons["sidebar.entries"].click()
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
 	}
 
 	func testEntryPreviewIsReusedAndPromotedOnSecondClick() {

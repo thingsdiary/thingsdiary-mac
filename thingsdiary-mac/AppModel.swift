@@ -523,9 +523,19 @@ final class ThingsDiaryAppModel {
 				updatedAt: now,
 				version: 1
 			)
+			let secondTopic = ThingsDiaryTopic(
+				id: "fixture-topic-2",
+				diaryID: diary.id,
+				title: "Personal Topic",
+				description: "",
+				color: "#FCA5A5",
+				createdAt: now,
+				updatedAt: now,
+				version: 1
+			)
 			let model = ThingsDiaryAppModel(client: UITestingAppClient())
 			model.loadedDiaries = [diary]
-			model.topics = [topic]
+			model.topics = [topic, secondTopic]
 			model.screen = .entries(
 				diary: diary,
 				entries: entries + [archivedEntry] + (includesDeletedEntry ? [deletedEntry] : [])

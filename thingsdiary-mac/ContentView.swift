@@ -2039,17 +2039,16 @@ private struct EntriesView: View {
 		}
 		.disabled(isEphemeral || isDeleted)
 
-		Menu("Move to Topic", systemImage: "tag") {
-			Button("Unfiled", systemImage: "tray") {
-				perform(.moveToTopic, on: entry, topicID: nil)
-			}
-			ForEach(model.topics) { topic in
-				Button(topic.title, systemImage: "tag") {
-					perform(.moveToTopic, on: entry, topicID: topic.id)
-				}
+		if !isDeleted,
+			shouldShowTopicAssignmentMenu(
+				topicCount: model.topics.count,
+				currentTopicID: entry.topicID
+			)
+		{
+			TopicAssignmentPicker(entry: entry, topics: model.topics) { topicID in
+				perform(.moveToTopic, on: entry, topicID: topicID)
 			}
 		}
-		.disabled(model.topics.isEmpty || isDeleted)
 
 		Divider()
 
@@ -2902,16 +2901,14 @@ private struct EntryActionsMenuContent: View {
 			}
 		}
 
-		if actions.contains(.moveToTopic) {
-			Menu("Move to Topic", systemImage: "tag") {
-				Button("Unfiled") {
-					perform(.moveToTopic, nil)
-				}
-				ForEach(topics) { topic in
-					Button(topic.title) {
-						perform(.moveToTopic, topic.id)
-					}
-				}
+		if actions.contains(.moveToTopic),
+			shouldShowTopicAssignmentMenu(
+				topicCount: topics.count,
+				currentTopicID: entry.topicID
+			)
+		{
+			TopicAssignmentPicker(entry: entry, topics: topics) { topicID in
+				perform(.moveToTopic, topicID)
 			}
 		}
 
@@ -2945,6 +2942,56 @@ private struct EntryActionsMenuContent: View {
 				perform(.deletePermanently, nil)
 			}
 		}
+	}
+}
+
+private struct TopicAssignmentPicker: View {
+	let entry: ThingsDiaryEntry
+	let topics: [ThingsDiaryTopic]
+	let move: (String?) -> Void
+
+	private var selection: Binding<String?> {
+		Binding(
+			get: { entry.topicID },
+			set: { selectedTopicID in
+				guard shouldChangeTopicAssignment(
+					currentTopicID: entry.topicID,
+					selectedTopicID: selectedTopicID
+				) else { return }
+				move(selectedTopicID)
+			}
+		)
+	}
+
+	private var currentTopicIsUnavailable: Bool {
+		guard let currentTopicID = entry.topicID else { return false }
+		return !topics.contains { $0.id == currentTopicID }
+	}
+
+	var body: some View {
+		Picker(selection: selection) {
+			if currentTopicIsUnavailable, let currentTopicID = entry.topicID {
+				Text("Unavailable Topic")
+					.tag(Optional(currentTopicID))
+					.disabled(true)
+				Divider()
+			}
+
+			Text("No Topic")
+				.tag(nil as String?)
+
+			if !topics.isEmpty {
+				Divider()
+			}
+
+			ForEach(topics) { topic in
+				Text(topic.title)
+					.tag(Optional(topic.id))
+			}
+		} label: {
+			Label("Move to Topic", systemImage: "tag")
+		}
+		.pickerStyle(.menu)
 	}
 }
 

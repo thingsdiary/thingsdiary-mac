@@ -544,6 +544,26 @@ func newTabButtonHidesOnlyDuringInlineReorder() {
 	#expect(!shouldHideBrowserTabCreateButton(isReordering: true, isPinned: true))
 }
 
+@Test("Topic assignment menu appears only when it has a state or destination")
+func topicAssignmentMenuAvailability() {
+	#expect(!shouldShowTopicAssignmentMenu(topicCount: 0, currentTopicID: nil))
+	#expect(shouldShowTopicAssignmentMenu(topicCount: 1, currentTopicID: nil))
+	#expect(shouldShowTopicAssignmentMenu(topicCount: 0, currentTopicID: "missing-topic"))
+}
+
+@Test("Selecting the current topic is a no-op")
+func topicAssignmentChangesOnlyForNewSelections() {
+	#expect(
+		!shouldChangeTopicAssignment(
+			currentTopicID: "topic-1",
+			selectedTopicID: "topic-1"
+		)
+	)
+	#expect(!shouldChangeTopicAssignment(currentTopicID: nil, selectedTopicID: nil))
+	#expect(shouldChangeTopicAssignment(currentTopicID: "topic-1", selectedTopicID: nil))
+	#expect(shouldChangeTopicAssignment(currentTopicID: nil, selectedTopicID: "topic-1"))
+}
+
 @Test("A completed save clears only the submitted draft")
 func reconcilesSavedEntryDraft() {
 	#expect(

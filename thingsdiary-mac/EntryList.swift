@@ -324,6 +324,20 @@ nonisolated func shouldHideBrowserTabCreateButton(
 	isReordering && !isPinned
 }
 
+nonisolated func shouldShowTopicAssignmentMenu(
+	topicCount: Int,
+	currentTopicID: String?
+) -> Bool {
+	topicCount > 0 || currentTopicID != nil
+}
+
+nonisolated func shouldChangeTopicAssignment(
+	currentTopicID: String?,
+	selectedTopicID: String?
+) -> Bool {
+	currentTopicID != selectedTopicID
+}
+
 nonisolated func reconciledEntryDraftAfterSave(
 	currentDraft: String,
 	submittedContent: String,
