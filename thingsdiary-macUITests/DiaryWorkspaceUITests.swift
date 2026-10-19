@@ -536,8 +536,13 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 	func testTopicButtonOpensCreationForm() {
 		let app = launchWorkspace()
+		let topics = app.buttons["topics.toggle"]
+		XCTAssertTrue(topics.waitForExistence(timeout: 2))
+		topics.hover()
 
-		app.descendants(matching: .any)["topic.create"].click()
+		let createTopic = app.descendants(matching: .any)["topic.create"]
+		XCTAssertTrue(createTopic.waitForExistence(timeout: 2))
+		createTopic.click()
 
 		XCTAssertTrue(app.descendants(matching: .any)["topic.title"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.descendants(matching: .any)["topic.description"].exists)

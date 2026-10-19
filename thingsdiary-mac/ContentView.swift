@@ -856,7 +856,6 @@ private struct EntriesView: View {
 			sidebar
 		}
 		.ignoresSafeArea(.container, edges: .top)
-		.accessibilityIdentifier("workspace.sidebar")
 	}
 
 	private var entryWorkspace: some View {
@@ -1540,8 +1539,8 @@ private struct EntriesView: View {
 								Text("Topics")
 									.lineLimit(1)
 									.truncationMode(.tail)
+									.frame(maxWidth: .infinity, alignment: .leading)
 									.layoutPriority(1)
-								Spacer(minLength: 6)
 							}
 							.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
 						} else {
@@ -1556,8 +1555,8 @@ private struct EntriesView: View {
 										.foregroundStyle(.primary)
 										.lineLimit(1)
 										.truncationMode(.tail)
+										.frame(maxWidth: .infinity, alignment: .leading)
 										.layoutPriority(1)
-									Spacer(minLength: 6)
 								}
 								.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
 								.contentShape(.rect)
@@ -1569,18 +1568,18 @@ private struct EntriesView: View {
 							.help(topicsExpanded ? "Collapse Topics" : "Expand Topics")
 						}
 
-						Button {
-							beginCreatingTopic()
-						} label: {
-							Image(systemName: "plus")
-								.frame(width: 18, height: 20)
-								.opacity(topicsHeaderHovered || model.topics.isEmpty ? 1 : 0)
+						if topicsHeaderHovered || model.topics.isEmpty {
+							Button {
+								beginCreatingTopic()
+							} label: {
+								Image(systemName: "plus")
+									.fixedSize()
+							}
+							.buttonStyle(.plain)
+							.accessibilityIdentifier("topic.create")
+							.accessibilityLabel("New Topic")
+							.help("New Topic")
 						}
-						.buttonStyle(.plain)
-						.allowsHitTesting(topicsHeaderHovered || model.topics.isEmpty)
-						.accessibilityIdentifier("topic.create")
-						.accessibilityLabel("New Topic")
-						.help("New Topic")
 
 						if !model.topics.isEmpty {
 							Button {
@@ -1588,7 +1587,7 @@ private struct EntriesView: View {
 							} label: {
 								Image(systemName: topicsExpanded ? "chevron.down" : "chevron.right")
 									.font(.caption.weight(.semibold))
-									.frame(width: 18, height: 20)
+									.fixedSize()
 							}
 							.buttonStyle(.plain)
 							.accessibilityIdentifier("topics.chevron")
@@ -1680,10 +1679,10 @@ private struct EntriesView: View {
 					.lineLimit(1)
 					.truncationMode(.tail)
 					.layoutPriority(1)
-				Spacer(minLength: 6)
+				Spacer(minLength: 0)
 				Image(systemName: "chevron.up.chevron.down")
 					.font(.caption2.weight(.semibold))
-					.frame(width: 18)
+					.fixedSize()
 					.foregroundStyle(.secondary)
 			}
 			.padding(.horizontal, 11)
@@ -1695,11 +1694,11 @@ private struct EntriesView: View {
 			)
 		}
 		.buttonStyle(.plain)
-		.accessibilityIdentifier("diary.switcher")
 		.accessibilityLabel("Current diary, \(diary.title)")
 		.help("Switch Diary")
 		.padding(.init(top: 6, leading: 6, bottom: 2, trailing: 6))
 		.anchorPreference(key: DiarySwitcherAnchorKey.self, value: .bounds) { $0 }
+		.accessibilityIdentifier("diary.switcher")
 	}
 
 	private var diaryMenu: some View {
@@ -2403,6 +2402,7 @@ private struct EntriesView: View {
 	) -> some View {
 		let isDropTargeted = dropDestination != nil && dropDestination == targetedDropDestination
 		let dropTint = dropDestination == .trash ? Color.red : color ?? Color.accentColor
+		let rowCount = count(for: destination)
 
 		return Button {
 			selection = destination
@@ -2421,20 +2421,18 @@ private struct EntriesView: View {
 				Text(title)
 					.lineLimit(1)
 					.truncationMode(.tail)
+					.frame(maxWidth: .infinity, alignment: .leading)
 					.layoutPriority(1)
-				Spacer(minLength: 6)
-				ZStack(alignment: .trailing) {
+				if isDropTargeted {
 					Image(systemName: dropDestination == .trash ? "trash.fill" : "arrow.down.circle.fill")
 						.foregroundStyle(dropTint)
-						.opacity(isDropTargeted ? 1 : 0)
-					if showsCount && count(for: destination) > 0 {
-						Text(count(for: destination), format: .number)
-							.font(.caption.monospacedDigit())
-							.foregroundStyle(.secondary)
-							.opacity(isDropTargeted ? 0 : 1)
-					}
+						.fixedSize()
+				} else if showsCount && rowCount > 0 {
+					Text(rowCount, format: .number)
+						.font(.caption.monospacedDigit())
+						.foregroundStyle(.secondary)
+						.fixedSize()
 				}
-				.frame(width: 18, height: 20)
 			}
 			.padding(.horizontal, 7)
 			.padding(.vertical, 5)
