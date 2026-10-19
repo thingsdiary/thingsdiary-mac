@@ -644,11 +644,17 @@ private struct EntriesView: View {
 					set: { if !$0 { topicPendingDeletion = nil } }
 				)
 			) {
-				Button("Delete Entries", role: .destructive) {
-					deletePendingTopic(deleteEntries: true)
-				}
-				Button("Keep Entries") {
-					deletePendingTopic(deleteEntries: false)
+				if topicPendingDeletionEntryCount == 0 {
+					Button("Delete Topic", role: .destructive) {
+						deletePendingTopic(deleteEntries: false)
+					}
+				} else {
+					Button("Delete Entries", role: .destructive) {
+						deletePendingTopic(deleteEntries: true)
+					}
+					Button("Keep Entries") {
+						deletePendingTopic(deleteEntries: false)
+					}
 				}
 				Button("Cancel", role: .cancel) { topicPendingDeletion = nil }
 			} message: {
@@ -2655,12 +2661,20 @@ private struct EntriesView: View {
 	}
 
 	private var topicDeletionMessage: String {
-		guard let topic = topicPendingDeletion else { return "" }
-		let entryCount = entries.count { $0.topicID == topic.id && $0.deletedAt == nil }
-		if entryCount == 0 {
-			return "This topic has no entries."
+		switch topicPendingDeletionEntryCount {
+		case 0:
+			return "This topic has no entries. Only the topic will be deleted."
+		case 1:
+			return "This topic contains 1 entry. Delete it too, or keep it without a topic."
+		default:
+			return
+				"This topic contains \(topicPendingDeletionEntryCount) entries. Delete them too, or keep them without a topic."
 		}
-		return "Choose whether to delete its \(entryCount) entries or keep them without a topic."
+	}
+
+	private var topicPendingDeletionEntryCount: Int {
+		guard let topic = topicPendingDeletion else { return 0 }
+		return entries.count { $0.topicID == topic.id && $0.deletedAt == nil }
 	}
 
 	private func deletePendingTopic(deleteEntries: Bool) {

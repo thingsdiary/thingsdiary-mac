@@ -1135,7 +1135,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(title.value as? String, "Work Topic")
 	}
 
-	func testDeletingTopicCanKeepItsEntriesWithoutTopic() {
+	func testDeletingTopicWithEntriesCanKeepOrDeleteThem() {
 		let app = launchWorkspace()
 		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
 		let linkedEntry = app.descendants(matching: .any)["entry.fixture-entry-19"]
@@ -1145,28 +1145,57 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		topic.rightClick()
 		app.menuItems["Delete"].firstMatch.click()
 		XCTAssertTrue(app.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
+		XCTAssertTrue(
+			app.staticTexts[
+				"This topic contains 1 entry. Delete it too, or keep it without a topic."
+			].exists
+		)
 		app.sheets.firstMatch.buttons["Keep Entries"].click()
 
 		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
 		app.buttons["sidebar.entries"].click()
 		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
+		app.terminate()
+
+		let deleteApp = launchWorkspace()
+		let deleteTopic = deleteApp.buttons["sidebar.topic.fixture-topic-2"]
+		let deletedEntry = deleteApp.descendants(matching: .any)["entry.fixture-entry-19"]
+
+		deleteTopic.click()
+		XCTAssertTrue(deletedEntry.waitForExistence(timeout: 2))
+		deleteTopic.rightClick()
+		deleteApp.menuItems["Delete"].firstMatch.click()
+		XCTAssertTrue(deleteApp.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
+		deleteApp.sheets.firstMatch.buttons["Delete Entries"].click()
+
+		XCTAssertTrue(deleteTopic.waitForNonExistence(timeout: 2))
+		deleteApp.buttons["sidebar.trash"].click()
+		XCTAssertTrue(deletedEntry.waitForExistence(timeout: 2))
 	}
 
-	func testDeletingTopicCanDeleteItsEntries() {
+	func testDeletingEmptyTopicRequiresConfirmation() {
 		let app = launchWorkspace()
-		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
-		let linkedEntry = app.descendants(matching: .any)["entry.fixture-entry-19"]
+		let topic = app.buttons["sidebar.topic.fixture-topic"]
 
-		topic.click()
-		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
 		topic.rightClick()
 		app.menuItems["Delete"].firstMatch.click()
-		XCTAssertTrue(app.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
-		app.sheets.firstMatch.buttons["Delete Entries"].click()
+		XCTAssertTrue(
+			app.staticTexts[
+				"This topic has no entries. Only the topic will be deleted."
+			].waitForExistence(timeout: 2)
+		)
+		XCTAssertFalse(app.sheets.firstMatch.buttons["Delete Entries"].exists)
+		XCTAssertFalse(app.sheets.firstMatch.buttons["Keep Entries"].exists)
+		XCTAssertTrue(app.sheets.firstMatch.buttons["Delete Topic"].isEnabled)
+		XCTAssertTrue(app.sheets.firstMatch.buttons["Cancel"].isEnabled)
 
+		app.sheets.firstMatch.buttons["Cancel"].click()
+		XCTAssertTrue(topic.waitForExistence(timeout: 2))
+
+		topic.rightClick()
+		app.menuItems["Delete"].firstMatch.click()
+		app.sheets.firstMatch.buttons["Delete Topic"].click()
 		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
-		app.buttons["sidebar.trash"].click()
-		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
 	}
 
 	func testCreatingEditingAndSavingTemplate() {
