@@ -583,7 +583,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.buttons["Draft from tab"].firstMatch.waitForExistence(timeout: 2))
 	}
 
-	func testTabBarPlusFollowsNewDraftWithoutScrollGap() {
+	func testTabBarPlusKeepsSpacingAfterNewDraft() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].click()
 		let newTabButton = app.buttons["browser-tab.create"]
@@ -594,15 +594,22 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let draftTab = app.buttons["Untitled"].firstMatch
 		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
 		let gap = newTabButton.frame.minX - draftTab.frame.maxX
-		XCTAssertGreaterThanOrEqual(gap, 0)
-		XCTAssertLessThanOrEqual(gap, 4)
+		XCTAssertGreaterThanOrEqual(gap, 7)
+		XCTAssertLessThanOrEqual(gap, 9)
 	}
 
-	func testPinnedTabBarPlusHasNoGapAfterLastTab() {
+	func testPinnedTabBarPlusKeepsSpacingAfterLastTab() {
 		let app = launchWorkspace()
 
 		for index in 1...8 {
-			app.buttons["entry.fixture-entry\(index == 1 ? "" : "-\(index)")"].doubleClick()
+			let entry = app.buttons["entry.fixture-entry\(index == 1 ? "" : "-\(index)")"]
+			if !entry.exists {
+				let showEntryList = app.buttons["workspace.show-entry-list"]
+				XCTAssertTrue(showEntryList.waitForExistence(timeout: 2))
+				showEntryList.click()
+			}
+			XCTAssertTrue(entry.waitForExistence(timeout: 2))
+			entry.doubleClick()
 		}
 
 		let newTabButton = app.buttons["browser-tab.create"]
@@ -612,8 +619,8 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(lastTab.isHittable)
 
 		let gap = newTabButton.frame.minX - lastTab.frame.maxX
-		XCTAssertGreaterThanOrEqual(gap, 0)
-		XCTAssertLessThanOrEqual(gap, 4)
+		XCTAssertGreaterThanOrEqual(gap, 7)
+		XCTAssertLessThanOrEqual(gap, 9)
 	}
 
 	func testPendingEntryKeepsSaveShortcutEnabledAfterFurtherEditing() {

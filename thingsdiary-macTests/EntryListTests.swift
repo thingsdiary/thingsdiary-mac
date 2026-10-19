@@ -506,8 +506,9 @@ func newTabButtonFollowsLastTab() {
 		browserTabCreateButtonOffset(
 			availableWidth: 500,
 			tabsContentWidth: tabsWidth
-		) == 352
+		) == 357
 	)
+	#expect(browserTabsViewportWidth(createButtonOffset: 357) == tabsWidth)
 	#expect(
 		!browserTabCreateButtonIsPinned(
 			availableWidth: 500,
@@ -527,6 +528,7 @@ func newTabButtonStaysPinned() {
 			tabsContentWidth: tabsWidth
 		) == 370
 	)
+	#expect(browserTabsViewportWidth(createButtonOffset: 370) == 362)
 	#expect(
 		browserTabCreateButtonIsPinned(
 			availableWidth: 400,

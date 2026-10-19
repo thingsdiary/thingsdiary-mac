@@ -34,7 +34,7 @@ nonisolated let maximumBrowserTabWidth: CGFloat = 170
 nonisolated let browserTabSpacing: CGFloat = 3
 nonisolated let browserTabLeadingPadding: CGFloat = 6
 nonisolated let browserTabCreateButtonWidth: CGFloat = 30
-nonisolated let browserTabCreateButtonSpacing = browserTabSpacing
+nonisolated let browserTabCreateButtonSpacing: CGFloat = 8
 nonisolated let workspaceTitlebarHeight: CGFloat = 46
 nonisolated let editorWorkspaceFocusHysteresis: CGFloat = 60
 nonisolated let minimumSplitWorkspaceWidth =
@@ -296,6 +296,10 @@ nonisolated func browserTabCreateButtonOffset(
 		browserTabLeadingPadding
 	)
 	return min(naturalOffset, pinnedOffset)
+}
+
+nonisolated func browserTabsViewportWidth(createButtonOffset: CGFloat) -> CGFloat {
+	max(createButtonOffset - browserTabCreateButtonSpacing, 0)
 }
 
 nonisolated func browserTabCreateButtonIsPinned(

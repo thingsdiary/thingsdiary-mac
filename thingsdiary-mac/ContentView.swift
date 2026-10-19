@@ -1073,6 +1073,9 @@ private struct EntriesView: View {
 				availableWidth: proxy.size.width,
 				tabsContentWidth: tabsContentWidth
 			)
+			let tabsViewportWidth = browserTabsViewportWidth(
+				createButtonOffset: createButtonOffset
+			)
 			let createButtonIsPinned = browserTabCreateButtonIsPinned(
 				availableWidth: proxy.size.width,
 				tabsContentWidth: tabsContentWidth
@@ -1110,7 +1113,7 @@ private struct EntriesView: View {
 						}
 						.padding(.leading, browserTabLeadingPadding)
 					}
-					.frame(width: max(createButtonOffset, 0), height: 30)
+					.frame(width: tabsViewportWidth, height: 30)
 					.clipped()
 					.onChange(of: tabs.activeTabID) {
 						guard
@@ -1122,7 +1125,7 @@ private struct EntriesView: View {
 						}
 					}
 				}
-				.frame(width: max(createButtonOffset, 0), height: 30, alignment: .leading)
+				.frame(width: tabsViewportWidth, height: 30, alignment: .leading)
 
 				IconButton(
 					icon: .plus,
