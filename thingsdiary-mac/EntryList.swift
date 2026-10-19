@@ -28,7 +28,8 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 
 nonisolated let minimumEntryListWidth: CGFloat = 260
 nonisolated let minimumEntryEditorWidth: CGFloat = 420
-nonisolated let entryListDividerWidth: CGFloat = 9
+nonisolated let entryListDividerWidth: CGFloat = 1
+nonisolated let entryListResizeHitWidth: CGFloat = 9
 nonisolated let minimumBrowserTabWidth: CGFloat = 92
 nonisolated let maximumBrowserTabWidth: CGFloat = 170
 nonisolated let browserTabSpacing: CGFloat = 3

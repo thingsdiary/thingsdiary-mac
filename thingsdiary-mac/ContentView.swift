@@ -83,127 +83,6 @@ private struct EntrySaveShortcutMonitor: NSViewRepresentable {
 	}
 }
 
-private final class EscapeHandlingSearchField: NSSearchField {
-	var escapeHandler: (() -> Void)?
-	var mouseValueChangeHandler: ((String) -> Void)?
-
-	override func mouseDown(with event: NSEvent) {
-		let location = convert(event.locationInWindow, from: nil)
-		let clickedCancelButton = (cell as? NSSearchFieldCell)?
-			.cancelButtonRect(forBounds: bounds)
-			.contains(location) == true
-		super.mouseDown(with: event)
-		guard clickedCancelButton else { return }
-		stringValue = ""
-		mouseValueChangeHandler?("")
-	}
-
-	override func cancelOperation(_ sender: Any?) {
-		escapeHandler?()
-	}
-}
-
-private struct InlineSearchField: NSViewRepresentable {
-	@Binding var text: String
-	@Binding var isFocused: Bool
-	let resetID: Int
-	let accessibilityLabel: String
-
-	func makeCoordinator() -> Coordinator {
-		Coordinator(self)
-	}
-
-	func makeNSView(context: Context) -> EscapeHandlingSearchField {
-		let field = EscapeHandlingSearchField()
-		field.delegate = context.coordinator
-		field.placeholderString = "Search"
-		field.sendsSearchStringImmediately = true
-		field.target = context.coordinator
-		field.action = #selector(Coordinator.searchFieldAction(_:))
-		field.setAccessibilityIdentifier("entry-list.search")
-		field.setAccessibilityLabel(accessibilityLabel)
-		field.escapeHandler = { [weak field, weak coordinator = context.coordinator] in
-			guard let field, let coordinator else { return }
-			coordinator.handleEscape(in: field)
-		}
-		field.mouseValueChangeHandler = { [weak coordinator = context.coordinator] value in
-			coordinator?.handleMouseValueChange(value)
-		}
-		return field
-	}
-
-	func updateNSView(_ field: EscapeHandlingSearchField, context: Context) {
-		context.coordinator.parent = self
-		field.setAccessibilityLabel(accessibilityLabel)
-		let didReset = context.coordinator.applyResetIfNeeded(to: field)
-		if !didReset, field.currentEditor() == nil, field.stringValue != text {
-			field.stringValue = text
-		}
-
-		if isFocused {
-			guard field.currentEditor() == nil else { return }
-			DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
-		} else if field.currentEditor() != nil {
-			DispatchQueue.main.async { field.window?.makeFirstResponder(nil) }
-		}
-	}
-
-	final class Coordinator: NSObject, NSSearchFieldDelegate {
-		var parent: InlineSearchField
-		private var appliedResetID: Int
-
-		init(_ parent: InlineSearchField) {
-			self.parent = parent
-			appliedResetID = parent.resetID
-		}
-
-		func controlTextDidBeginEditing(_ notification: Notification) {
-			parent.isFocused = true
-		}
-
-		func controlTextDidEndEditing(_ notification: Notification) {
-			if let field = notification.object as? NSSearchField {
-				parent.text = field.stringValue
-			}
-			parent.isFocused = false
-		}
-
-		func controlTextDidChange(_ notification: Notification) {
-			guard let field = notification.object as? NSSearchField else { return }
-			parent.isFocused = true
-			parent.text = field.stringValue
-		}
-
-		@objc func searchFieldAction(_ field: NSSearchField) {
-			parent.text = field.stringValue
-		}
-
-		func handleMouseValueChange(_ value: String) {
-			parent.text = value
-		}
-
-		func handleEscape(in field: NSSearchField) {
-			if field.stringValue.isEmpty {
-				parent.isFocused = false
-				field.window?.makeFirstResponder(nil)
-			} else {
-				field.stringValue = ""
-				parent.text = ""
-				parent.isFocused = true
-			}
-		}
-
-		func applyResetIfNeeded(to field: NSSearchField) -> Bool {
-			guard appliedResetID != parent.resetID else { return false }
-			appliedResetID = parent.resetID
-			if field.stringValue != parent.text {
-				field.stringValue = parent.text
-			}
-			return true
-		}
-	}
-}
-
 private struct EntryDropTargetFramesKey: PreferenceKey {
 	static var defaultValue: [EntryDropDestination: CGRect] = [:]
 
@@ -523,6 +402,8 @@ private enum EntryDraftSaveOutcome {
 }
 
 private struct EntriesView: View {
+	private let listPaneHorizontalInset: CGFloat = 12
+
 	@Bindable var model: ThingsDiaryAppModel
 	let diary: ThingsDiaryDiary
 	let entries: [ThingsDiaryEntry]
@@ -794,6 +675,7 @@ private struct EntriesView: View {
 	private var workspaceShell: some View {
 		NavigationSplitView(columnVisibility: $sidebarVisibility) {
 			sidebarWorkspace
+				.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
 				.toolbar(removing: .sidebarToggle)
 		} detail: {
 			entryWorkspace
@@ -969,8 +851,11 @@ private struct EntriesView: View {
 			minHeight: workspaceTitlebarHeight,
 			maxHeight: workspaceTitlebarHeight
 		)
-		.padding(.leading, sidebarToggleInSidebar ? 10 : trafficLightsTrailingInset + 58)
-		.padding(.trailing, 10)
+		.padding(
+			.leading,
+			sidebarToggleInSidebar ? listPaneHorizontalInset : trafficLightsTrailingInset + 58
+		)
+		.padding(.trailing, listPaneHorizontalInset)
 		.background(WorkspaceWindowDragArea())
 		.overlay(alignment: .leading) {
 			if !sidebarToggleInSidebar {
@@ -1329,16 +1214,15 @@ private struct EntriesView: View {
 
 	private var templateList: some View {
 		VStack(spacing: 0) {
-			InlineSearchField(
+			SearchBox(
 				text: $query,
 				isFocused: $searchIsFocused,
 				resetID: searchResetID,
+				prompt: "Search templates",
 				accessibilityLabel: "Search Templates"
 			)
-			.frame(height: 24)
-			.padding(.horizontal)
-			.padding(.vertical, 8)
-			Divider()
+			.padding(.horizontal, listPaneHorizontalInset)
+			.padding(.vertical, 10)
 
 			if filteredTemplates.isEmpty {
 				ContentUnavailableView {
@@ -1352,7 +1236,7 @@ private struct EntriesView: View {
 					LazyVStack(spacing: 0) {
 						ForEach(filteredTemplates) { template in
 							templateRow(template)
-							Divider().padding(.leading)
+							Divider().padding(.horizontal, listPaneHorizontalInset)
 						}
 					}
 				}
@@ -1383,7 +1267,7 @@ private struct EntriesView: View {
 						.lineLimit(2)
 				}
 			}
-			.padding(.horizontal)
+			.padding(.horizontal, listPaneHorizontalInset)
 			.padding(.vertical, 10)
 			.frame(maxWidth: .infinity, alignment: .leading)
 			.contentShape(.rect)
@@ -1452,10 +1336,9 @@ private struct EntriesView: View {
 				},
 				onEnded: { dragStartEntryListWidth = nil }
 			)
-			.frame(width: entryListDividerWidth, height: height)
-			.overlay {
-				separator
-			}
+			.frame(width: entryListResizeHitWidth, height: height)
+			.overlay { separator }
+			.padding(.horizontal, -(entryListResizeHitWidth - entryListDividerWidth) / 2)
 		} else {
 			ZStack {
 				Color.clear
@@ -1485,7 +1368,6 @@ private struct EntriesView: View {
 			} else {
 				VStack(spacing: 0) {
 					entryListHeader
-					Divider()
 
 					if displayedEntries.isEmpty {
 						emptyStateView
@@ -1673,7 +1555,6 @@ private struct EntriesView: View {
 			}
 			.frame(maxWidth: .infinity)
 		}
-		.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
 	}
 
 	private var diarySwitcher: some View {
@@ -2212,15 +2093,15 @@ private struct EntriesView: View {
 	}
 
 	private var entryListHeader: some View {
-		InlineSearchField(
+		SearchBox(
 			text: $query,
 			isFocused: $searchIsFocused,
 			resetID: searchResetID,
+			prompt: "Search \(selectionTitle.lowercased())",
 			accessibilityLabel: "Search \(selectionTitle)"
 		)
-		.frame(height: 24)
-		.padding(.horizontal)
-		.padding(.vertical, 8)
+		.padding(.horizontal, listPaneHorizontalInset)
+		.padding(.vertical, 10)
 		.background(.background)
 		.zIndex(1)
 		.accessibilityIdentifier("entry-list.header")
@@ -2255,7 +2136,7 @@ private struct EntriesView: View {
 			LazyVStack(spacing: 0) {
 				ForEach(displayedEntries) { entry in
 					entryListRow(entry)
-						.padding(.horizontal)
+						.padding(.horizontal, listPaneHorizontalInset)
 						.frame(maxWidth: .infinity, alignment: .leading)
 						.background(.background)
 						.opacity(draggedEntryID == entry.id ? 0.45 : 1)
@@ -2272,7 +2153,7 @@ private struct EntriesView: View {
 						}
 
 					Divider()
-						.padding(.leading)
+						.padding(.horizontal, listPaneHorizontalInset)
 				}
 			}
 		}
@@ -2961,10 +2842,12 @@ private struct TopicAssignmentPicker: View {
 		Binding(
 			get: { entry.topicID },
 			set: { selectedTopicID in
-				guard shouldChangeTopicAssignment(
-					currentTopicID: entry.topicID,
-					selectedTopicID: selectedTopicID
-				) else { return }
+				guard
+					shouldChangeTopicAssignment(
+						currentTopicID: entry.topicID,
+						selectedTopicID: selectedTopicID
+					)
+				else { return }
 				move(selectedTopicID)
 			}
 		)

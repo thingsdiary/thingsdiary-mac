@@ -357,10 +357,9 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let app = launchWorkspace()
 		let (search, hiddenEntry) = filterEntries(in: app)
 
-		search.click()
-		let clearButton = search.buttons["cancel"]
+		let clearButton = app.buttons["Clear Search Entries"]
 		XCTAssertTrue(clearButton.waitForExistence(timeout: 2))
-		search.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).click()
+		clearButton.click()
 
 		assertSearchIsCleared(search, restoredEntry: hiddenEntry)
 	}
