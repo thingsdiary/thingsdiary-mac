@@ -78,6 +78,7 @@ func entryActionsMatchLifecycleState() {
 			.toggleBookmark,
 			.toggleArchive,
 			.duplicate,
+			.saveAsTemplate,
 			.moveToTopic,
 			.moveToTrash,
 		])
@@ -132,6 +133,14 @@ func entryListPresentationSeparatesTitleAndPreview() {
 				title: "Untitled",
 				preview: nil
 			))
+}
+
+@Test("Template list presentation names an empty template")
+func templateListPresentationNamesEmptyTemplate() {
+	#expect(
+		templateListPresentation(content: "")
+			== EntryListPresentation(title: "Untitled Template", preview: nil)
+	)
 }
 
 @Test("Topic titles are trimmed and limited to the web client contract")
@@ -228,6 +237,15 @@ func choosesEntryWorkspaceLayout() {
 		) == .listOnly)
 	#expect(
 		entryWorkspaceLayout(
+			selectionIsEmpty: true,
+			hasSelectedEntry: true,
+			availableWidth: 1_200,
+			isEditorFocusMode: false,
+			isCompact: false,
+			compactPane: .editor
+		) == .split)
+	#expect(
+		entryWorkspaceLayout(
 			selectionIsEmpty: false,
 			hasSelectedEntry: false,
 			availableWidth: minimumDiaryOverviewWidth,
@@ -247,95 +265,109 @@ func choosesEntryWorkspaceLayout() {
 	)
 }
 
+@Test("Browser tabs keep entries and templates in one ordered collection")
+func opensMixedDocumentTabs() {
+	var tabs = BrowserTabsState<WorkspaceTabID>()
+	tabs.open(.entry("entry-1"))
+	tabs.open(.template("template-1"))
+
+	#expect(tabs.openTabIDs == [.entry("entry-1"), .template("template-1")])
+	#expect(tabs.activeTabID == .template("template-1"))
+
+	tabs.preview(.entry("entry-2"))
+	#expect(tabs.previewTabID == .entry("entry-2"))
+	#expect(tabs.openTabIDs.last == .entry("entry-2"))
+}
+
 @Test("Entry tabs activate existing notes without duplicating them")
 func opensEntryTabsOnce() {
-	var tabs = EntryTabsState()
+	var tabs = BrowserTabsState<String>()
 	tabs.open("first")
 	tabs.open("second")
 	tabs.open("first")
 
-	#expect(tabs.openEntryIDs == ["first", "second"])
-	#expect(tabs.activeEntryID == "first")
+	#expect(tabs.openTabIDs == ["first", "second"])
+	#expect(tabs.activeTabID == "first")
 }
 
 @Test("Entry previews reuse one tab until the note is opened again")
 func reusesEntryPreviewTab() {
-	var tabs = EntryTabsState()
+	var tabs = BrowserTabsState<String>()
 
 	tabs.preview("first")
-	#expect(tabs.openEntryIDs == ["first"])
-	#expect(tabs.activeEntryID == "first")
-	#expect(tabs.previewEntryID == "first")
+	#expect(tabs.openTabIDs == ["first"])
+	#expect(tabs.activeTabID == "first")
+	#expect(tabs.previewTabID == "first")
 
 	tabs.preview("second")
-	#expect(tabs.openEntryIDs == ["second"])
-	#expect(tabs.activeEntryID == "second")
-	#expect(tabs.previewEntryID == "second")
+	#expect(tabs.openTabIDs == ["second"])
+	#expect(tabs.activeTabID == "second")
+	#expect(tabs.previewTabID == "second")
 
 	tabs.preview("second")
-	#expect(tabs.openEntryIDs == ["second"])
-	#expect(tabs.previewEntryID == nil)
+	#expect(tabs.openTabIDs == ["second"])
+	#expect(tabs.previewTabID == nil)
 }
 
 @Test("Entry previews do not replace permanent tabs")
 func preservesPermanentTabsWhenPreviewing() {
-	var tabs = EntryTabsState()
+	var tabs = BrowserTabsState<String>()
 	tabs.open("permanent")
 
 	tabs.preview("preview-first")
 	tabs.preview("preview-second")
 	tabs.preview("permanent")
 
-	#expect(tabs.openEntryIDs == ["permanent", "preview-second"])
-	#expect(tabs.activeEntryID == "permanent")
-	#expect(tabs.previewEntryID == "preview-second")
+	#expect(tabs.openTabIDs == ["permanent", "preview-second"])
+	#expect(tabs.activeTabID == "permanent")
+	#expect(tabs.previewTabID == "preview-second")
 }
 
 @Test("Editing and pinning promote an entry preview")
 func promotesEntryPreview() {
-	var tabs = EntryTabsState()
+	var tabs = BrowserTabsState<String>()
 	tabs.preview("edited")
 	tabs.promote("edited")
-	#expect(tabs.previewEntryID == nil)
+	#expect(tabs.previewTabID == nil)
 
 	tabs.preview("pinned")
 	tabs.togglePin("pinned")
-	#expect(tabs.previewEntryID == nil)
+	#expect(tabs.previewTabID == nil)
 	#expect(tabs.isPinned("pinned"))
 }
 
 @Test("Closing the active entry tab selects its nearest neighbor")
 func closesEntryTabsPredictably() {
-	var tabs = EntryTabsState(
-		openEntryIDs: ["first", "second", "third"],
-		activeEntryID: "second"
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third"],
+		activeTabID: "second"
 	)
 
 	tabs.close("second")
-	#expect(tabs.openEntryIDs == ["first", "third"])
-	#expect(tabs.activeEntryID == "third")
+	#expect(tabs.openTabIDs == ["first", "third"])
+	#expect(tabs.activeTabID == "third")
 
 	tabs.close("third")
-	#expect(tabs.openEntryIDs == ["first"])
-	#expect(tabs.activeEntryID == "first")
+	#expect(tabs.openTabIDs == ["first"])
+	#expect(tabs.activeTabID == "first")
 }
 
 @Test("Closing a tab asks only when its draft differs from persisted content")
 func resolvesEntryTabCloseDisposition() {
 	#expect(
-		entryTabCloseDisposition(
+		browserTabCloseDisposition(
 			persistedContent: "Saved",
 			draftContent: "Saved"
 		) == .close
 	)
 	#expect(
-		entryTabCloseDisposition(
+		browserTabCloseDisposition(
 			persistedContent: "Saved",
 			draftContent: "Changed"
 		) == .confirmDiscard
 	)
 	#expect(
-		entryTabCloseDisposition(
+		browserTabCloseDisposition(
 			persistedContent: "",
 			draftContent: ""
 		) == .close
@@ -344,69 +376,69 @@ func resolvesEntryTabCloseDisposition() {
 
 @Test("Entry tabs discard notes that no longer exist")
 func reconcilesEntryTabs() {
-	var tabs = EntryTabsState(
-		openEntryIDs: ["first", "second", "third"],
-		activeEntryID: "second"
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third"],
+		activeTabID: "second"
 	)
 
-	tabs.reconcile(validEntryIDs: ["first", "third"])
-	#expect(tabs.openEntryIDs == ["first", "third"])
-	#expect(tabs.activeEntryID == "third")
+	tabs.reconcile(validTabIDs: ["first", "third"])
+	#expect(tabs.openTabIDs == ["first", "third"])
+	#expect(tabs.activeTabID == "third")
 }
 
 @Test("Entry tabs can move to either side")
 func movesEntryTabs() {
-	var tabs = EntryTabsState(
-		openEntryIDs: ["first", "second", "third"],
-		activeEntryID: "second"
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third"],
+		activeTabID: "second"
 	)
 
 	tabs.move("third", to: 0)
-	#expect(tabs.openEntryIDs == ["third", "first", "second"])
-	#expect(tabs.activeEntryID == "second")
+	#expect(tabs.openTabIDs == ["third", "first", "second"])
+	#expect(tabs.activeTabID == "second")
 
 	tabs.move("third", to: 2)
-	#expect(tabs.openEntryIDs == ["first", "second", "third"])
+	#expect(tabs.openTabIDs == ["first", "second", "third"])
 }
 
 @Test("Pinned entry tabs stay before regular tabs")
 func pinsEntryTabsAtTheLeadingEdge() {
-	var tabs = EntryTabsState(
-		openEntryIDs: ["first", "second", "third"],
-		activeEntryID: "second"
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third"],
+		activeTabID: "second"
 	)
 
 	tabs.togglePin("third")
-	#expect(tabs.openEntryIDs == ["third", "first", "second"])
+	#expect(tabs.openTabIDs == ["third", "first", "second"])
 	#expect(tabs.isPinned("third"))
 
 	tabs.move("second", to: 0)
-	#expect(tabs.openEntryIDs == ["third", "second", "first"])
+	#expect(tabs.openTabIDs == ["third", "second", "first"])
 
 	tabs.move("third", to: 2)
-	#expect(tabs.openEntryIDs == ["third", "second", "first"])
+	#expect(tabs.openTabIDs == ["third", "second", "first"])
 
 	tabs.togglePin("third")
-	#expect(tabs.openEntryIDs == ["third", "second", "first"])
+	#expect(tabs.openTabIDs == ["third", "second", "first"])
 	#expect(!tabs.isPinned("third"))
 }
 
 @Test("Regular entry tabs cannot cross the pinned boundary")
 func keepsRegularEntryTabsAfterPinnedTabs() {
-	var tabs = EntryTabsState(
-		openEntryIDs: ["first", "second", "third", "fourth"],
-		activeEntryID: "third",
-		pinnedEntryIDs: ["first", "second"]
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third", "fourth"],
+		activeTabID: "third",
+		pinnedTabIDs: ["first", "second"]
 	)
 
 	tabs.move("fourth", to: 0)
-	#expect(tabs.openEntryIDs == ["first", "second", "fourth", "third"])
+	#expect(tabs.openTabIDs == ["first", "second", "fourth", "third"])
 
-	var drag = EntryTabReorderSession(entryID: "third", startIndex: 3)
+	var drag = TabReorderSession<String>(tabID: "third", startIndex: 3)
 	drag.update(
 		translation: -1_000,
 		tabWidth: 170,
-		tabCount: tabs.openEntryIDs.count,
+		tabCount: tabs.openTabIDs.count,
 		allowedRange: tabs.reorderRange(for: "third")
 	)
 	#expect(drag.placeholderIndex == 2)
@@ -414,32 +446,32 @@ func keepsRegularEntryTabsAfterPinnedTabs() {
 
 @Test("Closing and reconciling tabs removes stale pins")
 func removesStalePinnedEntryTabs() {
-	var tabs = EntryTabsState(
-		openEntryIDs: ["first", "second", "third"],
-		activeEntryID: "second",
-		pinnedEntryIDs: ["first", "second"]
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third"],
+		activeTabID: "second",
+		pinnedTabIDs: ["first", "second"]
 	)
 
 	tabs.close("first")
 	#expect(!tabs.isPinned("first"))
 
-	tabs.reconcile(validEntryIDs: ["third"])
-	#expect(tabs.pinnedEntryIDs.isEmpty)
+	tabs.reconcile(validTabIDs: ["third"])
+	#expect(tabs.pinnedTabIDs.isEmpty)
 }
 
 @Test("Close other tabs keeps pinned tabs")
 func keepsPinnedTabsWhenClosingOtherTabs() {
-	let tabs = EntryTabsState(
-		openEntryIDs: ["pinned-first", "pinned-second", "regular-first", "regular-second"],
-		activeEntryID: "regular-first",
-		pinnedEntryIDs: ["pinned-first", "pinned-second"]
+	let tabs = BrowserTabsState<String>(
+		openTabIDs: ["pinned-first", "pinned-second", "regular-first", "regular-second"],
+		activeTabID: "regular-first",
+		pinnedTabIDs: ["pinned-first", "pinned-second"]
 	)
 
 	#expect(
-		tabs.closeableOtherEntryIDs(keeping: "regular-first") == ["regular-second"]
+		tabs.closeableOtherTabIDs(keeping: "regular-first") == ["regular-second"]
 	)
 	#expect(
-		tabs.closeableOtherEntryIDs(keeping: "pinned-first")
+		tabs.closeableOtherTabIDs(keeping: "pinned-first")
 			== ["regular-first", "regular-second"]
 	)
 }
@@ -459,25 +491,25 @@ func clampsEntryListWidth() {
 
 @Test("Entry tabs shrink evenly before overflowing")
 func adaptsEntryTabWidth() {
-	#expect(adaptiveEntryTabWidth(availableWidth: 600, tabCount: 0) == maximumEntryTabWidth)
-	#expect(adaptiveEntryTabWidth(availableWidth: 600, tabCount: 2) == maximumEntryTabWidth)
-	#expect(adaptiveEntryTabWidth(availableWidth: 420, tabCount: 3) == 138)
-	#expect(adaptiveEntryTabWidth(availableWidth: 300, tabCount: 8) == minimumEntryTabWidth)
+	#expect(adaptiveBrowserTabWidth(availableWidth: 600, tabCount: 0) == maximumBrowserTabWidth)
+	#expect(adaptiveBrowserTabWidth(availableWidth: 600, tabCount: 2) == maximumBrowserTabWidth)
+	#expect(adaptiveBrowserTabWidth(availableWidth: 420, tabCount: 3) == 138)
+	#expect(adaptiveBrowserTabWidth(availableWidth: 300, tabCount: 8) == minimumBrowserTabWidth)
 }
 
 @Test("New tab button follows the last tab while the row fits")
 func newTabButtonFollowsLastTab() {
-	let tabsWidth = entryTabsContentWidth(tabWidth: 170, tabCount: 2)
+	let tabsWidth = browserTabsContentWidth(tabWidth: 170, tabCount: 2)
 
 	#expect(tabsWidth == 349)
 	#expect(
-		entryTabCreateButtonOffset(
+		browserTabCreateButtonOffset(
 			availableWidth: 500,
 			tabsContentWidth: tabsWidth
 		) == 352
 	)
 	#expect(
-		!entryTabCreateButtonIsPinned(
+		!browserTabCreateButtonIsPinned(
 			availableWidth: 500,
 			tabsContentWidth: tabsWidth
 		)
@@ -486,17 +518,17 @@ func newTabButtonFollowsLastTab() {
 
 @Test("New tab button stays pinned when tabs overflow")
 func newTabButtonStaysPinned() {
-	let tabsWidth = entryTabsContentWidth(tabWidth: 92, tabCount: 6)
+	let tabsWidth = browserTabsContentWidth(tabWidth: 92, tabCount: 6)
 
 	#expect(tabsWidth > 400)
 	#expect(
-		entryTabCreateButtonOffset(
+		browserTabCreateButtonOffset(
 			availableWidth: 400,
 			tabsContentWidth: tabsWidth
 		) == 370
 	)
 	#expect(
-		entryTabCreateButtonIsPinned(
+		browserTabCreateButtonIsPinned(
 			availableWidth: 400,
 			tabsContentWidth: tabsWidth
 		)
@@ -505,9 +537,9 @@ func newTabButtonStaysPinned() {
 
 @Test("New tab button hides only while an inline tab is being reordered")
 func newTabButtonHidesOnlyDuringInlineReorder() {
-	#expect(shouldHideEntryTabCreateButton(isReordering: true, isPinned: false))
-	#expect(!shouldHideEntryTabCreateButton(isReordering: false, isPinned: false))
-	#expect(!shouldHideEntryTabCreateButton(isReordering: true, isPinned: true))
+	#expect(shouldHideBrowserTabCreateButton(isReordering: true, isPinned: false))
+	#expect(!shouldHideBrowserTabCreateButton(isReordering: false, isPinned: false))
+	#expect(!shouldHideBrowserTabCreateButton(isReordering: true, isPinned: true))
 }
 
 @Test("A completed save clears only the submitted draft")
@@ -530,31 +562,31 @@ func reconcilesSavedEntryDraft() {
 
 @Test("Entry tab drag crosses neighboring tab centers")
 func resolvesEntryTabDragDestination() {
-	#expect(entryTabReorderDestination(startIndex: 1, translation: -100, tabWidth: 170, tabCount: 4) == 0)
-	#expect(entryTabReorderDestination(startIndex: 1, translation: 80, tabWidth: 170, tabCount: 4) == 1)
-	#expect(entryTabReorderDestination(startIndex: 1, translation: 100, tabWidth: 170, tabCount: 4) == 2)
-	#expect(entryTabReorderDestination(startIndex: 1, translation: 800, tabWidth: 170, tabCount: 4) == 3)
+	#expect(browserTabReorderDestination(startIndex: 1, translation: -100, tabWidth: 170, tabCount: 4) == 0)
+	#expect(browserTabReorderDestination(startIndex: 1, translation: 80, tabWidth: 170, tabCount: 4) == 1)
+	#expect(browserTabReorderDestination(startIndex: 1, translation: 100, tabWidth: 170, tabCount: 4) == 2)
+	#expect(browserTabReorderDestination(startIndex: 1, translation: 800, tabWidth: 170, tabCount: 4) == 3)
 }
 
 @Test("Entry tab drag keeps source order until drop")
 func previewsEntryTabMoveBeforeCommit() {
-	var tabs = EntryTabsState(
-		openEntryIDs: ["first", "second", "third"],
-		activeEntryID: "second"
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third"],
+		activeTabID: "second"
 	)
-	var drag = EntryTabReorderSession(entryID: "second", startIndex: 1)
+	var drag = TabReorderSession<String>(tabID: "second", startIndex: 1)
 
-	drag.update(translation: -100, tabWidth: 170, tabCount: tabs.openEntryIDs.count)
+	drag.update(translation: -100, tabWidth: 170, tabCount: tabs.openTabIDs.count)
 
-	#expect(tabs.openEntryIDs == ["first", "second", "third"])
+	#expect(tabs.openTabIDs == ["first", "second", "third"])
 	#expect(drag.placeholderIndex == 0)
-	#expect(drag.previewOrder(in: tabs.openEntryIDs) == ["second", "first", "third"])
+	#expect(drag.previewOrder(in: tabs.openTabIDs) == ["second", "first", "third"])
 	#expect(drag.offset(forTabAt: 0, tabWidth: 170) == 173)
 	#expect(drag.offset(forTabAt: 1, tabWidth: 170) == -100)
 	#expect(drag.offset(forTabAt: 2, tabWidth: 170) == 0)
 
 	drag.commit(to: &tabs)
-	#expect(tabs.openEntryIDs == ["second", "first", "third"])
+	#expect(tabs.openTabIDs == ["second", "first", "third"])
 }
 
 private func listEntry(

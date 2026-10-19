@@ -390,6 +390,53 @@ func createsAndUpdatesTopic() async {
 }
 
 @MainActor
+@Test("Updating a topic can remove its default template")
+func removesTopicDefaultTemplate() async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let now = Date(timeIntervalSince1970: 1_700_000_000)
+	let original = ThingsDiaryTopic(
+		id: "topic-1",
+		diaryID: selectedDiary.id,
+		title: "Work",
+		description: "",
+		color: "blue",
+		defaultTemplateID: "template-1",
+		createdAt: now,
+		updatedAt: now,
+		version: 1
+	)
+	let updated = ThingsDiaryTopic(
+		id: original.id,
+		diaryID: original.diaryID,
+		title: original.title,
+		description: original.description,
+		color: original.color,
+		defaultTemplateID: nil,
+		createdAt: original.createdAt,
+		updatedAt: original.updatedAt,
+		version: 2
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		topicsResult: .success([original]),
+		updateTopicResult: .success(updated)
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	await model.selectDiary(selectedDiary)
+
+	await model.updateTopic(
+		original,
+		title: original.title,
+		description: original.description,
+		color: original.color,
+		defaultTemplateID: .some(nil)
+	)
+
+	#expect(model.topics == [updated])
+	#expect(await client.receivedUpdateTopicParams?.defaultTemplateID == nil)
+}
+
+@MainActor
 @Test("Creating and updating a template sends its content to the client")
 func createsAndUpdatesTemplate() async {
 	let selectedDiary = diary(id: "diary-1", title: "Personal")
@@ -516,6 +563,42 @@ func createsEntryDraftInTopic() async {
 
 	#expect(draft?.topicID == "topic-1")
 	#expect(model.screen == .entries(diary: diary, entries: [draft].compactMap { $0 }))
+}
+
+@MainActor
+@Test("A topic draft starts with its default template")
+func createsEntryDraftFromTopicDefaultTemplate() async {
+	let diary = diary(id: "diary-1", title: "Personal")
+	let now = Date(timeIntervalSince1970: 1_700_000_000)
+	let topic = ThingsDiaryTopic(
+		id: "topic-1",
+		diaryID: diary.id,
+		title: "Work",
+		description: "",
+		color: "#93C5FD",
+		defaultTemplateID: "template-1",
+		createdAt: now,
+		updatedAt: now,
+		version: 1
+	)
+	let defaultTemplate = template(
+		id: "template-1",
+		diaryID: diary.id,
+		content: "Weekly review\nWins:\nNext:"
+	)
+	let model = ThingsDiaryAppModel(
+		client: StubAppClient(
+			result: .success([diary]),
+			topicsResult: .success([topic]),
+			templatesResult: .success([defaultTemplate])
+		)
+	)
+	await model.selectDiary(diary)
+
+	let draft = model.beginEntryDraft(appearsInList: true, topicID: topic.id)
+
+	#expect(draft?.content == defaultTemplate.content)
+	#expect(draft?.topicID == topic.id)
 }
 
 @MainActor

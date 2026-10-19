@@ -120,7 +120,7 @@
 
 		@State private var tabIDs: [String]
 		@State private var activeTabID: String
-		@State private var reorderSession: EntryTabReorderSession?
+		@State private var reorderSession: TabReorderSession<String>?
 		@State private var nextTabNumber = 6
 
 		init(strategy: TabOverlapStrategy, scenario: TabOverlapScenario) {
@@ -131,21 +131,21 @@
 		}
 
 		private var buttonLaneWidth: CGFloat {
-			entryTabCreateButtonWidth + entryTabCreateButtonSpacing
+			browserTabCreateButtonWidth + browserTabCreateButtonSpacing
 		}
 
 		var body: some View {
 			GeometryReader { proxy in
 				let availableWidth = max(proxy.size.width, 0)
-				let tabWidth = adaptiveEntryTabWidth(
+				let tabWidth = adaptiveBrowserTabWidth(
 					availableWidth: availableWidth,
 					tabCount: tabIDs.count
 				)
-				let tabsContentWidth = entryTabsContentWidth(
+				let tabsContentWidth = browserTabsContentWidth(
 					tabWidth: tabWidth,
 					tabCount: tabIDs.count
 				)
-				let buttonOffset = entryTabCreateButtonOffset(
+				let buttonOffset = browserTabCreateButtonOffset(
 					availableWidth: availableWidth,
 					tabsContentWidth: tabsContentWidth
 				)
@@ -210,7 +210,7 @@
 				max(availableWidth - buttonLaneWidth, 0)
 			)
 
-			return HStack(spacing: entryTabCreateButtonSpacing) {
+			return HStack(spacing: browserTabCreateButtonSpacing) {
 				tabsScrollView(
 					tabWidth: tabWidth,
 					availableWidth: viewportWidth,
@@ -259,21 +259,22 @@
 						tabPlaceholder(width: tabWidth)
 							.offset(
 								x: CGFloat(reorderSession.placeholderIndex)
-									* (tabWidth + entryTabSpacing)
+									* (tabWidth + browserTabSpacing)
 							)
 					}
 
-					HStack(spacing: entryTabSpacing) {
+					HStack(spacing: browserTabSpacing) {
 						ForEach(Array(tabIDs.enumerated()), id: \.element) { index, tabID in
-							EntryTab(
-								entryID: "lab-\(strategy.id)-\(scenario.id)-\(tabID)",
+							BrowserTab(
+								accessibilityIdentifier: "lab-tab-\(strategy.id)-\(scenario.id)-\(tabID)",
+								closeAccessibilityIdentifier: "lab-tab.close-\(strategy.id)-\(scenario.id)-\(tabID)",
 								title: title(for: tabID),
 								width: tabWidth,
 								isActive: activeTabID == tabID,
 								isDirty: tabID == "two",
 								isPinned: false,
 								isPreview: false,
-								isDragged: reorderSession?.entryID == tabID,
+								isDragged: reorderSession?.tabID == tabID,
 								horizontalOffset: reorderSession?.offset(
 									forTabAt: index,
 									tabWidth: tabWidth
@@ -293,7 +294,7 @@
 						}
 					}
 				}
-				.padding(.leading, entryTabLeadingPadding)
+				.padding(.leading, browserTabLeadingPadding)
 				.padding(.trailing, addsTrailingButtonPadding ? buttonLaneWidth : 0)
 			}
 		}
@@ -318,7 +319,7 @@
 				usesTitlebarBackground: true,
 				action: addTab
 			)
-			.frame(width: entryTabCreateButtonWidth)
+			.frame(width: browserTabCreateButtonWidth)
 			.accessibilityLabel("New Entry Tab")
 			.help("New Entry Tab")
 		}
@@ -343,10 +344,10 @@
 			if reorderSession == nil,
 				let startIndex = tabIDs.firstIndex(of: tabID)
 			{
-				reorderSession = EntryTabReorderSession(entryID: tabID, startIndex: startIndex)
+				reorderSession = TabReorderSession<String>(tabID: tabID, startIndex: startIndex)
 				activeTabID = tabID
 			}
-			guard var session = reorderSession, session.entryID == tabID else { return }
+			guard var session = reorderSession, session.tabID == tabID else { return }
 
 			let translation =
 				strategy == .clampedDrag
@@ -367,29 +368,29 @@
 
 		private func clampedTranslation(
 			_ translation: CGFloat,
-			session: EntryTabReorderSession,
+			session: TabReorderSession<String>,
 			tabWidth: CGFloat,
 			availableWidth: CGFloat
 		) -> CGFloat {
 			guard translation > 0 else { return translation }
-			let step = tabWidth + entryTabSpacing
+			let step = tabWidth + browserTabSpacing
 			let tabTrailingEdge =
-				entryTabLeadingPadding
+				browserTabLeadingPadding
 				+ CGFloat(session.startIndex) * step
 				+ tabWidth
-			let tabsContentWidth = entryTabsContentWidth(
+			let tabsContentWidth = browserTabsContentWidth(
 				tabWidth: tabWidth,
 				tabCount: tabIDs.count
 			)
-			let buttonOffset = entryTabCreateButtonOffset(
+			let buttonOffset = browserTabCreateButtonOffset(
 				availableWidth: availableWidth,
 				tabsContentWidth: tabsContentWidth
 			)
-			return min(translation, max(buttonOffset - entryTabSpacing - tabTrailingEdge, 0))
+			return min(translation, max(buttonOffset - browserTabSpacing - tabTrailingEdge, 0))
 		}
 
 		private func finishReorder(_ tabID: String) {
-			guard let session = reorderSession, session.entryID == tabID else { return }
+			guard let session = reorderSession, session.tabID == tabID else { return }
 			withAnimation(.smooth(duration: 0.16)) {
 				let movedID = tabIDs.remove(at: session.startIndex)
 				let destination = min(max(session.placeholderIndex, 0), tabIDs.count)

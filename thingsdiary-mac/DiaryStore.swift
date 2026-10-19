@@ -196,6 +196,13 @@ actor DiaryStore {
 		state = nextState
 	}
 
+	func removeTemplate(diaryID: String, templateID: String) throws {
+		var nextState = state
+		nextState.templates.removeAll { $0.diaryID == diaryID && $0.id == templateID }
+		try persist(nextState)
+		state = nextState
+	}
+
 	func savePendingEntry(_ write: PendingEntryWrite) throws {
 		var nextState = state
 		nextState.entries.removeAll { $0.id == write.entry.id }

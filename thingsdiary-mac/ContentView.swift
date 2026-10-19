@@ -486,8 +486,8 @@ private struct PendingEntryAction {
 	let topicID: String?
 }
 
-private struct PendingEntryTabClose {
-	let entryID: String
+private struct PendingBrowserTabClose {
+	let tabID: WorkspaceTabID
 	let title: String
 }
 
@@ -505,7 +505,7 @@ private struct EntriesView: View {
 	@State private var searchIsFocused = false
 	@State private var searchResetID = 0
 	@State private var selection: DiaryNavigationSelection? = .entries
-	@State private var tabs = EntryTabsState()
+	@State private var tabs = BrowserTabsState<WorkspaceTabID>()
 	@State private var draftsByEntryID: [String: String] = [:]
 	@FocusState private var editorIsFocused: Bool
 	@State private var showingTopicsAndTemplates = false
@@ -521,17 +521,17 @@ private struct EntriesView: View {
 	@State private var topicsExpanded = true
 	@State private var topicsHeaderHovered = false
 	@State private var pendingEntryAction: PendingEntryAction?
-	@State private var pendingEntryTabClose: PendingEntryTabClose?
-	@State private var pendingEntryTabCloseQueue: [String] = []
-	@State private var entryTabCloseSaveError: String?
-	@State private var entryIDSavingBeforeClose: String?
+	@State private var pendingBrowserTabClose: PendingBrowserTabClose?
+	@State private var pendingBrowserTabCloseQueue: [WorkspaceTabID] = []
+	@State private var browserTabCloseSaveError: String?
+	@State private var tabSavingBeforeClose: WorkspaceTabID?
 	@State private var targetedDropDestination: EntryDropDestination?
 	@State private var dropTargetFrames: [EntryDropDestination: CGRect] = [:]
 	@State private var draggedEntryID: String?
 	@State private var dragLocation = CGPoint.zero
 	@State private var confirmingEmptyTrash = false
-	@State private var editingTemplate: ThingsDiaryTemplate?
-	@State private var templateContent = ""
+	@State private var templateDraftsByID: [String: String] = [:]
+	@State private var templatePendingDeletion: ThingsDiaryTemplate?
 	@State private var isEditorFocusMode = false
 	@State private var isEditorWorkspaceCompact = false
 	@State private var compactWorkspacePane: CompactWorkspacePane = .editor
@@ -539,8 +539,8 @@ private struct EntriesView: View {
 	@State private var currentWorkspaceLayout = EntryWorkspaceLayout.listOnly
 	@State private var availableWorkspaceWidth: CGFloat = 0
 	@State private var dragStartEntryListWidth: CGFloat?
-	@State private var availableEntryTabsWidth: CGFloat = 0
-	@State private var entryTabReorderSession: EntryTabReorderSession?
+	@State private var availableBrowserTabsWidth: CGFloat = 0
+	@State private var browserTabReorderSession: TabReorderSession<WorkspaceTabID>?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
 	@State private var sidebarToggleInSidebar = true
 	@Namespace private var sidebarToggleNamespace
@@ -558,7 +558,8 @@ private struct EntriesView: View {
 	private var selectionIsEmpty: Bool { count(for: activeSelection) == 0 }
 
 	private var selectedEntry: ThingsDiaryEntry? {
-		entries.first { $0.id == tabs.activeEntryID }
+		guard case .entry(let entryID) = tabs.activeTabID else { return nil }
+		return entries.first { $0.id == entryID }
 	}
 
 	private var selectedDraftContent: String {
@@ -570,18 +571,93 @@ private struct EntriesView: View {
 		Binding(
 			get: { selectedDraftContent },
 			set: { value in
-				guard let entryID = tabs.activeEntryID else { return }
-				tabs.promote(entryID)
+				guard case .entry(let entryID) = tabs.activeTabID else { return }
+				tabs.promote(.entry(entryID))
 				draftsByEntryID[entryID] = value
 				model.promoteEntryDraft(entryID, content: value)
 			}
 		)
 	}
 
-	private var openEntries: [ThingsDiaryEntry] {
-		tabs.openEntryIDs.compactMap { entryID in
-			entries.first { $0.id == entryID }
+	private var selectedTemplate: ThingsDiaryTemplate? {
+		guard case .template(let templateID) = tabs.activeTabID else { return nil }
+		return model.templates.first { $0.id == templateID }
+	}
+
+	private var selectedTemplateDraft: String {
+		guard let selectedTemplate else { return "" }
+		return templateDraftsByID[selectedTemplate.id] ?? selectedTemplate.content
+	}
+
+	private var selectedTemplateDraftBinding: Binding<String> {
+		Binding(
+			get: { selectedTemplateDraft },
+			set: { value in
+				guard case .template(let templateID) = tabs.activeTabID else { return }
+				tabs.promote(.template(templateID))
+				templateDraftsByID[templateID] = value
+			}
+		)
+	}
+
+	private var activeTabDraftBinding: Binding<String> {
+		switch tabs.activeTabID {
+		case .entry:
+			selectedDraftBinding
+		case .template:
+			selectedTemplateDraftBinding
+		case nil:
+			.constant("")
 		}
+	}
+
+	private var activeTabEditorIsReadOnly: Bool {
+		guard case .entry = tabs.activeTabID, let selectedEntry else { return false }
+		return selectedEntry.deletedAt != nil || selectedEntry.archived
+	}
+
+	private var canSaveActiveTab: Bool {
+		switch tabs.activeTabID {
+		case .entry:
+			guard let selectedEntry else { return false }
+			return canSave(selectedEntry)
+		case .template:
+			guard let selectedTemplate else { return false }
+			return selectedTemplateDraft != selectedTemplate.content
+		case nil:
+			return false
+		}
+	}
+
+	private func tabPersistedContent(_ tabID: WorkspaceTabID) -> String {
+		switch tabID {
+		case .entry(let entryID):
+			entries.first { $0.id == entryID }?.content ?? ""
+		case .template(let templateID):
+			model.templates.first { $0.id == templateID }?.content ?? ""
+		}
+	}
+
+	private func tabDraftContent(_ tabID: WorkspaceTabID) -> String {
+		switch tabID {
+		case .entry(let entryID):
+			return draftsByEntryID[entryID] ?? tabPersistedContent(tabID)
+		case .template(let templateID):
+			return templateDraftsByID[templateID] ?? tabPersistedContent(tabID)
+		}
+	}
+
+	private func tabTitle(_ tabID: WorkspaceTabID) -> String {
+		switch tabID {
+		case .entry:
+			entryListPresentation(content: tabDraftContent(tabID)).title
+		case .template:
+			templateListPresentation(content: tabDraftContent(tabID)).title
+		}
+	}
+
+	private var validTabIDs: Set<WorkspaceTabID> {
+		Set(entries.map { .entry($0.id) } + model.templates.map { .template($0.id) })
 	}
 
 	private var effectiveListWidth: CGFloat {
@@ -591,23 +667,106 @@ private struct EntriesView: View {
 		)
 	}
 
-	private var entryTabCloseAlertPresented: Binding<Bool> {
+	private var browserTabCloseAlertPresented: Binding<Bool> {
 		Binding(
-			get: { pendingEntryTabClose != nil },
+			get: { pendingBrowserTabClose != nil },
 			set: { isPresented in
 				if !isPresented {
-					pendingEntryTabClose = nil
-					entryTabCloseSaveError = nil
+					pendingBrowserTabClose = nil
+					browserTabCloseSaveError = nil
 				}
 			}
 		)
 	}
 
 	private func count(for selection: DiaryNavigationSelection) -> Int {
-		visibleEntries(listEntries, selection: selection, query: "", sort: .newest).count
+		if selection == .templates {
+			return model.templates.count
+		}
+		return visibleEntries(listEntries, selection: selection, query: "", sort: .newest).count
 	}
 
 	var body: some View {
+		workspaceShell
+			.onChange(of: selection) {
+				query = ""
+				searchIsFocused = false
+				searchResetID += 1
+			}
+			.onChange(of: sidebarVisibility) {
+				let shouldAppearInSidebar = sidebarVisibility != .detailOnly
+				guard sidebarToggleInSidebar != shouldAppearInSidebar else { return }
+				withAnimation(.easeInOut(duration: 0.24)) {
+					sidebarToggleInSidebar = shouldAppearInSidebar
+				}
+			}
+			.onChange(of: selectionIsEmpty) {
+				guard selectionIsEmpty else { return }
+				query = ""
+				searchIsFocused = false
+				searchResetID += 1
+			}
+			.onChange(of: entries.map(\.id)) { entryIDs in
+				let validTabIDs = Set(
+					entryIDs.map(WorkspaceTabID.entry)
+						+ model.templates.map { WorkspaceTabID.template($0.id) }
+				)
+				tabs.reconcile(validTabIDs: validTabIDs)
+				if tabs.activeTabID == nil {
+					isEditorFocusMode = false
+					compactWorkspacePane = .editor
+				}
+			}
+			.onChange(of: model.templates.map(\.id)) { templateIDs in
+				let validTabIDs = Set(
+					entries.map { WorkspaceTabID.entry($0.id) }
+						+ templateIDs.map(WorkspaceTabID.template)
+				)
+				tabs.reconcile(validTabIDs: validTabIDs)
+				if tabs.activeTabID == nil {
+					isEditorFocusMode = false
+					compactWorkspacePane = .editor
+				}
+			}
+			.onChange(of: model.diarySettingsRequestID) {
+				presentRequestedDiarySettings()
+			}
+			.task { presentRequestedDiarySettings() }
+			.sheet(isPresented: $showingTopicsAndTemplates) { topicsAndTemplatesSheet }
+			.sheet(isPresented: $showingTopicCreator) { topicCreatorSheet }
+			.alert(
+				entryConfirmationTitle,
+				isPresented: Binding(
+					get: { pendingEntryAction != nil },
+					set: { if !$0 { pendingEntryAction = nil } }
+				)
+			) {
+				Button(entryConfirmationButtonTitle, role: .destructive) { confirmPendingEntryAction() }
+				Button("Cancel", role: .cancel) { pendingEntryAction = nil }
+			} message: {
+				Text(entryConfirmationMessage)
+			}
+			.alert("Empty Trash?", isPresented: $confirmingEmptyTrash) {
+				Button("Empty Trash", role: .destructive) { Task { await model.emptyTrash() } }
+				Button("Cancel", role: .cancel) {}
+			} message: {
+				Text("All entries in Trash will be deleted permanently. This cannot be undone.")
+			}
+			.alert(
+				"Delete Template?",
+				isPresented: Binding(
+					get: { templatePendingDeletion != nil },
+					set: { if !$0 { templatePendingDeletion = nil } }
+				)
+			) {
+				Button("Delete", role: .destructive) { deletePendingTemplate() }
+				Button("Cancel", role: .cancel) { templatePendingDeletion = nil }
+			} message: {
+				Text("Topics that use this template will return to no default template.")
+			}
+	}
+
+	private var workspaceShell: some View {
 		NavigationSplitView(columnVisibility: $sidebarVisibility) {
 			sidebarWorkspace
 				.toolbar(removing: .sidebarToggle)
@@ -617,16 +776,16 @@ private struct EntriesView: View {
 		.navigationSplitViewStyle(.balanced)
 		.background {
 			EntrySaveShortcutMonitor {
-				guard let selectedEntry, canSave(selectedEntry) else { return false }
-				saveSelectedEntry()
+				guard canSaveActiveTab else { return false }
+				saveActiveTab()
 				return true
 			}
 			.frame(width: 0, height: 0)
 		}
-		.onReceive(NotificationCenter.default.publisher(for: .entrySaveRequested)) { _ in
-			guard let selectedEntry, canSave(selectedEntry) else { return }
-			saveSelectedEntry()
-		}
+		.focusedSceneValue(
+			\.entrySaveAction,
+			canSaveActiveTab ? { saveActiveTab() } : nil
+		)
 		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
 			GeometryReader { proxy in
 				if showingDiaryMenu, let anchor {
@@ -676,65 +835,6 @@ private struct EntriesView: View {
 			maxWidth: .infinity,
 			maxHeight: .infinity
 		)
-		.onChange(of: selection) {
-			query = ""
-			searchIsFocused = false
-			searchResetID += 1
-		}
-		.onChange(of: sidebarVisibility) {
-			let shouldAppearInSidebar = sidebarVisibility != .detailOnly
-			guard sidebarToggleInSidebar != shouldAppearInSidebar else { return }
-			withAnimation(.easeInOut(duration: 0.24)) {
-				sidebarToggleInSidebar = shouldAppearInSidebar
-			}
-		}
-		.onChange(of: selectionIsEmpty) {
-			guard selectionIsEmpty else { return }
-			query = ""
-			searchIsFocused = false
-			searchResetID += 1
-		}
-		.onChange(of: entries.map(\.id)) {
-			tabs.reconcile(validEntryIDs: Set(entries.map(\.id)))
-			if tabs.activeEntryID == nil {
-				isEditorFocusMode = false
-				compactWorkspacePane = .editor
-			}
-		}
-		.onChange(of: model.diarySettingsRequestID) {
-			presentRequestedDiarySettings()
-		}
-		.task {
-			presentRequestedDiarySettings()
-		}
-		.sheet(isPresented: $showingTopicsAndTemplates) {
-			topicsAndTemplatesSheet
-		}
-		.sheet(isPresented: $showingTopicCreator) {
-			topicCreatorSheet
-		}
-		.alert(
-			entryConfirmationTitle,
-			isPresented: Binding(
-				get: { pendingEntryAction != nil },
-				set: { if !$0 { pendingEntryAction = nil } }
-			)
-		) {
-			Button(entryConfirmationButtonTitle, role: .destructive) {
-				confirmPendingEntryAction()
-			}
-			Button("Cancel", role: .cancel) { pendingEntryAction = nil }
-		} message: {
-			Text(entryConfirmationMessage)
-		}
-		.alert("Empty Trash?", isPresented: $confirmingEmptyTrash) {
-			Button("Empty Trash", role: .destructive) {
-				Task { await model.emptyTrash() }
-			}
-			Button("Cancel", role: .cancel) {}
-		} message: {
-			Text("All entries in Trash will be deleted permanently. This cannot be undone.")
-		}
 	}
 
 	private var sidebarWorkspace: some View {
@@ -782,10 +882,10 @@ private struct EntriesView: View {
 						height: workspaceTitlebarHeight,
 						accessibilityIdentifier: "workspace.entry-list-divider.header"
 					)
-					entryTabsBar
+					browserTabsBar
 				}
 			case .editorOnly:
-				entryTabsBar
+				browserTabsBar
 			}
 		}
 		.frame(height: workspaceTitlebarHeight)
@@ -803,7 +903,7 @@ private struct EntriesView: View {
 
 			Spacer(minLength: 8)
 
-			if currentWorkspaceLayout == .listOnly, selectedEntry != nil {
+			if currentWorkspaceLayout == .listOnly, tabs.activeTabID != nil {
 				Button {
 					compactWorkspacePane = .editor
 				} label: {
@@ -826,6 +926,11 @@ private struct EntriesView: View {
 				.accessibilityIdentifier("trash.empty")
 				.accessibilityLabel("Empty Trash")
 				.help("Empty Trash")
+			} else if activeSelection == .templates {
+				IconButton(icon: .newEntry, action: createTemplate)
+					.accessibilityIdentifier("template.create")
+					.accessibilityLabel("New Template")
+					.help("New Template")
 			} else if activeSelection != .archive {
 				IconButton(icon: .newEntry, action: beginCreatingEntry)
 					.accessibilityIdentifier("entry.create")
@@ -853,6 +958,7 @@ private struct EntriesView: View {
 			}
 		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
+		.accessibilityElement(children: .contain)
 		.accessibilityIdentifier("entry-list.titlebar")
 	}
 
@@ -874,17 +980,17 @@ private struct EntriesView: View {
 			.zIndex(2)
 	}
 
-	private var entryTabsBar: some View {
-		let tabWidth = adaptiveEntryTabWidth(
-			availableWidth: availableEntryTabsWidth,
-			tabCount: openEntries.count
+	private var browserTabsBar: some View {
+		let tabWidth = adaptiveBrowserTabWidth(
+			availableWidth: availableBrowserTabsWidth,
+			tabCount: tabs.openTabIDs.count
 		)
 
 		return HStack(spacing: 8) {
-			entryTabsStrip(tabWidth: tabWidth)
+			browserTabsStrip(tabWidth: tabWidth)
 				.frame(maxWidth: .infinity)
 
-			if selectedEntry != nil {
+			if tabs.activeTabID != nil {
 				Divider()
 					.frame(height: 24)
 					.allowsHitTesting(false)
@@ -921,30 +1027,31 @@ private struct EntriesView: View {
 			}
 		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
-		.accessibilityIdentifier("entry-tabs.titlebar")
+		.accessibilityElement(children: .contain)
+		.accessibilityIdentifier("browser-tabs.titlebar")
 		.alert(
-			"Save changes to \"\(pendingEntryTabClose?.title ?? "this entry")\"?",
-			isPresented: entryTabCloseAlertPresented,
-			presenting: pendingEntryTabClose
+			"Save changes to \"\(pendingBrowserTabClose?.title ?? "this tab")\"?",
+			isPresented: browserTabCloseAlertPresented,
+			presenting: pendingBrowserTabClose
 		) { request in
 			Button("Don't Save", role: .destructive) {
-				closeEntryTabImmediately(request.entryID)
-				pendingEntryTabClose = nil
+				closeBrowserTabImmediately(request.tabID)
+				pendingBrowserTabClose = nil
 				DispatchQueue.main.async {
-					processNextEntryTabClose()
+					processNextBrowserTabClose()
 				}
 			}
 			Button("Cancel", role: .cancel) {
-				pendingEntryTabClose = nil
-				pendingEntryTabCloseQueue = []
+				pendingBrowserTabClose = nil
+				pendingBrowserTabCloseQueue = []
 			}
 			Button("Save") {
-				saveEntryTabBeforeClosing(request)
+				saveBrowserTabBeforeClosing(request)
 			}
 			.keyboardShortcut(.defaultAction)
 		} message: { _ in
 			Text(
-				entryTabCloseSaveError
+				browserTabCloseSaveError
 					?? "If you don't save, your changes will be lost."
 			)
 		}
@@ -955,22 +1062,22 @@ private struct EntriesView: View {
 			.frame(height: 8)
 	}
 
-	private func entryTabsStrip(tabWidth: CGFloat) -> some View {
+	private func browserTabsStrip(tabWidth: CGFloat) -> some View {
 		GeometryReader { proxy in
-			let tabsContentWidth = entryTabsContentWidth(
+			let tabsContentWidth = browserTabsContentWidth(
 				tabWidth: tabWidth,
-				tabCount: openEntries.count
+				tabCount: tabs.openTabIDs.count
 			)
-			let createButtonOffset = entryTabCreateButtonOffset(
+			let createButtonOffset = browserTabCreateButtonOffset(
 				availableWidth: proxy.size.width,
 				tabsContentWidth: tabsContentWidth
 			)
-			let createButtonIsPinned = entryTabCreateButtonIsPinned(
+			let createButtonIsPinned = browserTabCreateButtonIsPinned(
 				availableWidth: proxy.size.width,
 				tabsContentWidth: tabsContentWidth
 			)
-			let hidesCreateButton = shouldHideEntryTabCreateButton(
-				isReordering: entryTabReorderSession != nil,
+			let hidesCreateButton = shouldHideBrowserTabCreateButton(
+				isReordering: browserTabReorderSession != nil,
 				isPinned: createButtonIsPinned
 			)
 
@@ -982,35 +1089,35 @@ private struct EntriesView: View {
 				ScrollViewReader { scrollProxy in
 					ScrollView(.horizontal, showsIndicators: false) {
 						ZStack(alignment: .leading) {
-							if let entryTabReorderSession {
-								entryTabPlaceholder(width: tabWidth)
+							if let browserTabReorderSession {
+								browserTabPlaceholder(width: tabWidth)
 									.offset(
-										x: CGFloat(entryTabReorderSession.placeholderIndex)
-											* (tabWidth + entryTabSpacing)
+										x: CGFloat(browserTabReorderSession.placeholderIndex)
+											* (tabWidth + browserTabSpacing)
 									)
 									.animation(
 										.smooth(duration: 0.16),
-										value: entryTabReorderSession.placeholderIndex
+										value: browserTabReorderSession.placeholderIndex
 									)
 							}
 
-							HStack(spacing: entryTabSpacing) {
-								ForEach(Array(openEntries.enumerated()), id: \.element.id) { index, entry in
-									entryTabView(entry, at: index, width: tabWidth)
+							HStack(spacing: browserTabSpacing) {
+								ForEach(Array(tabs.openTabIDs.enumerated()), id: \.element) { index, tabID in
+									browserTabView(tabID, at: index, width: tabWidth)
 								}
 							}
 						}
-						.padding(.leading, entryTabLeadingPadding)
+						.padding(.leading, browserTabLeadingPadding)
 					}
 					.frame(width: max(createButtonOffset, 0), height: 30)
 					.clipped()
-					.onChange(of: tabs.activeEntryID) {
+					.onChange(of: tabs.activeTabID) {
 						guard
 							createButtonIsPinned,
-							let activeEntryID = tabs.activeEntryID
+							let activeTabID = tabs.activeTabID
 						else { return }
 						withAnimation(.easeInOut(duration: 0.16)) {
-							scrollProxy.scrollTo(activeEntryID, anchor: .center)
+							scrollProxy.scrollTo(activeTabID, anchor: .center)
 						}
 					}
 				}
@@ -1019,12 +1126,12 @@ private struct EntriesView: View {
 				IconButton(
 					icon: .plus,
 					usesTitlebarBackground: true,
-					action: beginCreatingTabDraft
+					action: beginCreatingBrowserTab
 				)
-				.frame(width: entryTabCreateButtonWidth)
-				.accessibilityIdentifier("entry-tab.create")
-				.accessibilityLabel("New Entry Tab")
-				.help("New Entry Tab")
+				.frame(width: browserTabCreateButtonWidth)
+				.accessibilityIdentifier("browser-tab.create")
+				.accessibilityLabel(activeSelection == .templates ? "New Template" : "New Entry")
+				.help(activeSelection == .templates ? "New Template" : "New Entry")
 				.offset(x: createButtonOffset)
 				.opacity(hidesCreateButton ? 0 : 1)
 				.allowsHitTesting(!hidesCreateButton)
@@ -1036,55 +1143,55 @@ private struct EntriesView: View {
 				maxHeight: .infinity,
 				alignment: .leading
 			)
-			.onAppear { availableEntryTabsWidth = proxy.size.width }
+			.onAppear { availableBrowserTabsWidth = proxy.size.width }
 			.onChange(of: proxy.size.width) {
-				availableEntryTabsWidth = proxy.size.width
+				availableBrowserTabsWidth = proxy.size.width
 			}
 		}
 	}
 
-	private func entryTabView(
-		_ entry: ThingsDiaryEntry,
+	private func browserTabView(
+		_ tabID: WorkspaceTabID,
 		at index: Int,
 		width: CGFloat
 	) -> some View {
-		let draft = draftsByEntryID[entry.id] ?? entry.content
 		return ZStack {
 			Color.clear
-			EntryTab(
-				entryID: entry.id,
-				title: entryListPresentation(content: draft).title,
+			BrowserTab(
+				accessibilityIdentifier: tabID.tabAccessibilityID,
+				closeAccessibilityIdentifier: tabID.closeAccessibilityID,
+				title: tabTitle(tabID),
 				width: width,
-				isActive: tabs.activeEntryID == entry.id,
-				isDirty: draft != entry.content,
-				isPinned: tabs.isPinned(entry.id),
-				isPreview: tabs.isPreview(entry.id),
-				isDragged: entryTabReorderSession?.entryID == entry.id,
-				horizontalOffset: entryTabReorderSession?.offset(
+				isActive: tabs.activeTabID == tabID,
+				isDirty: tabDraftContent(tabID) != tabPersistedContent(tabID),
+				isPinned: tabs.isPinned(tabID),
+				isPreview: tabs.isPreview(tabID),
+				isDragged: browserTabReorderSession?.tabID == tabID,
+				horizontalOffset: browserTabReorderSession?.offset(
 					forTabAt: index,
 					tabWidth: width
 				) ?? 0,
-				activate: { activateEntryTab(entry.id) },
-				close: { closeEntryTab(entry.id) },
+				activate: { activateBrowserTab(tabID) },
+				close: { closeBrowserTab(tabID) },
 				reorder: { translation in
-					updateEntryTabReorder(
-						entryID: entry.id,
+					updateBrowserTabReorder(
+						tabID: tabID,
 						translationX: translation,
 						tabWidth: width
 					)
 				},
-				finishReordering: { finishReorderingEntryTab(entry.id) }
+				finishReordering: { finishReorderingBrowserTab(tabID) }
 			)
 		}
 		.frame(width: width, height: 30)
 		.contentShape(Rectangle())
-		.id(entry.id)
+		.id(tabID)
 		.contextMenu {
-			entryTabContextMenu(for: entry, at: index)
+			browserTabContextMenu(for: tabID, at: index)
 		}
 	}
 
-	private func entryTabPlaceholder(width: CGFloat) -> some View {
+	private func browserTabPlaceholder(width: CGFloat) -> some View {
 		RoundedRectangle(cornerRadius: 7, style: .continuous)
 			.fill(Color.primary.opacity(0.035))
 			.overlay {
@@ -1136,13 +1243,13 @@ private struct EntriesView: View {
 			let availableWidth = max(proxy.size.width, 0)
 			let compact = updatedEditorWorkspaceCompactState(
 				isCompact: isEditorWorkspaceCompact,
-				hasSelectedEntry: selectedEntry != nil,
+				hasSelectedEntry: tabs.activeTabID != nil,
 				availableWidth: availableWidth,
 				isDragging: draggedEntryID != nil
 			)
 			let layout = entryWorkspaceLayout(
-				selectionIsEmpty: selectionIsEmpty && selectedEntry == nil,
-				hasSelectedEntry: selectedEntry != nil,
+				selectionIsEmpty: selectionIsEmpty,
+				hasSelectedEntry: tabs.activeTabID != nil,
 				availableWidth: availableWidth,
 				isEditorFocusMode: isEditorFocusMode,
 				isCompact: compact,
@@ -1162,12 +1269,112 @@ private struct EntriesView: View {
 				.onChange(of: layout) {
 					currentWorkspaceLayout = layout
 				}
-				.onChange(of: selectedEntry?.id) {
+				.onChange(of: tabs.activeTabID) {
 					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
 				}
 				.onChange(of: draggedEntryID) {
 					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
 				}
+		}
+	}
+
+	private var filteredTemplates: [ThingsDiaryTemplate] {
+		let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+		return model.templates
+			.filter { trimmedQuery.isEmpty || $0.content.localizedCaseInsensitiveContains(trimmedQuery) }
+			.sorted {
+				$0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt > $1.createdAt
+			}
+	}
+
+	private var templateListPane: some View {
+		Group {
+			if model.templates.isEmpty { templateEmptyState } else { templateList }
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.background(.background)
+	}
+
+	private var templateEmptyState: some View {
+		ContentUnavailableView {
+			Label("Templates", systemImage: "doc.on.doc")
+		} description: {
+			Text("Reuse the same structure when you start a new entry.")
+		} actions: {
+			Button("New Template", systemImage: "square.and.pencil", action: createTemplate)
+				.buttonStyle(.borderedProminent)
+				.accessibilityIdentifier("template.empty-create")
+		}
+		.accessibilityIdentifier("template.empty-state")
+	}
+
+	private var templateList: some View {
+		VStack(spacing: 0) {
+			InlineSearchField(
+				text: $query,
+				isFocused: $searchIsFocused,
+				resetID: searchResetID,
+				accessibilityLabel: "Search Templates"
+			)
+			.frame(height: 24)
+			.padding(.horizontal)
+			.padding(.vertical, 8)
+			Divider()
+
+			if filteredTemplates.isEmpty {
+				ContentUnavailableView {
+					Label("No Results", systemImage: "magnifyingglass")
+				} description: {
+					Text("Try another search term.")
+				}
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
+			} else {
+				ScrollView {
+					LazyVStack(spacing: 0) {
+						ForEach(filteredTemplates) { template in
+							templateRow(template)
+							Divider().padding(.leading)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	private func templateRow(_ template: ThingsDiaryTemplate) -> some View {
+		let draft = templateDraftsByID[template.id] ?? template.content
+		let presentation = templateListPresentation(content: draft)
+		return Button {
+			previewTemplate(template)
+		} label: {
+			VStack(alignment: .leading, spacing: 5) {
+				HStack {
+					Text(presentation.title)
+						.font(.headline)
+						.lineLimit(1)
+					Spacer()
+					Text(template.createdAt.formatted(date: .abbreviated, time: .omitted))
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+				if let preview = presentation.preview {
+					Text(preview)
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
+						.lineLimit(2)
+				}
+			}
+			.padding(.horizontal)
+			.padding(.vertical, 10)
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.contentShape(.rect)
+		}
+		.buttonStyle(.plain)
+		.accessibilityIdentifier("template.\(template.id)")
+		.contextMenu {
+			Button("Delete Template", systemImage: "trash", role: .destructive) {
+				templatePendingDeletion = template
+			}
 		}
 	}
 
@@ -1194,6 +1401,7 @@ private struct EntriesView: View {
 				entryDetailPane(layout: layout)
 					.frame(minWidth: minimumEntryEditorWidth, maxWidth: .infinity, maxHeight: .infinity)
 			}
+			.accessibilityElement(children: .contain)
 			.accessibilityIdentifier("workspace.split")
 		case .editorOnly:
 			entryDetailPane(layout: layout)
@@ -1243,7 +1451,7 @@ private struct EntriesView: View {
 	private func updateEditorWorkspaceCompactState(availableWidth: CGFloat) {
 		isEditorWorkspaceCompact = updatedEditorWorkspaceCompactState(
 			isCompact: isEditorWorkspaceCompact,
-			hasSelectedEntry: selectedEntry != nil,
+			hasSelectedEntry: tabs.activeTabID != nil,
 			availableWidth: availableWidth,
 			isDragging: draggedEntryID != nil
 		)
@@ -1251,7 +1459,9 @@ private struct EntriesView: View {
 
 	private func entryListPane() -> some View {
 		Group {
-			if selectionIsEmpty {
+			if activeSelection == .templates {
+				templateListPane
+			} else if selectionIsEmpty {
 				emptyStateView
 			} else {
 				VStack(spacing: 0) {
@@ -1271,26 +1481,30 @@ private struct EntriesView: View {
 	}
 
 	@ViewBuilder private func entryDetailPane(layout: EntryWorkspaceLayout) -> some View {
-		if let selectedEntry {
-			TextEditor(text: selectedDraftBinding)
-				.accessibilityIdentifier("entry.editor")
+		if let activeTabID = tabs.activeTabID {
+			TextEditor(text: activeTabDraftBinding)
+				.accessibilityIdentifier(activeTabID.editorAccessibilityID)
 				.focused($editorIsFocused)
-				.disabled(selectedEntry.deletedAt != nil || selectedEntry.archived)
+				.disabled(activeTabEditorIsReadOnly)
 				.padding(.horizontal, 8)
 				.padding(.vertical, 6)
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 				.background(.background)
 		} else {
-			ContentUnavailableView {
-				Label(diary.title, systemImage: "book.closed")
-			} description: {
-				Text(diary.description.isEmpty ? "Your diary overview" : diary.description)
-				Text(
-					"\(count(for: .entries)) entries · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash"
-				)
-			}
-			.accessibilityIdentifier("diary.overview")
+			diaryOverview
 		}
+	}
+
+	private var diaryOverview: some View {
+		ContentUnavailableView {
+			Label(diary.title, systemImage: "book.closed")
+		} description: {
+			Text(diary.description.isEmpty ? "Your diary overview" : diary.description)
+			Text(
+				"\(count(for: .entries)) entries · \(count(for: .bookmarks)) bookmarks · \(count(for: .archive)) archived · \(count(for: .trash)) in trash"
+			)
+		}
+		.accessibilityIdentifier("diary.overview")
 	}
 
 	private var sidebar: some View {
@@ -1402,6 +1616,17 @@ private struct EntriesView: View {
 							)
 						}
 					}
+
+					Divider()
+						.padding(.vertical, 4)
+
+					sidebarRow(
+						"Templates",
+						systemImage: "doc.on.doc",
+						destination: .templates,
+						identifier: "sidebar.templates",
+						showsCount: false
+					)
 
 					Divider()
 						.padding(.vertical, 4)
@@ -1589,8 +1814,33 @@ private struct EntriesView: View {
 		beginEntryDraft(appearsInList: true)
 	}
 
-	private func beginCreatingTabDraft() {
-		beginEntryDraft(appearsInList: false)
+	private func createTemplate() {
+		Task {
+			guard let template = await model.beginTemplateDraft() else { return }
+			selection = .templates
+			openTemplate(template)
+			await Task.yield()
+			editorIsFocused = true
+		}
+	}
+
+	private func deletePendingTemplate() {
+		guard let template = templatePendingDeletion else { return }
+		templatePendingDeletion = nil
+		Task {
+			if await model.deleteTemplate(template) {
+				templateDraftsByID.removeValue(forKey: template.id)
+				closeBrowserTabImmediately(.template(template.id))
+			}
+		}
+	}
+
+	private func beginCreatingBrowserTab() {
+		if activeSelection == .templates {
+			createTemplate()
+		} else {
+			beginEntryDraft(appearsInList: true)
+		}
 	}
 
 	private func beginEntryDraft(appearsInList: Bool) {
@@ -1632,107 +1882,145 @@ private struct EntriesView: View {
 	}
 
 	private func previewEntry(_ entry: ThingsDiaryEntry) {
-		let replacedPreviewEntryID = tabs.previewEntryID
-		tabs.preview(entry.id)
-		if replacedPreviewEntryID != tabs.previewEntryID, let replacedPreviewEntryID {
-			draftsByEntryID.removeValue(forKey: replacedPreviewEntryID)
-		}
+		previewTab(.entry(entry.id))
 		if draftsByEntryID[entry.id] == nil {
 			draftsByEntryID[entry.id] = entry.content
 		}
-		compactWorkspacePane = .editor
 	}
 
 	private func openEntry(_ entry: ThingsDiaryEntry) {
-		tabs.open(entry.id)
+		tabs.open(.entry(entry.id))
 		if draftsByEntryID[entry.id] == nil {
 			draftsByEntryID[entry.id] = entry.content
 		}
 		compactWorkspacePane = .editor
 	}
 
-	private func activateEntryTab(_ entryID: String) {
-		guard tabs.openEntryIDs.contains(entryID) else { return }
-		tabs.activeEntryID = entryID
+	private func previewTemplate(_ template: ThingsDiaryTemplate) {
+		previewTab(.template(template.id))
+		if templateDraftsByID[template.id] == nil {
+			templateDraftsByID[template.id] = template.content
+		}
+	}
+
+	private func openTemplate(_ template: ThingsDiaryTemplate) {
+		tabs.open(.template(template.id))
+		if templateDraftsByID[template.id] == nil {
+			templateDraftsByID[template.id] = template.content
+		}
 		compactWorkspacePane = .editor
 	}
 
-	private func beginReorderingEntryTab(_ entryID: String) {
+	private func previewTab(_ tabID: WorkspaceTabID) {
+		let replacedPreviewTabID = tabs.previewTabID
+		tabs.preview(tabID)
+		if replacedPreviewTabID != tabs.previewTabID, let replacedPreviewTabID {
+			discardDraft(for: replacedPreviewTabID)
+		}
+		compactWorkspacePane = .editor
+	}
+
+	private func activateBrowserTab(_ tabID: WorkspaceTabID) {
+		guard tabs.openTabIDs.contains(tabID) else { return }
+		tabs.activeTabID = tabID
+		compactWorkspacePane = .editor
+	}
+
+	private func beginReorderingBrowserTab(_ tabID: WorkspaceTabID) {
 		guard
-			entryTabReorderSession == nil,
-			let startIndex = tabs.openEntryIDs.firstIndex(of: entryID)
+			browserTabReorderSession == nil,
+			let startIndex = tabs.openTabIDs.firstIndex(of: tabID)
 		else { return }
-		entryTabReorderSession = EntryTabReorderSession(
-			entryID: entryID,
+		browserTabReorderSession = TabReorderSession(
+			tabID: tabID,
 			startIndex: startIndex
 		)
-		activateEntryTab(entryID)
+		activateBrowserTab(tabID)
 		NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
 	}
 
-	private func updateEntryTabReorder(
-		entryID: String,
+	private func updateBrowserTabReorder(
+		tabID: WorkspaceTabID,
 		translationX: CGFloat,
 		tabWidth: CGFloat
 	) {
-		if entryTabReorderSession == nil {
-			beginReorderingEntryTab(entryID)
+		if browserTabReorderSession == nil {
+			beginReorderingBrowserTab(tabID)
 		}
-		guard var session = entryTabReorderSession, session.entryID == entryID else { return }
+		guard var session = browserTabReorderSession, session.tabID == tabID else { return }
 		let previousPlaceholderIndex = session.placeholderIndex
 		session.update(
 			translation: translationX,
 			tabWidth: tabWidth,
-			tabCount: tabs.openEntryIDs.count,
-			allowedRange: tabs.reorderRange(for: entryID)
+			tabCount: tabs.openTabIDs.count,
+			allowedRange: tabs.reorderRange(for: tabID)
 		)
-		entryTabReorderSession = session
+		browserTabReorderSession = session
 		if session.placeholderIndex != previousPlaceholderIndex {
 			NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
 		}
 	}
 
-	private func finishReorderingEntryTab(_ entryID: String) {
-		guard let session = entryTabReorderSession, session.entryID == entryID else { return }
+	private func finishReorderingBrowserTab(_ tabID: WorkspaceTabID) {
+		guard let session = browserTabReorderSession, session.tabID == tabID else { return }
 		var transaction = Transaction()
 		transaction.disablesAnimations = true
 		withTransaction(transaction) {
 			session.commit(to: &tabs)
-			entryTabReorderSession = nil
+			browserTabReorderSession = nil
 		}
 	}
 
-	@ViewBuilder private func entryTabContextMenu(
-		for entry: ThingsDiaryEntry,
+	@ViewBuilder private func browserTabContextMenu(
+		for tabID: WorkspaceTabID,
 		at index: Int
 	) -> some View {
-		let isEphemeral = model.entryDraftIDs.contains(entry.id)
-		let isDeleted = entry.deletedAt != nil
-		let otherTabsToClose = tabs.closeableOtherEntryIDs(keeping: entry.id)
-		let tabsToTheRight = Array(tabs.openEntryIDs.dropFirst(index + 1))
+		let otherTabsToClose = tabs.closeableOtherTabIDs(keeping: tabID)
+		let tabsToTheRight = Array(tabs.openTabIDs.dropFirst(index + 1))
 
 		Button("Close", systemImage: "xmark") {
-			closeEntryTab(entry.id)
+			closeBrowserTab(tabID)
 		}
 		Button("Close Other Tabs", systemImage: "xmark.square") {
-			requestCloseEntryTabs(otherTabsToClose)
+			requestCloseBrowserTabs(otherTabsToClose)
 		}
 		.disabled(otherTabsToClose.isEmpty)
 		Button("Close Tabs to the Right", systemImage: "arrow.right.to.line") {
-			requestCloseEntryTabs(tabsToTheRight)
+			requestCloseBrowserTabs(tabsToTheRight)
 		}
 		.disabled(tabsToTheRight.isEmpty)
 
 		Divider()
 
 		Button(
-			tabs.isPinned(entry.id) ? "Unpin Tab" : "Pin Tab",
-			systemImage: tabs.isPinned(entry.id) ? "pin.slash" : "pin"
+			tabs.isPinned(tabID) ? "Unpin Tab" : "Pin Tab",
+			systemImage: tabs.isPinned(tabID) ? "pin.slash" : "pin"
 		) {
-			tabs.togglePin(entry.id)
+			tabs.togglePin(tabID)
 		}
 
 		Divider()
+		browserTabDocumentActions(tabID)
+	}
+
+	@ViewBuilder private func browserTabDocumentActions(_ tabID: WorkspaceTabID) -> some View {
+		switch tabID {
+		case .entry(let entryID):
+			if let entry = entries.first(where: { $0.id == entryID }) {
+				entryTabDocumentActions(entry)
+			}
+		case .template(let templateID):
+			if let template = model.templates.first(where: { $0.id == templateID }) {
+				Button("Delete Template", systemImage: "trash", role: .destructive) {
+					templatePendingDeletion = template
+				}
+			}
+		}
+	}
+
+	@ViewBuilder private func entryTabDocumentActions(_ entry: ThingsDiaryEntry) -> some View {
+		let isEphemeral = model.entryDraftIDs.contains(entry.id)
+		let isDeleted = entry.deletedAt != nil
 
 		Button(
 			entry.bookmarked ? "Remove Bookmark" : "Add Bookmark",
@@ -1775,97 +2063,116 @@ private struct EntriesView: View {
 		.disabled(isEphemeral || isDeleted)
 	}
 
-	private func closeEntryTab(_ entryID: String) {
-		requestCloseEntryTabs([entryID])
+	private func closeBrowserTab(_ tabID: WorkspaceTabID) {
+		requestCloseBrowserTabs([tabID])
 	}
 
-	private func requestCloseEntryTabs(_ entryIDs: [String]) {
-		guard pendingEntryTabClose == nil else { return }
-		pendingEntryTabCloseQueue = entryIDs.filter(tabs.openEntryIDs.contains)
-		processNextEntryTabClose()
+	private func requestCloseBrowserTabs(_ tabIDs: [WorkspaceTabID]) {
+		guard pendingBrowserTabClose == nil else { return }
+		pendingBrowserTabCloseQueue = tabIDs.filter(tabs.openTabIDs.contains)
+		processNextBrowserTabClose()
 	}
 
-	private func processNextEntryTabClose() {
-		guard pendingEntryTabClose == nil else { return }
-		while !pendingEntryTabCloseQueue.isEmpty {
-			let entryID = pendingEntryTabCloseQueue.removeFirst()
-			guard entryIDSavingBeforeClose != entryID,
-				let entry = entries.first(where: { $0.id == entryID })
-			else { continue }
-			let draft = draftsByEntryID[entryID] ?? entry.content
-			switch entryTabCloseDisposition(
-				persistedContent: entry.content,
+	private func processNextBrowserTabClose() {
+		guard pendingBrowserTabClose == nil else { return }
+		while !pendingBrowserTabCloseQueue.isEmpty {
+			let tabID = pendingBrowserTabCloseQueue.removeFirst()
+			guard tabSavingBeforeClose != tabID, validTabIDs.contains(tabID) else { continue }
+			let persistedContent = tabPersistedContent(tabID)
+			let draft = tabDraftContent(tabID)
+			switch browserTabCloseDisposition(
+				persistedContent: persistedContent,
 				draftContent: draft
 			) {
 			case .close:
-				closeEntryTabImmediately(entryID)
+				closeBrowserTabImmediately(tabID)
 			case .confirmDiscard:
-				activateEntryTab(entryID)
-				entryTabCloseSaveError = nil
-				pendingEntryTabClose = PendingEntryTabClose(
-					entryID: entryID,
-					title: entryListPresentation(content: draft).title
+				activateBrowserTab(tabID)
+				browserTabCloseSaveError = nil
+				pendingBrowserTabClose = PendingBrowserTabClose(
+					tabID: tabID,
+					title: tabTitle(tabID)
 				)
 				return
 			}
 		}
 	}
 
-	private func closeEntryTabImmediately(_ entryID: String) {
-		if model.entryDraftIDs.contains(entryID) {
+	private func closeBrowserTabImmediately(_ tabID: WorkspaceTabID) {
+		if case .entry(let entryID) = tabID, model.entryDraftIDs.contains(entryID) {
 			model.discardEntryDraft(entryID)
 		}
-		draftsByEntryID.removeValue(forKey: entryID)
-		tabs.close(entryID)
-		if tabs.activeEntryID == nil {
+		if case .template(let templateID) = tabID,
+			model.templateDraftIDs.contains(templateID),
+			let template = model.templates.first(where: { $0.id == templateID })
+		{
+			Task { await model.deleteTemplate(template) }
+		}
+		discardDraft(for: tabID)
+		tabs.close(tabID)
+		if tabs.activeTabID == nil {
 			isEditorFocusMode = false
 			compactWorkspacePane = .editor
 		}
 	}
 
-	private func saveSelectedEntry() {
-		guard let selectedEntry else { return }
-		let entryID = selectedEntry.id
-		let submittedContent = selectedDraftContent
-		Task {
-			_ = await saveEntryDraft(
-				selectedEntry,
-				entryID: entryID,
-				submittedContent: submittedContent
-			)
+	private func discardDraft(for tabID: WorkspaceTabID) {
+		switch tabID {
+		case .entry(let entryID): draftsByEntryID.removeValue(forKey: entryID)
+		case .template(let templateID): templateDraftsByID.removeValue(forKey: templateID)
 		}
 	}
 
-	private func saveEntryTabBeforeClosing(_ request: PendingEntryTabClose) {
-		guard
-			entryIDSavingBeforeClose == nil,
-			let entry = entries.first(where: { $0.id == request.entryID })
-		else { return }
-		let submittedContent = draftsByEntryID[request.entryID] ?? entry.content
-		pendingEntryTabClose = nil
-		entryTabCloseSaveError = nil
-		entryIDSavingBeforeClose = request.entryID
+	private func saveActiveTab() {
+		guard let activeTabID = tabs.activeTabID else { return }
 		Task {
-			let outcome = await saveEntryDraft(
-				entry,
-				entryID: request.entryID,
-				submittedContent: submittedContent
-			)
-			entryIDSavingBeforeClose = nil
+			_ = await saveTab(activeTabID, submittedContent: tabDraftContent(activeTabID))
+		}
+	}
+
+	private func saveBrowserTabBeforeClosing(_ request: PendingBrowserTabClose) {
+		guard tabSavingBeforeClose == nil, validTabIDs.contains(request.tabID) else { return }
+		let submittedContent = tabDraftContent(request.tabID)
+		pendingBrowserTabClose = nil
+		browserTabCloseSaveError = nil
+		tabSavingBeforeClose = request.tabID
+		Task {
+			let outcome = await saveTab(request.tabID, submittedContent: submittedContent)
+			tabSavingBeforeClose = nil
 			switch outcome {
 			case .saved:
-				closeEntryTabImmediately(request.entryID)
-				processNextEntryTabClose()
+				closeBrowserTabImmediately(request.tabID)
+				processNextBrowserTabClose()
 			case .changedWhileSaving:
-				pendingEntryTabCloseQueue.insert(request.entryID, at: 0)
-				processNextEntryTabClose()
+				pendingBrowserTabCloseQueue.insert(request.tabID, at: 0)
+				processNextBrowserTabClose()
 			case .failed:
-				pendingEntryTabCloseQueue = []
-				guard tabs.openEntryIDs.contains(request.entryID) else { return }
-				entryTabCloseSaveError =
-					"The entry couldn't be saved. Your changes are still open."
-				pendingEntryTabClose = request
+				pendingBrowserTabCloseQueue = []
+				guard tabs.openTabIDs.contains(request.tabID) else { return }
+				browserTabCloseSaveError = "The document couldn't be saved. Your changes are still open."
+				pendingBrowserTabClose = request
 			}
+		}
+	}
+
+	private func saveTab(
+		_ tabID: WorkspaceTabID,
+		submittedContent: String
+	) async -> EntryDraftSaveOutcome {
+		switch tabID {
+		case .entry(let entryID):
+			guard let entry = entries.first(where: { $0.id == entryID }) else { return .failed }
+			return await saveEntryDraft(entry, entryID: entryID, submittedContent: submittedContent)
+		case .template(let templateID):
+			guard let template = model.templates.first(where: { $0.id == templateID }) else {
+				return .failed
+			}
+			let didSave = await model.updateTemplate(template, content: submittedContent)
+			let currentDraft = templateDraftsByID[templateID] ?? submittedContent
+			guard currentDraft == submittedContent else { return .changedWhileSaving }
+			guard didSave else { return .failed }
+			templateDraftsByID.removeValue(forKey: templateID)
+			return .saved
 		}
 	}
 
@@ -2205,7 +2512,7 @@ private struct EntriesView: View {
 		topicID: String?
 	) {
 		if action != .duplicate {
-			tabs.promote(entry.id)
+			tabs.promote(.entry(entry.id))
 		}
 		let clearsSelection = shouldClearSelection(
 			after: action,
@@ -2228,6 +2535,12 @@ private struct EntriesView: View {
 				}
 			case .duplicate:
 				await model.duplicateEntry(entry)
+			case .saveAsTemplate:
+				let content = draftsByEntryID[entry.id] ?? entry.content
+				if let template = await model.createTemplate(content: content) {
+					selection = .templates
+					openTemplate(template)
+				}
 			case .moveToTopic:
 				await model.moveEntry(entry, toTopicID: topicID)
 			case .moveToTrash:
@@ -2239,7 +2552,7 @@ private struct EntriesView: View {
 			}
 
 			if clearsSelection {
-				closeEntryTab(entry.id)
+				closeBrowserTab(.entry(entry.id))
 			}
 		}
 	}
@@ -2249,7 +2562,7 @@ private struct EntriesView: View {
 		entry: ThingsDiaryEntry,
 		topicID: String?
 	) -> Bool {
-		guard tabs.activeEntryID == entry.id else { return false }
+		guard tabs.activeTabID == .entry(entry.id) else { return false }
 		switch action {
 		case .bookmark:
 			return false
@@ -2262,7 +2575,7 @@ private struct EntriesView: View {
 				return false
 			}
 			return selectedTopicID != topicID
-		case .duplicate:
+		case .duplicate, .saveAsTemplate:
 			return false
 		}
 	}
@@ -2325,6 +2638,7 @@ private struct EntriesView: View {
 		case .entries: "No Entries Yet"
 		case .bookmarks: "No Bookmarks Yet"
 		case .topic: "No Entries in This Topic"
+		case .templates: "No Templates Yet"
 		case .archive: "Archive is empty"
 		case .trash: "Trash is empty"
 		}
@@ -2338,6 +2652,7 @@ private struct EntriesView: View {
 		case .entries: "Create your first entry to start writing in this diary."
 		case .bookmarks: "Bookmark entries you want to find quickly."
 		case .topic: "Create a new entry here or move an existing entry into this topic."
+		case .templates: "Create a reusable starting point for new entries."
 		case .archive: "Archive entries you want to keep without showing in your main list."
 		case .trash: "Deleted entries appear here until permanently removed."
 		}
@@ -2347,6 +2662,7 @@ private struct EntriesView: View {
 		switch activeSelection {
 		case .bookmarks: "bookmark"
 		case .topic: "tag"
+		case .templates: "doc.on.doc"
 		case .archive: "archivebox"
 		case .trash: "trash"
 		case .entries: "note.text"
@@ -2415,6 +2731,7 @@ private struct EntriesView: View {
 							.tag(Optional(template.id))
 					}
 				}
+				.accessibilityIdentifier("topic.default-template")
 				Toggle("Show entry previews", isOn: $topicEntryPreviewable)
 					.accessibilityIdentifier("topic.entry-previews")
 				LabeledContent("Color") {
@@ -2494,6 +2811,7 @@ private struct EntriesView: View {
 		case .entries: "Entries"
 		case .bookmarks: "Bookmarks"
 		case .topic(let topicID): model.topics.first(where: { $0.id == topicID })?.title ?? "Topic"
+		case .templates: "Templates"
 		case .archive: "Archive"
 		case .trash: "Trash"
 		}
@@ -2533,37 +2851,8 @@ private struct EntriesView: View {
 					}
 				}
 
-				Section("Templates") {
-					ForEach(model.templates) { template in
-						Button(template.content.isEmpty ? "Empty Template" : String(template.content.prefix(40))) {
-							editingTemplate = template
-							templateContent = template.content
-						}
-					}
-					TextEditor(text: $templateContent)
-						.frame(minHeight: 100)
-					Button(editingTemplate == nil ? "Create Template" : "Save Template") {
-						let template = editingTemplate
-						let content = templateContent
-						Task {
-							if let template {
-								await model.updateTemplate(template, content: content)
-							} else {
-								await model.createTemplate(content: content)
-							}
-							editingTemplate = nil
-							templateContent = ""
-						}
-					}
-					if editingTemplate != nil {
-						Button("New Template") {
-							editingTemplate = nil
-							templateContent = ""
-						}
-					}
-				}
 			}
-			.navigationTitle("Topics & Templates")
+			.navigationTitle("Diary Settings")
 			.toolbar {
 				ToolbarItem(placement: .confirmationAction) {
 					Button("Done") { showingTopicsAndTemplates = false }
@@ -2603,6 +2892,12 @@ private struct EntryActionsMenuContent: View {
 				perform(.duplicate, nil)
 			}
 			.disabled(isEphemeral)
+		}
+
+		if actions.contains(.saveAsTemplate) {
+			Button("Save as Template", systemImage: "square.and.arrow.down.on.square") {
+				perform(.saveAsTemplate, nil)
+			}
 		}
 
 		if actions.contains(.moveToTopic) {

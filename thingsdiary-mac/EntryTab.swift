@@ -112,8 +112,9 @@ struct IconButton: View {
 	}
 }
 
-struct EntryTab: View {
-	let entryID: String
+struct BrowserTab: View {
+	let accessibilityIdentifier: String
+	let closeAccessibilityIdentifier: String
 	let title: String
 	let width: CGFloat
 	let isActive: Bool
@@ -161,7 +162,7 @@ struct EntryTab: View {
 			.mask { titleMask }
 		}
 		.buttonStyle(.plain)
-		.accessibilityIdentifier("entry-tab.\(entryID)")
+		.accessibilityIdentifier(accessibilityIdentifier)
 		.accessibilityValue(
 			(isPinned ? "Pinned, " : "")
 				+ (isPreview ? "Preview, " : "")
@@ -171,7 +172,7 @@ struct EntryTab: View {
 			if showsCloseButton {
 				TabIconButton(icon: .close, iconSize: 12, action: close)
 					.padding(.trailing, 1)
-					.accessibilityIdentifier("entry-tab.close.\(entryID)")
+					.accessibilityIdentifier(closeAccessibilityIdentifier)
 					.accessibilityLabel("Close \(title)")
 					.help("Close \(title)")
 			}

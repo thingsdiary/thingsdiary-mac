@@ -1,16 +1,26 @@
 import AppKit
 import SwiftUI
 
-extension Notification.Name {
-	static let entrySaveRequested = Notification.Name("entrySaveRequested")
+struct EntrySaveActionKey: FocusedValueKey {
+	typealias Value = () -> Void
+}
+
+extension FocusedValues {
+	var entrySaveAction: EntrySaveActionKey.Value? {
+		get { self[EntrySaveActionKey.self] }
+		set { self[EntrySaveActionKey.self] = newValue }
+	}
 }
 
 private struct EntryCommands: Commands {
+	@FocusedValue(\.entrySaveAction) private var save
+
 	var body: some Commands {
 		CommandGroup(replacing: .saveItem) {
 			Button("Save") {
-				NotificationCenter.default.post(name: .entrySaveRequested, object: nil)
+				save?()
 			}
+			.disabled(save == nil)
 			.keyboardShortcut("s", modifiers: .command)
 		}
 	}

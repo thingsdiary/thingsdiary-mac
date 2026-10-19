@@ -54,6 +54,7 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 		_ template: ThingsDiaryTemplate,
 		params: ThingsDiaryTemplateParams
 	) async throws -> ThingsDiaryTemplate
+	func deleteTemplate(diaryID: String, templateID: String, soft: Bool?) async throws
 }
 
 extension ThingsDiaryAppClient {
@@ -98,6 +99,10 @@ extension ThingsDiaryAppClient {
 		_ template: ThingsDiaryTemplate,
 		params: ThingsDiaryTemplateParams
 	) async throws -> ThingsDiaryTemplate {
+		throw DiaryStoreError.unsupportedRemoteEntry
+	}
+
+	func deleteTemplate(diaryID: String, templateID: String, soft: Bool?) async throws {
 		throw DiaryStoreError.unsupportedRemoteEntry
 	}
 }
@@ -207,6 +212,10 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 		params: ThingsDiaryTemplateParams
 	) async throws -> ThingsDiaryTemplate {
 		try await client.updateTemplate(template, params: params)
+	}
+
+	func deleteTemplate(diaryID: String, templateID: String, soft: Bool?) async throws {
+		try await client.deleteTemplate(diaryID: diaryID, templateID: templateID, soft: soft)
 	}
 
 	func getDiaryChanges(
@@ -325,6 +334,78 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 				version: max(entry.version + 1, UInt64(now.timeIntervalSince1970 * 1_000))
 			)
 		}
+
+		func createTopic(
+			diaryID: String,
+			params: ThingsDiaryTopicParams
+		) async throws -> ThingsDiaryTopic {
+			let now = Date()
+			return ThingsDiaryTopic(
+				id: UUID().uuidString.lowercased(),
+				diaryID: diaryID,
+				title: params.title,
+				description: params.description,
+				color: params.color,
+				entryPreviewable: params.entryPreviewable,
+				defaultTemplateID: params.defaultTemplateID,
+				createdAt: now,
+				updatedAt: now,
+				version: UInt64(now.timeIntervalSince1970 * 1_000)
+			)
+		}
+
+		func updateTopic(
+			_ topic: ThingsDiaryTopic,
+			params: ThingsDiaryTopicParams
+		) async throws -> ThingsDiaryTopic {
+			let now = Date()
+			return ThingsDiaryTopic(
+				id: topic.id,
+				diaryID: topic.diaryID,
+				title: params.title,
+				description: params.description,
+				color: params.color,
+				entryPreviewable: params.entryPreviewable,
+				defaultTemplateID: params.defaultTemplateID,
+				createdAt: topic.createdAt,
+				updatedAt: now,
+				deletedAt: topic.deletedAt,
+				version: max(topic.version + 1, UInt64(now.timeIntervalSince1970 * 1_000))
+			)
+		}
+
+		func createTemplate(
+			diaryID: String,
+			params: ThingsDiaryTemplateParams
+		) async throws -> ThingsDiaryTemplate {
+			let now = Date()
+			return ThingsDiaryTemplate(
+				id: UUID().uuidString.lowercased(),
+				diaryID: diaryID,
+				content: params.content,
+				createdAt: now,
+				updatedAt: now,
+				version: UInt64(now.timeIntervalSince1970 * 1_000)
+			)
+		}
+
+		func updateTemplate(
+			_ template: ThingsDiaryTemplate,
+			params: ThingsDiaryTemplateParams
+		) async throws -> ThingsDiaryTemplate {
+			let now = Date()
+			return ThingsDiaryTemplate(
+				id: template.id,
+				diaryID: template.diaryID,
+				content: params.content,
+				createdAt: template.createdAt,
+				updatedAt: now,
+				deletedAt: template.deletedAt,
+				version: max(template.version + 1, UInt64(now.timeIntervalSince1970 * 1_000))
+			)
+		}
+
+		func deleteTemplate(diaryID: String, templateID: String, soft: Bool?) async throws {}
 	}
 #endif
 
@@ -360,6 +441,7 @@ final class ThingsDiaryAppModel {
 	private(set) var entryDraftIDs: Set<String> = []
 	private(set) var entryDraftIDsHiddenFromList: Set<String> = []
 	private(set) var entryPendingCreationIDs: Set<String> = []
+	private(set) var templateDraftIDs: Set<String> = []
 
 	var isCreatingDiary: Bool { presentation == .diaryCreation }
 	var availableDiaries: [ThingsDiaryDiary] { loadedDiaries }
@@ -482,6 +564,7 @@ final class ThingsDiaryAppModel {
 		entryDraftIDs = []
 		entryDraftIDsHiddenFromList = []
 		entryPendingCreationIDs = []
+		templateDraftIDs = []
 		topics = []
 		templates = []
 		presentation = .none
@@ -558,6 +641,7 @@ final class ThingsDiaryAppModel {
 		entryDraftIDs = []
 		entryDraftIDsHiddenFromList = []
 		entryPendingCreationIDs = []
+		templateDraftIDs = []
 		screen = .loading
 		do {
 			async let entriesRequest = client.entries(diaryID: diary.id)
@@ -623,10 +707,15 @@ final class ThingsDiaryAppModel {
 	func beginEntryDraft(appearsInList: Bool, topicID: String? = nil) -> ThingsDiaryEntry? {
 		guard case .entries(let diary, let entries) = screen else { return nil }
 		let now = Date()
+		let defaultTemplateContent =
+			topics
+			.first(where: { $0.id == topicID })
+			.flatMap(\.defaultTemplateID)
+			.flatMap { templateID in templates.first(where: { $0.id == templateID })?.content }
 		let draft = ThingsDiaryEntry(
 			id: UUID().uuidString.lowercased(),
 			diaryID: diary.id,
-			content: "",
+			content: defaultTemplateContent ?? "",
 			topicID: topicID,
 			createdAt: now,
 			updatedAt: now,
@@ -897,7 +986,7 @@ final class ThingsDiaryAppModel {
 		description: String,
 		color: String,
 		entryPreviewable: Bool? = nil,
-		defaultTemplateID: String? = nil
+		defaultTemplateID: String?? = nil
 	) async {
 		let title = normalizedTopicTitle(title)
 		guard !title.isEmpty else { return }
@@ -919,10 +1008,9 @@ final class ThingsDiaryAppModel {
 		}
 	}
 
-	func createTemplate(content: String) async {
-		guard case .entries(let diary, _) = screen else { return }
-		let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard !content.isEmpty else { return }
+	@discardableResult
+	func createTemplate(content: String) async -> ThingsDiaryTemplate? {
+		guard case .entries(let diary, _) = screen else { return nil }
 		do {
 			let template = try await client.createTemplate(
 				diaryID: diary.id,
@@ -930,14 +1018,22 @@ final class ThingsDiaryAppModel {
 			)
 			try await store?.upsertTemplate(template)
 			templates.append(template)
+			return template
 		} catch {
 			screen = .error("Could not create the template.")
+			return nil
 		}
 	}
 
-	func updateTemplate(_ template: ThingsDiaryTemplate, content: String) async {
-		let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard !content.isEmpty else { return }
+	@discardableResult
+	func beginTemplateDraft() async -> ThingsDiaryTemplate? {
+		guard let template = await createTemplate(content: "") else { return nil }
+		templateDraftIDs.insert(template.id)
+		return template
+	}
+
+	@discardableResult
+	func updateTemplate(_ template: ThingsDiaryTemplate, content: String) async -> Bool {
 		do {
 			let updated = try await client.updateTemplate(
 				template,
@@ -945,8 +1041,43 @@ final class ThingsDiaryAppModel {
 			)
 			try await store?.upsertTemplate(updated)
 			templates = templates.map { $0.id == updated.id ? updated : $0 }
+			templateDraftIDs.remove(template.id)
+			return true
 		} catch {
 			screen = .error("Could not update the template.")
+			return false
+		}
+	}
+
+	@discardableResult
+	func deleteTemplate(_ template: ThingsDiaryTemplate) async -> Bool {
+		do {
+			for topic in topics where topic.defaultTemplateID == template.id {
+				let updated = try await client.updateTopic(
+					topic,
+					params: ThingsDiaryTopicParams(
+						title: topic.title,
+						description: topic.description,
+						color: topic.color,
+						entryPreviewable: topic.entryPreviewable,
+						defaultTemplateID: nil
+					)
+				)
+				try await store?.upsertTopic(updated)
+				topics = topics.map { $0.id == updated.id ? updated : $0 }
+			}
+			try await client.deleteTemplate(
+				diaryID: template.diaryID,
+				templateID: template.id,
+				soft: true
+			)
+			try await store?.removeTemplate(diaryID: template.diaryID, templateID: template.id)
+			templates.removeAll { $0.id == template.id }
+			templateDraftIDs.remove(template.id)
+			return true
+		} catch {
+			screen = .error("Could not delete the template.")
+			return false
 		}
 	}
 

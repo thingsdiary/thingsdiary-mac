@@ -21,6 +21,7 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 	case entries
 	case bookmarks
 	case topic(String)
+	case templates
 	case archive
 	case trash
 }
@@ -28,12 +29,12 @@ nonisolated enum DiaryNavigationSelection: Hashable {
 nonisolated let minimumEntryListWidth: CGFloat = 260
 nonisolated let minimumEntryEditorWidth: CGFloat = 420
 nonisolated let entryListDividerWidth: CGFloat = 9
-nonisolated let minimumEntryTabWidth: CGFloat = 92
-nonisolated let maximumEntryTabWidth: CGFloat = 170
-nonisolated let entryTabSpacing: CGFloat = 3
-nonisolated let entryTabLeadingPadding: CGFloat = 6
-nonisolated let entryTabCreateButtonWidth: CGFloat = 30
-nonisolated let entryTabCreateButtonSpacing = entryTabSpacing
+nonisolated let minimumBrowserTabWidth: CGFloat = 92
+nonisolated let maximumBrowserTabWidth: CGFloat = 170
+nonisolated let browserTabSpacing: CGFloat = 3
+nonisolated let browserTabLeadingPadding: CGFloat = 6
+nonisolated let browserTabCreateButtonWidth: CGFloat = 30
+nonisolated let browserTabCreateButtonSpacing = browserTabSpacing
 nonisolated let workspaceTitlebarHeight: CGFloat = 46
 nonisolated let editorWorkspaceFocusHysteresis: CGFloat = 60
 nonisolated let minimumSplitWorkspaceWidth =
@@ -48,131 +49,163 @@ nonisolated func diarySettingsVisible(
 	diaryID == (hoveredDiaryID ?? firstDiaryID)
 }
 
-nonisolated struct EntryTabsState: Equatable {
-	var openEntryIDs: [String] = []
-	var activeEntryID: String?
-	var pinnedEntryIDs: Set<String> = []
-	var previewEntryID: String?
+nonisolated enum WorkspaceTabID: Hashable {
+	case entry(String)
+	case template(String)
 
-	mutating func open(_ entryID: String) {
-		if !openEntryIDs.contains(entryID) {
-			openEntryIDs.append(entryID)
+	var documentID: String {
+		switch self {
+		case .entry(let id), .template(let id): id
 		}
-		promote(entryID)
-		activeEntryID = entryID
 	}
 
-	mutating func preview(_ entryID: String) {
-		if openEntryIDs.contains(entryID) {
-			activeEntryID = entryID
-			if previewEntryID == entryID {
-				promote(entryID)
+	var tabAccessibilityID: String {
+		switch self {
+		case .entry(let id): "entry-tab.\(id)"
+		case .template(let id): "template-tab.\(id)"
+		}
+	}
+
+	var closeAccessibilityID: String {
+		switch self {
+		case .entry(let id): "entry-tab.close.\(id)"
+		case .template(let id): "template-tab.close.\(id)"
+		}
+	}
+
+	var editorAccessibilityID: String {
+		switch self {
+		case .entry: "entry.editor"
+		case .template: "template.editor"
+		}
+	}
+}
+
+nonisolated struct BrowserTabsState<TabID: Hashable>: Equatable {
+	var openTabIDs: [TabID] = []
+	var activeTabID: TabID?
+	var pinnedTabIDs: Set<TabID> = []
+	var previewTabID: TabID?
+
+	mutating func open(_ tabID: TabID) {
+		if !openTabIDs.contains(tabID) {
+			openTabIDs.append(tabID)
+		}
+		promote(tabID)
+		activeTabID = tabID
+	}
+
+	mutating func preview(_ tabID: TabID) {
+		if openTabIDs.contains(tabID) {
+			activeTabID = tabID
+			if previewTabID == tabID {
+				promote(tabID)
 			}
 			return
 		}
 
-		if let previewEntryID,
-			let previewIndex = openEntryIDs.firstIndex(of: previewEntryID)
+		if let previewTabID,
+			let previewIndex = openTabIDs.firstIndex(of: previewTabID)
 		{
-			openEntryIDs[previewIndex] = entryID
+			openTabIDs[previewIndex] = tabID
 		} else {
-			openEntryIDs.append(entryID)
+			openTabIDs.append(tabID)
 		}
-		previewEntryID = entryID
-		activeEntryID = entryID
+		previewTabID = tabID
+		activeTabID = tabID
 	}
 
-	mutating func promote(_ entryID: String) {
-		guard previewEntryID == entryID else { return }
-		previewEntryID = nil
+	mutating func promote(_ tabID: TabID) {
+		guard previewTabID == tabID else { return }
+		previewTabID = nil
 	}
 
-	func isPreview(_ entryID: String) -> Bool {
-		previewEntryID == entryID
+	func isPreview(_ tabID: TabID) -> Bool {
+		previewTabID == tabID
 	}
 
-	mutating func close(_ entryID: String) {
-		guard let index = openEntryIDs.firstIndex(of: entryID) else { return }
-		openEntryIDs.remove(at: index)
-		pinnedEntryIDs.remove(entryID)
-		if previewEntryID == entryID {
-			previewEntryID = nil
+	mutating func close(_ tabID: TabID) {
+		guard let index = openTabIDs.firstIndex(of: tabID) else { return }
+		openTabIDs.remove(at: index)
+		pinnedTabIDs.remove(tabID)
+		if previewTabID == tabID {
+			previewTabID = nil
 		}
-		guard activeEntryID == entryID else { return }
-		activeEntryID = openEntryIDs.indices.contains(index) ? openEntryIDs[index] : openEntryIDs.last
+		guard activeTabID == tabID else { return }
+		activeTabID = openTabIDs.indices.contains(index) ? openTabIDs[index] : openTabIDs.last
 	}
 
-	mutating func togglePin(_ entryID: String) {
-		guard openEntryIDs.contains(entryID) else { return }
-		promote(entryID)
-		if pinnedEntryIDs.remove(entryID) == nil {
-			pinnedEntryIDs.insert(entryID)
+	mutating func togglePin(_ tabID: TabID) {
+		guard openTabIDs.contains(tabID) else { return }
+		promote(tabID)
+		if pinnedTabIDs.remove(tabID) == nil {
+			pinnedTabIDs.insert(tabID)
 		}
 		normalizePinnedOrder()
 	}
 
-	func isPinned(_ entryID: String) -> Bool {
-		pinnedEntryIDs.contains(entryID)
+	func isPinned(_ tabID: TabID) -> Bool {
+		pinnedTabIDs.contains(tabID)
 	}
 
-	func closeableOtherEntryIDs(keeping entryID: String) -> [String] {
-		openEntryIDs.filter { $0 != entryID && !isPinned($0) }
+	func closeableOtherTabIDs(keeping tabID: TabID) -> [TabID] {
+		openTabIDs.filter { $0 != tabID && !isPinned($0) }
 	}
 
-	mutating func move(_ entryID: String, to destinationIndex: Int) {
-		guard let sourceIndex = openEntryIDs.firstIndex(of: entryID) else { return }
-		let range = reorderRange(for: entryID)
-		let entryID = openEntryIDs.remove(at: sourceIndex)
+	mutating func move(_ tabID: TabID, to destinationIndex: Int) {
+		guard let sourceIndex = openTabIDs.firstIndex(of: tabID) else { return }
+		let range = reorderRange(for: tabID)
+		let tabID = openTabIDs.remove(at: sourceIndex)
 		let index = min(max(destinationIndex, range.lowerBound), range.upperBound)
-		openEntryIDs.insert(entryID, at: index)
+		openTabIDs.insert(tabID, at: index)
 	}
 
-	func reorderRange(for entryID: String) -> ClosedRange<Int> {
-		let pinnedCount = pinnedEntryIDs.count
-		if isPinned(entryID) {
+	func reorderRange(for tabID: TabID) -> ClosedRange<Int> {
+		let pinnedCount = pinnedTabIDs.count
+		if isPinned(tabID) {
 			return 0...max(pinnedCount - 1, 0)
 		}
-		return min(pinnedCount, openEntryIDs.count - 1)...max(openEntryIDs.count - 1, pinnedCount)
+		return min(pinnedCount, openTabIDs.count - 1)...max(openTabIDs.count - 1, pinnedCount)
 	}
 
-	mutating func reconcile(validEntryIDs: Set<String>) {
-		openEntryIDs.removeAll { !validEntryIDs.contains($0) }
-		pinnedEntryIDs.formIntersection(validEntryIDs)
-		if let previewEntryID, !validEntryIDs.contains(previewEntryID) {
-			self.previewEntryID = nil
+	mutating func reconcile(validTabIDs: Set<TabID>) {
+		openTabIDs.removeAll { !validTabIDs.contains($0) }
+		pinnedTabIDs.formIntersection(validTabIDs)
+		if let previewTabID, !validTabIDs.contains(previewTabID) {
+			self.previewTabID = nil
 		}
-		if let activeEntryID, !validEntryIDs.contains(activeEntryID) {
-			self.activeEntryID = openEntryIDs.last
+		if let activeTabID, !validTabIDs.contains(activeTabID) {
+			self.activeTabID = openTabIDs.last
 		}
 	}
 
 	private mutating func normalizePinnedOrder() {
-		openEntryIDs =
-			openEntryIDs.filter(pinnedEntryIDs.contains)
-			+ openEntryIDs.filter { !pinnedEntryIDs.contains($0) }
+		openTabIDs =
+			openTabIDs.filter(pinnedTabIDs.contains)
+			+ openTabIDs.filter { !pinnedTabIDs.contains($0) }
 	}
 }
 
-nonisolated enum EntryTabCloseDisposition: Equatable {
+nonisolated enum BrowserTabCloseDisposition: Equatable {
 	case close
 	case confirmDiscard
 }
 
-nonisolated func entryTabCloseDisposition(
+nonisolated func browserTabCloseDisposition(
 	persistedContent: String,
 	draftContent: String
-) -> EntryTabCloseDisposition {
+) -> BrowserTabCloseDisposition {
 	draftContent == persistedContent ? .close : .confirmDiscard
 }
 
-nonisolated struct EntryTabReorderSession: Equatable {
-	let entryID: String
+nonisolated struct TabReorderSession<TabID: Hashable>: Equatable {
+	let tabID: TabID
 	let startIndex: Int
 	private(set) var placeholderIndex: Int
 	private(set) var translation: CGFloat = 0
 
-	init(entryID: String, startIndex: Int) {
-		self.entryID = entryID
+	init(tabID: TabID, startIndex: Int) {
+		self.tabID = tabID
 		self.startIndex = startIndex
 		placeholderIndex = startIndex
 	}
@@ -184,7 +217,7 @@ nonisolated struct EntryTabReorderSession: Equatable {
 		allowedRange: ClosedRange<Int>? = nil
 	) {
 		self.translation = translation
-		let destination = entryTabReorderDestination(
+		let destination = browserTabReorderDestination(
 			startIndex: startIndex,
 			translation: translation,
 			tabWidth: tabWidth,
@@ -200,14 +233,14 @@ nonisolated struct EntryTabReorderSession: Equatable {
 		}
 	}
 
-	func previewOrder(in entryIDs: [String]) -> [String] {
-		var preview = entryIDs.filter { $0 != entryID }
-		preview.insert(entryID, at: min(max(placeholderIndex, 0), preview.count))
+	func previewOrder(in tabIDs: [TabID]) -> [TabID] {
+		var preview = tabIDs.filter { $0 != tabID }
+		preview.insert(tabID, at: min(max(placeholderIndex, 0), preview.count))
 		return preview
 	}
 
 	func offset(forTabAt index: Int, tabWidth: CGFloat) -> CGFloat {
-		let step = tabWidth + entryTabSpacing
+		let step = tabWidth + browserTabSpacing
 		if index == startIndex {
 			return translation
 		}
@@ -220,8 +253,8 @@ nonisolated struct EntryTabReorderSession: Equatable {
 		return 0
 	}
 
-	func commit(to tabs: inout EntryTabsState) {
-		tabs.move(entryID, to: placeholderIndex)
+	func commit(to tabs: inout BrowserTabsState<TabID>) {
+		tabs.move(tabID, to: placeholderIndex)
 	}
 }
 
@@ -233,54 +266,54 @@ nonisolated func effectiveEntryListWidth(
 	return min(max(preferredWidth, minimumEntryListWidth), max(maximumWidth, minimumEntryListWidth))
 }
 
-nonisolated func adaptiveEntryTabWidth(
+nonisolated func adaptiveBrowserTabWidth(
 	availableWidth: CGFloat,
 	tabCount: Int
 ) -> CGFloat {
-	guard tabCount > 0 else { return maximumEntryTabWidth }
-	let separatorsWidth = CGFloat(max(tabCount - 1, 0)) * entryTabSpacing
+	guard tabCount > 0 else { return maximumBrowserTabWidth }
+	let separatorsWidth = CGFloat(max(tabCount - 1, 0)) * browserTabSpacing
 	let fittedWidth = floor((max(availableWidth, 0) - separatorsWidth) / CGFloat(tabCount))
-	return min(maximumEntryTabWidth, max(minimumEntryTabWidth, fittedWidth))
+	return min(maximumBrowserTabWidth, max(minimumBrowserTabWidth, fittedWidth))
 }
 
-nonisolated func entryTabsContentWidth(tabWidth: CGFloat, tabCount: Int) -> CGFloat {
+nonisolated func browserTabsContentWidth(tabWidth: CGFloat, tabCount: Int) -> CGFloat {
 	guard tabCount > 0 else { return 0 }
-	return entryTabLeadingPadding
+	return browserTabLeadingPadding
 		+ CGFloat(tabCount) * tabWidth
-		+ CGFloat(tabCount - 1) * entryTabSpacing
+		+ CGFloat(tabCount - 1) * browserTabSpacing
 }
 
-nonisolated func entryTabCreateButtonOffset(
+nonisolated func browserTabCreateButtonOffset(
 	availableWidth: CGFloat,
 	tabsContentWidth: CGFloat
 ) -> CGFloat {
 	let naturalOffset = max(
-		tabsContentWidth + entryTabCreateButtonSpacing,
-		entryTabLeadingPadding
+		tabsContentWidth + browserTabCreateButtonSpacing,
+		browserTabLeadingPadding
 	)
 	let pinnedOffset = max(
-		availableWidth - entryTabCreateButtonWidth,
-		entryTabLeadingPadding
+		availableWidth - browserTabCreateButtonWidth,
+		browserTabLeadingPadding
 	)
 	return min(naturalOffset, pinnedOffset)
 }
 
-nonisolated func entryTabCreateButtonIsPinned(
+nonisolated func browserTabCreateButtonIsPinned(
 	availableWidth: CGFloat,
 	tabsContentWidth: CGFloat
 ) -> Bool {
 	let naturalOffset = max(
-		tabsContentWidth + entryTabCreateButtonSpacing,
-		entryTabLeadingPadding
+		tabsContentWidth + browserTabCreateButtonSpacing,
+		browserTabLeadingPadding
 	)
 	let pinnedOffset = max(
-		availableWidth - entryTabCreateButtonWidth,
-		entryTabLeadingPadding
+		availableWidth - browserTabCreateButtonWidth,
+		browserTabLeadingPadding
 	)
 	return naturalOffset >= pinnedOffset
 }
 
-nonisolated func shouldHideEntryTabCreateButton(
+nonisolated func shouldHideBrowserTabCreateButton(
 	isReordering: Bool,
 	isPinned: Bool
 ) -> Bool {
@@ -300,14 +333,14 @@ nonisolated func reconciledEntryDraftAfterSave(
 	return persistedContent
 }
 
-nonisolated func entryTabReorderDestination(
+nonisolated func browserTabReorderDestination(
 	startIndex: Int,
 	translation: CGFloat,
 	tabWidth: CGFloat,
 	tabCount: Int
 ) -> Int {
 	guard tabCount > 0 else { return 0 }
-	let step = max(tabWidth + entryTabSpacing, 1)
+	let step = max(tabWidth + browserTabSpacing, 1)
 	let displacedTabs = Int((translation / step).rounded())
 	return min(max(startIndex + displacedTabs, 0), tabCount - 1)
 }
@@ -345,7 +378,6 @@ nonisolated func entryWorkspaceLayout(
 	isCompact: Bool,
 	compactPane: CompactWorkspacePane
 ) -> EntryWorkspaceLayout {
-	guard !selectionIsEmpty else { return .listOnly }
 	if hasSelectedEntry {
 		if isEditorFocusMode { return .editorOnly }
 		guard !isCompact else {
@@ -353,6 +385,7 @@ nonisolated func entryWorkspaceLayout(
 		}
 		return .split
 	}
+	guard !selectionIsEmpty else { return .listOnly }
 	return availableWidth >= minimumDiaryOverviewWidth ? .split : .listOnly
 }
 
@@ -362,6 +395,7 @@ nonisolated enum EntryAction: Equatable {
 	case toggleArchive
 	case archive
 	case duplicate
+	case saveAsTemplate
 	case moveToTopic
 	case moveToTrash
 	case restore
@@ -434,6 +468,7 @@ nonisolated func availableEntryActions(for entry: ThingsDiaryEntry) -> [EntryAct
 		.toggleBookmark,
 		.toggleArchive,
 		.duplicate,
+		.saveAsTemplate,
 		.moveToTopic,
 		.moveToTrash,
 	]
@@ -485,7 +520,7 @@ nonisolated func visibleEntries(
 ) -> [ThingsDiaryEntry] {
 	let section =
 		switch selection {
-		case .entries, .topic:
+		case .entries, .topic, .templates:
 			EntrySection.entries
 		case .bookmarks:
 			EntrySection.bookmarks
@@ -497,7 +532,7 @@ nonisolated func visibleEntries(
 
 	let sectionEntries = visibleEntries(entries, section: section, query: query, sort: sort)
 	guard case .topic(let topicID) = selection else {
-		return sectionEntries
+		return selection == .templates ? [] : sectionEntries
 	}
 	return sectionEntries.filter { $0.topicID == topicID }
 }
@@ -518,6 +553,14 @@ nonisolated func entryListPresentation(content: String) -> EntryListPresentation
 	}
 	let preview = lines.dropFirst().joined(separator: " ")
 	return EntryListPresentation(title: title, preview: preview.isEmpty ? nil : preview)
+}
+
+nonisolated func templateListPresentation(content: String) -> EntryListPresentation {
+	let presentation = entryListPresentation(content: content)
+	guard presentation.title != "Untitled" else {
+		return EntryListPresentation(title: "Untitled Template", preview: nil)
+	}
+	return presentation
 }
 
 nonisolated let maximumTopicTitleLength = 12

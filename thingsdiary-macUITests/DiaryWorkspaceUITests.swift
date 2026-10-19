@@ -6,6 +6,12 @@ extension XCUIElement {
 		let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
 		return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
 	}
+
+	fileprivate func waitForNonExistence(timeout: TimeInterval) -> Bool {
+		let predicate = NSPredicate(format: "exists == false")
+		let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
+		return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+	}
 }
 
 final class DiaryWorkspaceUITests: XCTestCase {
@@ -18,7 +24,81 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let app = XCUIApplication()
 		app.launchArguments = ["--ui-testing-workspace"] + additionalArguments
 		app.launch()
+		XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 2))
+		while app.windows.count > 1 {
+			let restoredWindow = app.windows.element(boundBy: app.windows.count - 1)
+			restoredWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
+			app.typeKey("w", modifierFlags: .command)
+			XCTAssertFalse(restoredWindow.waitForExistence(timeout: 2))
+		}
 		return app
+	}
+
+	private func typeText(_ text: String, into element: XCUIElement) {
+		element.click()
+		for character in text {
+			element.typeText(String(character))
+		}
+	}
+
+	private func workspace(in app: XCUIApplication) -> XCUIElement {
+		let window = app.windows.firstMatch
+		XCTAssertTrue(window.waitForExistence(timeout: 2))
+		let workspace = app.windows[window.identifier]
+		workspace.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
+		return workspace
+	}
+
+	private func activate(_ workspace: XCUIElement) {
+		workspace.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
+	}
+
+	@discardableResult
+	private func createAndSaveTemplate(_ content: String, app: XCUIApplication) -> XCUIElement {
+		let workspace = workspace(in: app)
+		workspace.buttons["sidebar.templates"].click()
+		let newTemplateButton = workspace.buttons["template.create"]
+		XCTAssertTrue(newTemplateButton.waitForExistence(timeout: 2))
+		newTemplateButton.click()
+
+		XCTAssertTrue(workspace.searchFields["Search Templates"].waitForExistence(timeout: 2))
+		let tab = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@",
+				"template-tab.",
+				"template-tab.close."
+			)
+		).firstMatch
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		let savedTab = workspace.buttons[tab.identifier]
+
+		let editor = workspace.textViews["template.editor"]
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		typeText(content, into: editor)
+		XCTAssertTrue(editor.waitForValue(content, timeout: 2))
+		XCTAssertTrue(savedTab.waitForValue("Unsaved changes", timeout: 2))
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["Save"].click()
+		XCTAssertTrue(savedTab.waitForValue("Saved", timeout: 2))
+		XCTAssertEqual(editor.value as? String, content)
+		return savedTab
+	}
+
+	private func chooseDefaultTemplate(
+		_ content: String,
+		workspace: XCUIElement,
+		app: XCUIApplication
+	) {
+		let picker = workspace.descendants(matching: .any)["topic.default-template"]
+		XCTAssertTrue(picker.waitForExistence(timeout: 2))
+		picker.click()
+		let none = app.menuItems["None"]
+		XCTAssertTrue(none.waitForExistence(timeout: 2))
+		none.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+			.withOffset(CGVector(dx: 0, dy: none.frame.height))
+			.click()
+		XCTAssertEqual(picker.value as? String, content)
 	}
 
 	func testSidebarChangesEntrySection() {
@@ -82,7 +162,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertNotEqual(window.frame.origin, originalOrigin)
 
 		app.buttons["entry.fixture-entry"].click()
-		let newTabButton = app.buttons["New Entry Tab"]
+		let newTabButton = app.buttons["browser-tab.create"]
 		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
 
 		let blankX = (newTabButton.frame.maxX + window.frame.maxX - 50) / 2
@@ -191,7 +271,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		app.buttons["sidebar.topic.fixture-topic"].click()
 		app.buttons["New Entry"].firstMatch.click()
 
-		let editor = app.textViews.firstMatch
+		let editor = app.textViews["template.editor"]
 		XCTAssertTrue(editor.waitForExistence(timeout: 2))
 		editor.typeText("Topic draft")
 
@@ -433,7 +513,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 	func testTabBarPlusCreatesDraftThatAppearsAfterTyping() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].click()
-		let newTabButton = app.buttons["New Entry Tab"]
+		let newTabButton = app.buttons["browser-tab.create"]
 
 		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
 		newTabButton.click()
@@ -448,7 +528,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 	func testTabBarPlusFollowsNewDraftWithoutScrollGap() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].click()
-		let newTabButton = app.buttons["New Entry Tab"]
+		let newTabButton = app.buttons["browser-tab.create"]
 
 		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
 		newTabButton.click()
@@ -467,7 +547,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 			app.buttons["entry.fixture-entry\(index == 1 ? "" : "-\(index)")"].doubleClick()
 		}
 
-		let newTabButton = app.buttons["New Entry Tab"]
+		let newTabButton = app.buttons["browser-tab.create"]
 		let lastTab = app.descendants(matching: .any)["entry-tab.fixture-entry-8"]
 		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
 		XCTAssertTrue(lastTab.waitForExistence(timeout: 2))
@@ -481,7 +561,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 	func testPendingEntryKeepsSaveShortcutEnabledAfterFurtherEditing() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].click()
-		app.buttons["New Entry Tab"].click()
+		app.buttons["browser-tab.create"].click()
 
 		let editor = app.textViews.firstMatch
 		XCTAssertTrue(editor.waitForExistence(timeout: 2))
@@ -635,5 +715,158 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let title = app.descendants(matching: .any)["topic.title"]
 		XCTAssertTrue(title.waitForExistence(timeout: 2))
 		XCTAssertEqual(title.value as? String, "Work Topic")
+	}
+
+	func testCreatingEditingAndSavingTemplate() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let content = "x"
+
+		createAndSaveTemplate(content, app: app)
+
+		XCTAssertEqual(workspace.textViews["template.editor"].value as? String, content)
+	}
+
+	func testClosingUntitledTemplateDiscardsIt() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		workspace.buttons["sidebar.templates"].click()
+		workspace.buttons["template.create"].click()
+
+		let template = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND identifier != %@ AND identifier != %@",
+				"template.",
+				"template.create",
+				"template.empty-create"
+			)
+		).firstMatch
+		XCTAssertTrue(template.waitForExistence(timeout: 2))
+
+		let templateID = String(template.identifier.dropFirst("template.".count))
+		let templateRow = workspace.buttons["template.\(templateID)"]
+		workspace.buttons["template-tab.close.\(templateID)"].click()
+
+		XCTAssertTrue(templateRow.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(workspace.descendants(matching: .any)["template.empty-state"].exists)
+	}
+
+	func testNewTopicUsesSelectedTemplateForNewEntry() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let content = "n"
+		createAndSaveTemplate(content, app: app)
+
+		activate(workspace)
+		workspace.buttons["topic.create"].click()
+		let title = workspace.textFields["topic.title"]
+		XCTAssertTrue(title.waitForExistence(timeout: 2))
+		title.typeText("t")
+		chooseDefaultTemplate(content, workspace: workspace, app: app)
+		workspace.buttons["Create"].click()
+
+		XCTAssertFalse(title.waitForExistence(timeout: 2))
+		workspace.buttons["entry.create"].click()
+
+		let editor = workspace.textViews["entry.editor"]
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertEqual(editor.value as? String, content)
+	}
+
+	func testExistingTopicUsesTemplateAddedWhileEditing() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let content = "e"
+		createAndSaveTemplate(content, app: app)
+
+		activate(workspace)
+		let topic = workspace.buttons["sidebar.topic.fixture-topic"]
+		topic.click()
+		topic.doubleClick()
+		let title = workspace.textFields["topic.title"]
+		XCTAssertTrue(title.waitForExistence(timeout: 2))
+		chooseDefaultTemplate(content, workspace: workspace, app: app)
+		workspace.buttons["Save"].click()
+
+		XCTAssertFalse(title.waitForExistence(timeout: 2))
+		workspace.buttons["entry.create"].click()
+
+		let editor = workspace.textViews["entry.editor"]
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertEqual(editor.value as? String, content)
+	}
+
+	func testDeletingTemplateClearsTopicDefaultAndNewEntryStartsEmpty() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let content = "d"
+		createAndSaveTemplate(content, app: app)
+
+		activate(workspace)
+		let topic = workspace.buttons["sidebar.topic.fixture-topic"]
+		topic.doubleClick()
+		let title = workspace.textFields["topic.title"]
+		XCTAssertTrue(title.waitForExistence(timeout: 2))
+		chooseDefaultTemplate(content, workspace: workspace, app: app)
+		workspace.buttons["Save"].click()
+		XCTAssertFalse(title.waitForExistence(timeout: 2))
+
+		workspace.buttons["sidebar.templates"].click()
+		let template = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND identifier != %@ AND identifier != %@",
+				"template.",
+				"template.create",
+				"template.empty-create"
+			)
+		).firstMatch
+		XCTAssertTrue(template.waitForExistence(timeout: 2))
+		template.rightClick()
+		let deleteTemplate = app.menuItems["Delete Template"]
+		XCTAssertTrue(deleteTemplate.waitForExistence(timeout: 2))
+		deleteTemplate.click()
+		let confirmation = app.staticTexts["Delete Template?"]
+		XCTAssertTrue(confirmation.waitForExistence(timeout: 2))
+		app.sheets.firstMatch.buttons["Delete"].click()
+
+		topic.doubleClick()
+		let defaultTemplate = workspace.descendants(matching: .any)["topic.default-template"]
+		XCTAssertTrue(defaultTemplate.waitForExistence(timeout: 2))
+		XCTAssertEqual(defaultTemplate.value as? String, "None")
+		workspace.buttons["Cancel"].click()
+		XCTAssertFalse(defaultTemplate.waitForExistence(timeout: 2))
+
+		topic.click()
+		workspace.buttons["entry.create"].click()
+		let editor = workspace.textViews["entry.editor"]
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertEqual(editor.value as? String, "")
+	}
+
+	func testNewEntryTabImmediatelyShowsUntitledInListAndTabWithEmptyEditor() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		workspace.buttons["entry.fixture-entry"].click()
+		let newEntryTab = app.buttons["browser-tab.create"]
+		XCTAssertTrue(newEntryTab.waitForExistence(timeout: 2))
+		newEntryTab.click()
+		app.buttons["Hide Sidebar"].firstMatch.click()
+
+		let untitledRow = workspace.descendants(matching: .any).matching(
+			NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "entry.", "Untitled")
+		).firstMatch
+		let untitledTab = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		let editor = workspace.textViews["entry.editor"]
+
+		XCTAssertTrue(untitledRow.waitForExistence(timeout: 2))
+		XCTAssertTrue(untitledTab.waitForExistence(timeout: 2))
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertEqual(editor.value as? String, "")
 	}
 }
