@@ -1,16 +1,17 @@
 import SwiftUI
 
-enum AppIcon {
-	case asset(ImageResource)
-	case system(String)
+struct AppIcon {
+	let resource: ImageResource
 
-	static let close = Self.asset(.iconX)
-	static let menu = Self.asset(.iconMenu)
-	static let newEntry = Self.asset(.iconSquarePen)
-	static let panelLeft = Self.asset(.iconPanelLeft)
-	static let plus = Self.asset(.iconPlus)
-	static let trash = Self.asset(.iconTrash)
-	static let trashEmpty = Self.asset(.iconTrashEmpty)
+	static let close = Self(resource: .iconX)
+	static let maximize = Self(resource: .iconMaximize2)
+	static let menu = Self(resource: .iconMenu)
+	static let minimize = Self(resource: .iconMinimize2)
+	static let newEntry = Self(resource: .iconSquarePen)
+	static let panelLeft = Self(resource: .iconPanelLeft)
+	static let plus = Self(resource: .iconPlus)
+	static let trash = Self(resource: .iconTrash)
+	static let trashEmpty = Self(resource: .iconTrashEmpty)
 }
 
 struct AppIconImage: View {
@@ -18,17 +19,11 @@ struct AppIconImage: View {
 	let size: CGFloat
 
 	var body: some View {
-		switch icon {
-		case .asset(let resource):
-			Image(resource)
-				.renderingMode(.template)
-				.resizable()
-				.scaledToFit()
-				.frame(width: size, height: size)
-		case .system(let name):
-			Image(systemName: name)
-				.font(.system(size: size, weight: .semibold))
-		}
+		Image(icon.resource)
+			.renderingMode(.template)
+			.resizable()
+			.scaledToFit()
+			.frame(width: size, height: size)
 	}
 }
 

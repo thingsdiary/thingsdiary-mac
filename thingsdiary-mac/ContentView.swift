@@ -1213,7 +1213,7 @@ private struct EntriesView: View {
 	private var editorTitlebarActions: some View {
 		HStack(spacing: 10) {
 			if isEditorFocusMode {
-				IconButton(icon: .system("arrow.down.right.and.arrow.up.left"), iconSize: 13) {
+				IconButton(icon: .minimize) {
 					isEditorFocusMode = false
 					if isEditorWorkspaceCompact {
 						compactWorkspacePane = .list
@@ -1223,7 +1223,7 @@ private struct EntriesView: View {
 				.accessibilityLabel("Exit Editor Focus")
 				.help("Exit Editor Focus")
 			} else if currentWorkspaceLayout == .split {
-				IconButton(icon: .system("arrow.up.left.and.arrow.down.right"), iconSize: 13) {
+				IconButton(icon: .maximize) {
 					isEditorFocusMode = true
 				}
 				.accessibilityIdentifier("workspace.focus-editor")
