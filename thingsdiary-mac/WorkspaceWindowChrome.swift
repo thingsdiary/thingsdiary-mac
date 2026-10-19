@@ -119,6 +119,31 @@ struct WorkspaceHorizontalResizeHandle: NSViewRepresentable {
 	}
 }
 
+struct WorkspaceVerticalResizeDivider: View {
+	let accessibilityIdentifier: String
+	var height: CGFloat? = nil
+	var hitWidth: CGFloat = 9
+	var dividerWidth: CGFloat = 1
+	let onChanged: (CGFloat) -> Void
+	let onEnded: () -> Void
+
+	var body: some View {
+		WorkspaceHorizontalResizeHandle(
+			accessibilityIdentifier: accessibilityIdentifier,
+			onChanged: onChanged,
+			onEnded: onEnded
+		)
+		.frame(width: hitWidth, height: height)
+		.overlay {
+			Rectangle()
+				.fill(Color(nsColor: .separatorColor))
+				.frame(width: dividerWidth)
+				.allowsHitTesting(false)
+		}
+		.padding(.horizontal, -(hitWidth - dividerWidth) / 2)
+	}
+}
+
 final class WorkspaceHorizontalResizeHandleView: NSView {
 	var onChanged: ((CGFloat) -> Void)?
 	var onEnded: (() -> Void)?
@@ -127,6 +152,7 @@ final class WorkspaceHorizontalResizeHandleView: NSView {
 	private var pointerIsInside = false
 	private var resizeTrackingArea: NSTrackingArea?
 	private var windowWasMovable: Bool?
+	private var resizeCursorIsPushed = false
 
 	override var mouseDownCanMoveWindow: Bool { false }
 
@@ -145,7 +171,7 @@ final class WorkspaceHorizontalResizeHandleView: NSView {
 		}
 		let trackingArea = NSTrackingArea(
 			rect: bounds,
-			options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+			options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .cursorUpdate],
 			owner: self,
 			userInfo: nil
 		)
@@ -155,29 +181,38 @@ final class WorkspaceHorizontalResizeHandleView: NSView {
 
 	override func mouseEntered(with event: NSEvent) {
 		pointerIsInside = true
+		pushResizeCursor()
 		blockWindowMovement()
 	}
 
 	override func mouseExited(with event: NSEvent) {
 		pointerIsInside = false
 		if dragStartX == nil {
+			popResizeCursor()
 			restoreWindowMovement()
 		}
 	}
 
+	override func cursorUpdate(with event: NSEvent) {
+		NSCursor.resizeLeftRight.set()
+	}
+
 	override func mouseDown(with event: NSEvent) {
+		pushResizeCursor()
 		blockWindowMovement()
 		dragStartX = event.locationInWindow.x
 	}
 
 	override func mouseDragged(with event: NSEvent) {
 		guard let dragStartX else { return }
+		NSCursor.resizeLeftRight.set()
 		onChanged?(event.locationInWindow.x - dragStartX)
 	}
 
 	override func mouseUp(with event: NSEvent) {
 		dragStartX = nil
 		if !pointerIsInside {
+			popResizeCursor()
 			restoreWindowMovement()
 		}
 		onEnded?()
@@ -185,6 +220,7 @@ final class WorkspaceHorizontalResizeHandleView: NSView {
 
 	override func viewWillMove(toWindow newWindow: NSWindow?) {
 		if newWindow !== window {
+			popResizeCursor()
 			restoreWindowMovement()
 		}
 		super.viewWillMove(toWindow: newWindow)
@@ -194,6 +230,21 @@ final class WorkspaceHorizontalResizeHandleView: NSView {
 		guard windowWasMovable == nil, let window else { return }
 		windowWasMovable = window.isMovable
 		window.isMovable = false
+	}
+
+	private func pushResizeCursor() {
+		guard !resizeCursorIsPushed else {
+			NSCursor.resizeLeftRight.set()
+			return
+		}
+		NSCursor.resizeLeftRight.push()
+		resizeCursorIsPushed = true
+	}
+
+	private func popResizeCursor() {
+		guard resizeCursorIsPushed else { return }
+		NSCursor.pop()
+		resizeCursorIsPushed = false
 	}
 
 	private func restoreWindowMovement() {

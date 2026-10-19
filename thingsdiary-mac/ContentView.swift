@@ -403,6 +403,8 @@ private enum EntryDraftSaveOutcome {
 
 private struct EntriesView: View {
 	private let listPaneHorizontalInset: CGFloat = 12
+	private let minimumSidebarWidth: CGFloat = 180
+	private let maximumSidebarWidth: CGFloat = 300
 
 	@Bindable var model: ThingsDiaryAppModel
 	let diary: ThingsDiaryDiary
@@ -441,15 +443,16 @@ private struct EntriesView: View {
 	@State private var isEditorFocusMode = false
 	@State private var isEditorWorkspaceCompact = false
 	@State private var compactWorkspacePane: CompactWorkspacePane = .editor
-	@State private var sidebarVisibility: NavigationSplitViewVisibility = .all
 	@State private var currentWorkspaceLayout = EntryWorkspaceLayout.listOnly
 	@State private var availableWorkspaceWidth: CGFloat = 0
 	@State private var dragStartEntryListWidth: CGFloat?
+	@State private var dragStartSidebarWidth: CGFloat?
 	@State private var availableBrowserTabsWidth: CGFloat = 0
 	@State private var browserTabReorderSession: TabReorderSession<WorkspaceTabID>?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
 	@State private var sidebarToggleInSidebar = true
 	@Namespace private var sidebarToggleNamespace
+	@SceneStorage("entries.preferredSidebarWidth") private var preferredSidebarWidth = 220.0
 	@SceneStorage("entries.preferredListWidth") private var preferredEntryListWidth = 320.0
 
 	private var displayedEntries: [ThingsDiaryEntry] {
@@ -599,13 +602,6 @@ private struct EntriesView: View {
 				searchIsFocused = false
 				searchResetID += 1
 			}
-			.onChange(of: sidebarVisibility) {
-				let shouldAppearInSidebar = sidebarVisibility != .detailOnly
-				guard sidebarToggleInSidebar != shouldAppearInSidebar else { return }
-				withAnimation(.easeInOut(duration: 0.24)) {
-					sidebarToggleInSidebar = shouldAppearInSidebar
-				}
-			}
 			.onChange(of: selectionIsEmpty) {
 				guard selectionIsEmpty else { return }
 				query = ""
@@ -673,14 +669,19 @@ private struct EntriesView: View {
 	}
 
 	private var workspaceShell: some View {
-		NavigationSplitView(columnVisibility: $sidebarVisibility) {
-			sidebarWorkspace
-				.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
-				.toolbar(removing: .sidebarToggle)
-		} detail: {
+		HStack(spacing: 0) {
+			if sidebarToggleInSidebar {
+				sidebarWorkspace
+					.frame(width: effectiveSidebarWidth)
+					.frame(maxHeight: .infinity)
+
+				sidebarDivider
+			}
+
 			entryWorkspace
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
 		}
-		.navigationSplitViewStyle(.balanced)
+		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.background {
 			EntrySaveShortcutMonitor {
 				guard canSaveActiveTab else { return false }
@@ -762,6 +763,25 @@ private struct EntriesView: View {
 			sidebar
 		}
 		.ignoresSafeArea(.container, edges: .top)
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+	}
+
+	private var effectiveSidebarWidth: CGFloat {
+		min(max(CGFloat(preferredSidebarWidth), minimumSidebarWidth), maximumSidebarWidth)
+	}
+
+	private var sidebarDivider: some View {
+		WorkspaceVerticalResizeDivider(
+			accessibilityIdentifier: "workspace.sidebar-divider",
+			onChanged: { translation in
+				let start = dragStartSidebarWidth ?? effectiveSidebarWidth
+				dragStartSidebarWidth = start
+				preferredSidebarWidth = Double(
+					min(max(start + translation, minimumSidebarWidth), maximumSidebarWidth)
+				)
+			},
+			onEnded: { dragStartSidebarWidth = nil }
+		)
 	}
 
 	private var entryWorkspace: some View {
@@ -1322,8 +1342,9 @@ private struct EntriesView: View {
 			.allowsHitTesting(false)
 
 		if isInteractive {
-			WorkspaceHorizontalResizeHandle(
+			WorkspaceVerticalResizeDivider(
 				accessibilityIdentifier: accessibilityIdentifier,
+				height: height,
 				onChanged: { translation in
 					let start = dragStartEntryListWidth ?? effectiveListWidth
 					dragStartEntryListWidth = start
@@ -1336,9 +1357,6 @@ private struct EntriesView: View {
 				},
 				onEnded: { dragStartEntryListWidth = nil }
 			)
-			.frame(width: entryListResizeHitWidth, height: height)
-			.overlay { separator }
-			.padding(.horizontal, -(entryListResizeHitWidth - entryListDividerWidth) / 2)
 		} else {
 			ZStack {
 				Color.clear
@@ -1759,18 +1777,8 @@ private struct EntriesView: View {
 	}
 
 	private func toggleSidebar() {
-		let willHideSidebar = sidebarToggleInSidebar
 		withAnimation(.easeInOut(duration: 0.24)) {
 			sidebarToggleInSidebar.toggle()
-		}
-		let handled = NSApp.sendAction(
-			#selector(NSSplitViewController.toggleSidebar(_:)),
-			to: nil,
-			from: nil
-		)
-		guard !handled else { return }
-		withAnimation(.easeInOut(duration: 0.22)) {
-			sidebarVisibility = willHideSidebar ? .detailOnly : .all
 		}
 	}
 
