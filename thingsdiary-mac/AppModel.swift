@@ -525,7 +525,9 @@ final class ThingsDiaryAppModel {
 					content:
 						index == 1
 						? "Fixture Entry\nA useful preview for UI testing."
-						: "Fixture Entry \(index)\nSample note \(index) for UI testing.",
+						: index == 2
+							? "Fixture Entry 2"
+							: "Fixture Entry \(index)\nSample note \(index) for UI testing.",
 					topicID: index == 19 ? "fixture-topic-2" : nil,
 					createdAt: timestamp,
 					updatedAt: timestamp,

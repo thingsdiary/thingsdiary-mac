@@ -561,6 +561,36 @@ nonisolated struct EntryListPresentation: Equatable {
 	let preview: String?
 }
 
+nonisolated func entryListTimestamp(
+	_ date: Date,
+	now: Date = .now,
+	calendar: Calendar = .autoupdatingCurrent,
+	locale: Locale = .autoupdatingCurrent
+) -> String {
+	let today = calendar.startOfDay(for: now)
+	let dateDay = calendar.startOfDay(for: date)
+	let daysAgo = calendar.dateComponents([.day], from: dateDay, to: today).day ?? .min
+	let format = Date.FormatStyle(
+		locale: locale,
+		calendar: calendar,
+		timeZone: calendar.timeZone
+	)
+
+	switch daysAgo {
+	case 0:
+		return date.formatted(format.hour().minute())
+	case 1:
+		return "Yesterday"
+	case 2...6:
+		return date.formatted(format.weekday(.wide))
+	default:
+		if calendar.component(.year, from: date) == calendar.component(.year, from: now) {
+			return date.formatted(format.month(.abbreviated).day())
+		}
+		return date.formatted(format.month(.abbreviated).day().year())
+	}
+}
+
 nonisolated func entryListPresentation(content: String) -> EntryListPresentation {
 	let lines =
 		content

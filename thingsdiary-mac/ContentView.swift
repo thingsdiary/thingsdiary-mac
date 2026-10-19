@@ -2135,7 +2135,8 @@ private struct EntriesView: View {
 			accessibilityLabel: "Search \(selectionTitle)"
 		)
 		.padding(.horizontal, listPaneHorizontalInset)
-		.padding(.vertical, 10)
+		.padding(.top, 12)
+		.padding(.bottom, 6)
 		.background(.background)
 		.zIndex(1)
 		.accessibilityIdentifier("entry-list.header")
@@ -2185,9 +2186,11 @@ private struct EntriesView: View {
 						.contextMenu {
 							entryActions(for: entry)
 						}
-
-					Divider()
-						.padding(.horizontal, listPaneHorizontalInset)
+						.overlay(alignment: .bottom) {
+							Divider()
+								.padding(.horizontal, listPaneHorizontalInset)
+								.allowsHitTesting(false)
+						}
 				}
 			}
 		}
@@ -2509,7 +2512,7 @@ private struct EntriesView: View {
 			content: draftsByEntryID[entry.id] ?? entry.content
 		)
 		let topic = model.topics.first { $0.id == entry.topicID }
-		VStack(alignment: .leading, spacing: 5) {
+		VStack(alignment: .leading, spacing: 6) {
 			HStack(spacing: 7) {
 				if let topic {
 					Circle()
@@ -2520,37 +2523,54 @@ private struct EntriesView: View {
 				Text(presentation.title)
 					.font(.headline)
 					.lineLimit(1)
+					.truncationMode(.tail)
+					.layoutPriority(1)
 				Spacer(minLength: 8)
 				if entry.bookmarked {
 					Image(systemName: "bookmark.fill")
 						.foregroundStyle(.tint)
+						.fixedSize()
 						.accessibilityLabel("Bookmarked")
 				}
-				Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened))
+				Text(entryListTimestamp(entry.createdAt))
 					.font(.caption)
 					.foregroundStyle(.secondary)
+					.fixedSize()
+					.accessibilityLabel(
+						entry.createdAt.formatted(date: .complete, time: .shortened)
+					)
 			}
-			if !entry.previewHidden,
-				topic?.entryPreviewable != false,
-				let preview = presentation.preview
-			{
-				Text(preview)
-					.font(.subheadline)
-					.foregroundStyle(.secondary)
-					.lineLimit(3)
+			.frame(minHeight: 20)
+			HStack(alignment: .top, spacing: 6) {
+				if entry.archived {
+					Label("Archived", systemImage: "archivebox.fill")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+						.fixedSize()
+				} else if entry.deletedAt != nil {
+					Label("In Trash", systemImage: "trash.fill")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+						.fixedSize()
+				}
+				if !entry.previewHidden,
+					topic?.entryPreviewable != false,
+					let preview = presentation.preview
+				{
+					Text(preview)
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
+						.lineLimit(3)
+						.truncationMode(.tail)
+						.padding(.vertical, 1)
+				}
+				Spacer(minLength: 0)
 			}
-			if entry.archived {
-				Label("Archived", systemImage: "archivebox.fill")
-					.font(.caption)
-					.foregroundStyle(.secondary)
-			} else if entry.deletedAt != nil {
-				Label("In Trash", systemImage: "trash.fill")
-					.font(.caption)
-					.foregroundStyle(.secondary)
-			}
+			.frame(maxWidth: .infinity, alignment: .topLeading)
 		}
 		.contentShape(.rect)
-		.padding(.vertical, 5)
+		.padding(.top, 6)
+		.padding(.bottom, 12)
 	}
 
 	private var emptyStateTitle: String {

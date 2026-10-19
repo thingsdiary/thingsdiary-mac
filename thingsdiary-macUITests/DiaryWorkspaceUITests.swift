@@ -272,6 +272,19 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(app.windows.firstMatch.title, "Entries")
 	}
 
+	func testTitleOnlyEntryUsesCompactWebHeight() {
+		let app = launchWorkspace()
+		let withBody = app.buttons["entry.fixture-entry"]
+		let titleOnly = app.buttons["entry.fixture-entry-2"]
+
+		XCTAssertTrue(withBody.waitForExistence(timeout: 2))
+		XCTAssertTrue(titleOnly.waitForExistence(timeout: 2))
+		XCTAssertEqual(titleOnly.frame.height, 44, accuracy: 1)
+		XCTAssertEqual(withBody.frame.height, 60, accuracy: 1)
+		XCTAssertLessThan(titleOnly.frame.height, withBody.frame.height)
+		XCTAssertEqual(withBody.frame.height - titleOnly.frame.height, 16, accuracy: 1)
+	}
+
 	func testAppBarBackgroundAndTitleDragWindow() {
 		let app = launchWorkspace()
 		let window = app.windows.firstMatch
