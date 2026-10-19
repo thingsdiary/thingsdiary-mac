@@ -94,6 +94,25 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		editor.typeKey(.delete, modifierFlags: [])
 	}
 
+	private func assertSavingUnchangedDocumentIsAccepted(
+		app: XCUIApplication,
+		editor: XCUIElement,
+		tab: XCUIElement
+	) {
+		let content = editor.value as? String
+		app.menuBars.menuBarItems["File"].click()
+		let save = app.menuItems["Save"]
+		XCTAssertTrue(save.waitForExistence(timeout: 2))
+		XCTAssertTrue(save.isEnabled)
+		save.click()
+		editor.click()
+		app.typeKey("s", modifierFlags: .command)
+		app.typeKey("s", modifierFlags: .control)
+		XCTAssertEqual(editor.value as? String, content)
+		XCTAssertTrue((tab.value as? String)?.hasSuffix("Saved") == true)
+		XCTAssertFalse(app.sheets.firstMatch.exists)
+	}
+
 	private func showEntryListIfNeeded(in app: XCUIApplication) {
 		let showEntryList = app.buttons["workspace.show-entry-list"].firstMatch
 		if showEntryList.exists {
@@ -1062,6 +1081,17 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(
 			tab.waitForValue("Saved", timeout: 2)
 		)
+	}
+
+	func testSavingUnchangedEntryIsAccepted() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].doubleClick()
+		app.buttons["Hide Sidebar"].firstMatch.click()
+		let entryTab = app.buttons["entry-tab.fixture-entry"]
+		let entryEditor = app.textViews["entry.editor"]
+		XCTAssertTrue(entryTab.waitForExistence(timeout: 2))
+		XCTAssertTrue(entryEditor.waitForExistence(timeout: 2))
+		assertSavingUnchangedDocumentIsAccepted(app: app, editor: entryEditor, tab: entryTab)
 	}
 
 	func testClosingDirtyEntryCanBeCancelledOrDiscarded() {

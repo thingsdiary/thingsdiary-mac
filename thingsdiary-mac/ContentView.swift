@@ -701,7 +701,7 @@ private struct EntriesView: View {
 		.animation(.easeInOut(duration: 0.24), value: isEntryListCollapsed)
 		.background {
 			EntrySaveShortcutMonitor {
-				guard canSaveActiveTab else { return false }
+				guard tabs.activeTabID != nil else { return false }
 				saveActiveTab()
 				return true
 			}
@@ -709,7 +709,7 @@ private struct EntriesView: View {
 		}
 		.focusedSceneValue(
 			\.entrySaveAction,
-			canSaveActiveTab ? { saveActiveTab() } : nil
+			tabs.activeTabID != nil ? { saveActiveTab() } : nil
 		)
 		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
 			GeometryReader { proxy in
@@ -2144,7 +2144,7 @@ private struct EntriesView: View {
 	}
 
 	private func saveActiveTab() {
-		guard let activeTabID = tabs.activeTabID else { return }
+		guard canSaveActiveTab, let activeTabID = tabs.activeTabID else { return }
 		Task {
 			_ = await saveTab(activeTabID, submittedContent: tabDraftContent(activeTabID))
 		}
