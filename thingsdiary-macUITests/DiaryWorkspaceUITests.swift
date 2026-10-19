@@ -446,6 +446,21 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.menuItems["Pin Tab"].exists)
 	}
 
+	func testEntryTabContextMenuOpensAtBottomEdge() {
+		let app = launchWorkspace()
+		app.buttons["entry.fixture-entry"].click()
+
+		let tab = app.descendants(matching: .any)["entry-tab.fixture-entry"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+
+		tab.coordinate(withNormalizedOffset: .zero)
+			.withOffset(CGVector(dx: tab.frame.width / 2, dy: tab.frame.height - 1))
+			.rightClick()
+
+		XCTAssertTrue(app.menuItems["Close"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.menuItems["Pin Tab"].exists)
+	}
+
 	func testEntryCanBeAddedToTopic() {
 		let app = launchWorkspace()
 		let entry = app.buttons["entry.fixture-entry"]

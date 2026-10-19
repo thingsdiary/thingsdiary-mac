@@ -1019,13 +1019,6 @@ private struct EntriesView: View {
 				}
 			}
 		}
-		.overlay {
-			VStack(spacing: 0) {
-				appBarDragStrip
-				Spacer(minLength: 0)
-				appBarDragStrip
-			}
-		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.accessibilityElement(children: .contain)
 		.accessibilityIdentifier("browser-tabs.titlebar")
@@ -1055,11 +1048,6 @@ private struct EntriesView: View {
 					?? "If you don't save, your changes will be lost."
 			)
 		}
-	}
-
-	private var appBarDragStrip: some View {
-		WorkspaceWindowDragArea()
-			.frame(height: 8)
 	}
 
 	private func browserTabsStrip(tabWidth: CGFloat) -> some View {
@@ -1112,7 +1100,7 @@ private struct EntriesView: View {
 						}
 						.padding(.leading, browserTabLeadingPadding)
 					}
-					.frame(width: tabsViewportWidth, height: 30)
+					.frame(width: tabsViewportWidth, height: workspaceTitlebarHeight)
 					.clipped()
 					.onChange(of: tabs.activeTabID) {
 						guard
@@ -1124,7 +1112,11 @@ private struct EntriesView: View {
 						}
 					}
 				}
-				.frame(width: tabsViewportWidth, height: 30, alignment: .leading)
+				.frame(
+					width: tabsViewportWidth,
+					height: workspaceTitlebarHeight,
+					alignment: .leading
+				)
 
 				IconButton(
 					icon: .plus,
@@ -1186,7 +1178,7 @@ private struct EntriesView: View {
 				finishReordering: { finishReorderingBrowserTab(tabID) }
 			)
 		}
-		.frame(width: width, height: 30)
+		.frame(width: width, height: workspaceTitlebarHeight)
 		.contentShape(Rectangle())
 		.id(tabID)
 		.contextMenu {
