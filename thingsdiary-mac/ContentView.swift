@@ -2343,7 +2343,14 @@ private struct EntriesView: View {
 		doubleClick: (() -> Void)? = nil
 	) -> some View {
 		let isDropTargeted = dropDestination != nil && dropDestination == targetedDropDestination
-		let dropTint = dropDestination == .trash ? Color.red : color ?? Color.accentColor
+		let dropTint =
+			if dropDestination == .trash {
+				Color.red
+			} else if dropDestination == .bookmarks {
+				topicColorValue("#FCD34D")
+			} else {
+				color ?? Color.accentColor
+			}
 		let rowCount = count(for: destination)
 
 		return Button {
@@ -2356,9 +2363,15 @@ private struct EntriesView: View {
 						.frame(width: 8, height: 8)
 						.frame(width: 16)
 				} else {
-					Image(systemName: systemImage)
-						.frame(width: 16)
-						.foregroundStyle(.tint)
+					Image(
+						systemName: isDropTargeted && dropDestination == .bookmarks
+							? "bookmark.fill" : systemImage
+					)
+					.frame(width: 16)
+					.foregroundStyle(
+						isDropTargeted && dropDestination == .bookmarks
+							? dropTint : Color.accentColor
+					)
 				}
 				Text(title)
 					.lineLimit(1)
