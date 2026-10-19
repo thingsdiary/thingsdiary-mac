@@ -758,14 +758,16 @@ final class ThingsDiaryAppModel {
 
 	private func promoteEntryDraft(
 		_ draft: ThingsDiaryEntry,
-		params: ThingsDiaryEntryParams
+		params: ThingsDiaryEntryParams,
+		allowsUnchanged: Bool = false
 	) {
 		guard entryDraftIDs.contains(draft.id),
 			case .entries(let diary, let entries) = screen,
 			entries.contains(where: { $0.id == draft.id })
 		else { return }
 		guard
-			params.content != draft.content
+			allowsUnchanged
+				|| params.content != draft.content
 				|| params.topicID != draft.topicID
 				|| params.archived != draft.archived
 				|| params.bookmarked != draft.bookmarked
@@ -910,20 +912,18 @@ final class ThingsDiaryAppModel {
 
 	@discardableResult
 	func updateEntry(_ entry: ThingsDiaryEntry, content: String) async -> Bool {
-		let content = content.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard !content.isEmpty else {
-			return false
-		}
-		return await saveEntry(
-			entry,
-			params: ThingsDiaryEntryParams(
-				content: content,
-				topicID: entry.topicID,
-				archived: entry.archived,
-				bookmarked: entry.bookmarked,
-				previewHidden: entry.previewHidden
-			)
+		let params = ThingsDiaryEntryParams(
+			content: content,
+			topicID: entry.topicID,
+			archived: entry.archived,
+			bookmarked: entry.bookmarked,
+			previewHidden: entry.previewHidden
 		)
+		if entryDraftIDs.contains(entry.id) {
+			promoteEntryDraft(entry, params: params, allowsUnchanged: true)
+			return !entryDraftIDs.contains(entry.id)
+		}
+		return await saveEntry(entry, params: params)
 	}
 
 	func moveEntry(_ entry: ThingsDiaryEntry, toTopicID topicID: String?) async {

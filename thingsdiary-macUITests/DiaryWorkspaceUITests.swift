@@ -53,6 +53,20 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		workspace.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
 	}
 
+	private func saveFromFileMenu(in app: XCUIApplication) {
+		app.menuBars.menuBarItems["File"].click()
+		let save = app.menuItems["Save"]
+		XCTAssertTrue(save.waitForExistence(timeout: 2))
+		XCTAssertTrue(save.isEnabled)
+		save.click()
+	}
+
+	private func clearText(in editor: XCUIElement) {
+		editor.click()
+		editor.typeKey("a", modifierFlags: .command)
+		editor.typeKey(.delete, modifierFlags: [])
+	}
+
 	@discardableResult
 	private func createAndSaveTemplate(_ content: String, app: XCUIApplication) -> XCUIElement {
 		let workspace = workspace(in: app)
@@ -510,6 +524,50 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertFalse(app.buttons["Create"].exists)
 	}
 
+	func testEmptyEntryCanBeSavedAndLaterCleared() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		workspace.buttons["entry.create"].click()
+
+		let draftTab = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
+		let entryID = String(draftTab.identifier.dropFirst("entry-tab.".count))
+		let editor = workspace.textViews["entry.editor"]
+		XCTAssertEqual(editor.value as? String, "")
+
+		saveFromFileMenu(in: app)
+		XCTAssertTrue(draftTab.waitForValue("Saved", timeout: 2))
+		typeText("x", into: editor)
+		saveFromFileMenu(in: app)
+		XCTAssertTrue(workspace.buttons["entry-tab.\(entryID)"].waitForValue("Saved", timeout: 2))
+
+		clearText(in: editor)
+		XCTAssertEqual(editor.value as? String, "")
+		saveFromFileMenu(in: app)
+		XCTAssertTrue(workspace.buttons["entry-tab.\(entryID)"].waitForValue("Saved", timeout: 2))
+
+		workspace.buttons["entry-tab.\(entryID)"].hover()
+		let closeButton = workspace.buttons["entry-tab.close.\(entryID)"]
+		XCTAssertTrue(closeButton.waitForExistence(timeout: 2))
+		closeButton.click()
+		let row = workspace.descendants(matching: .any).matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+				"entry.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(row.waitForExistence(timeout: 2))
+		row.click()
+		XCTAssertEqual(editor.value as? String, "")
+	}
+
 	func testTabBarPlusCreatesDraftThatAppearsAfterTyping() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].click()
@@ -725,6 +783,45 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		createAndSaveTemplate(content, app: app)
 
 		XCTAssertEqual(workspace.textViews["template.editor"].value as? String, content)
+	}
+
+	func testEmptyTemplateCanBeSavedAndLaterCleared() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		workspace.buttons["sidebar.templates"].click()
+		workspace.buttons["template.create"].click()
+
+		let draftTab = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"template-tab.",
+				"Untitled Template"
+			)
+		).firstMatch
+		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
+		let templateID = String(draftTab.identifier.dropFirst("template-tab.".count))
+		let row = workspace.buttons["template.\(templateID)"]
+		let editor = workspace.textViews["template.editor"]
+		XCTAssertEqual(editor.value as? String, "")
+
+		saveFromFileMenu(in: app)
+		XCTAssertTrue(draftTab.waitForValue("Saved", timeout: 2))
+		typeText("x", into: editor)
+		saveFromFileMenu(in: app)
+		let savedTab = workspace.buttons["template-tab.\(templateID)"]
+		XCTAssertTrue(savedTab.waitForValue("Saved", timeout: 2))
+
+		clearText(in: editor)
+		XCTAssertEqual(editor.value as? String, "")
+		saveFromFileMenu(in: app)
+		XCTAssertTrue(savedTab.waitForValue("Saved", timeout: 2))
+
+		savedTab.hover()
+		let closeButton = workspace.buttons["template-tab.close.\(templateID)"]
+		XCTAssertTrue(closeButton.waitForExistence(timeout: 2))
+		closeButton.click()
+		row.click()
+		XCTAssertEqual(editor.value as? String, "")
 	}
 
 	func testClosingUntitledTemplateDiscardsIt() {

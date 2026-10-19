@@ -621,9 +621,10 @@ private struct EntriesView: View {
 		case .entry:
 			guard let selectedEntry else { return false }
 			return canSave(selectedEntry)
-		case .template:
+		case .template(let templateID):
 			guard let selectedTemplate else { return false }
-			return selectedTemplateDraft != selectedTemplate.content
+			return model.templateDraftIDs.contains(templateID)
+				|| selectedTemplateDraft != selectedTemplate.content
 		case nil:
 			return false
 		}
@@ -2348,9 +2349,7 @@ private struct EntriesView: View {
 	private func canSave(_ entry: ThingsDiaryEntry) -> Bool {
 		entry.deletedAt == nil
 			&& !entry.archived
-			&& !model.entryDraftIDs.contains(entry.id)
-			&& !selectedDraftContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-			&& selectedDraftContent != entry.content
+			&& (model.entryDraftIDs.contains(entry.id) || selectedDraftContent != entry.content)
 	}
 
 	private func entryDragGesture(for entry: ThingsDiaryEntry) -> some Gesture {
