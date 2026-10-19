@@ -406,6 +406,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let app = launchWorkspace()
 		let entryList = app.descendants(matching: .any)["entry-list.scroll"]
 		let editor = app.descendants(matching: .any)["entry.editor"]
+		let sectionTitle = app.staticTexts["entry-list.section-title"]
 
 		app.buttons["entry.fixture-entry"].click()
 		XCTAssertTrue(editor.waitForExistence(timeout: 2))
@@ -420,17 +421,54 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		app.buttons["Hide Sidebar"].firstMatch.click()
 		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
 		XCTAssertTrue(editor.exists)
+		XCTAssertTrue(sectionTitle.waitForExistence(timeout: 2))
+		XCTAssertEqual(sectionTitle.value as? String, "Entries")
 
 		app.buttons["workspace.hide-entry-list"].firstMatch.click()
 		XCTAssertFalse(entryList.waitForExistence(timeout: 1))
 		XCTAssertTrue(editor.exists)
+		XCTAssertTrue(sectionTitle.waitForNonExistence(timeout: 2))
 		app.buttons["workspace.show-entry-list"].firstMatch.click()
 		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
 		XCTAssertTrue(editor.exists)
+		XCTAssertTrue(sectionTitle.waitForExistence(timeout: 2))
 
 		app.buttons["Show Sidebar"].firstMatch.click()
 		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
 		XCTAssertFalse(editor.exists)
+	}
+
+	func testClosingLastDraftKeepsSidebarAndEntryListCollapsed() {
+		let app = launchWorkspace()
+		let entryList = app.descendants(matching: .any)["entry-list.scroll"]
+
+		let hideEntryList = app.buttons["workspace.hide-entry-list"].firstMatch
+		XCTAssertTrue(hideEntryList.waitForExistence(timeout: 2))
+		hideEntryList.click()
+		XCTAssertTrue(
+			app.buttons["workspace.show-entry-list"].firstMatch.waitForExistence(timeout: 2)
+		)
+		XCTAssertTrue(entryList.waitForNonExistence(timeout: 2))
+		app.buttons["Hide Sidebar"].firstMatch.click()
+		XCTAssertTrue(app.buttons["Show Sidebar"].firstMatch.waitForExistence(timeout: 2))
+
+		app.buttons["browser-tab.create"].click()
+		let draftTab = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
+		let draftID = String(draftTab.identifier.dropFirst("entry-tab.".count))
+
+		closeEntryTab(draftID, app: app)
+
+		XCTAssertTrue(app.buttons["Show Sidebar"].firstMatch.exists)
+		XCTAssertTrue(app.buttons["workspace.show-entry-list"].firstMatch.exists)
+		XCTAssertFalse(entryList.exists)
+		XCTAssertFalse(app.staticTexts["entry-list.section-title"].exists)
 	}
 
 	func testEmptyContextualSectionsKeepSplitLayoutWithoutDiaryOverview() {

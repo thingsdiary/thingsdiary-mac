@@ -615,10 +615,6 @@ private struct EntriesView: View {
 						+ model.templates.map { WorkspaceTabID.template($0.id) }
 				)
 				tabs.reconcile(validTabIDs: validTabIDs)
-				if tabs.activeTabID == nil {
-					isEntryListCollapsed = false
-					compactWorkspacePane = .editor
-				}
 			}
 			.onChange(of: model.templates.map(\.id)) { templateIDs in
 				let validTabIDs = Set(
@@ -626,10 +622,6 @@ private struct EntriesView: View {
 						+ templateIDs.map(WorkspaceTabID.template)
 				)
 				tabs.reconcile(validTabIDs: validTabIDs)
-				if tabs.activeTabID == nil {
-					isEntryListCollapsed = false
-					compactWorkspacePane = .editor
-				}
 			}
 			.onChange(of: model.diarySettingsRequestID) {
 				presentRequestedDiarySettings()
@@ -885,12 +877,8 @@ private struct EntriesView: View {
 			Text(selectionTitle)
 				.font(.headline)
 				.lineLimit(1)
-				.opacity(
-					sidebarToggleInSidebar && currentWorkspaceLayout != .editorOnly ? 1 : 0
-				)
-				.accessibilityHidden(
-					!sidebarToggleInSidebar || currentWorkspaceLayout == .editorOnly
-				)
+				.opacity(currentWorkspaceLayout != .editorOnly ? 1 : 0)
+				.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
 				.accessibilityIdentifier("entry-list.section-title")
 
 			Spacer(minLength: 8)
@@ -915,7 +903,12 @@ private struct EntriesView: View {
 			minHeight: workspaceTitlebarHeight,
 			maxHeight: workspaceTitlebarHeight
 		)
-		.padding(.leading, listPaneHorizontalInset)
+		.padding(
+			.leading,
+			sidebarToggleInSidebar
+				? listPaneHorizontalInset
+				: workspaceHeaderNavigationControlsReservedWidth
+		)
 		.padding(.trailing, listPaneHorizontalInset)
 		.background(WorkspaceWindowDragArea())
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
@@ -2141,10 +2134,6 @@ private struct EntriesView: View {
 		}
 		discardDraft(for: tabID)
 		tabs.close(tabID)
-		if tabs.activeTabID == nil {
-			isEntryListCollapsed = false
-			compactWorkspacePane = .editor
-		}
 	}
 
 	private func discardDraft(for tabID: WorkspaceTabID) {
