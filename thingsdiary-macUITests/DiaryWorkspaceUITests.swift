@@ -402,7 +402,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(sidebarDivider.exists)
 	}
 
-	func testEditorPriorityAndManualFocusMode() {
+	func testEditorPriorityAndEntryListToggle() {
 		let app = launchWorkspace()
 		let entryList = app.descendants(matching: .any)["entry-list.scroll"]
 		let editor = app.descendants(matching: .any)["entry.editor"]
@@ -421,19 +421,19 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
 		XCTAssertTrue(editor.exists)
 
-		app.buttons["workspace.focus-editor"].firstMatch.click()
+		app.buttons["workspace.hide-entry-list"].firstMatch.click()
 		XCTAssertFalse(entryList.waitForExistence(timeout: 1))
 		XCTAssertTrue(editor.exists)
-		app.buttons["workspace.exit-editor-focus"].firstMatch.click()
+		app.buttons["workspace.show-entry-list"].firstMatch.click()
 		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
 		XCTAssertTrue(editor.exists)
 
 		app.buttons["Show Sidebar"].firstMatch.click()
-		XCTAssertFalse(entryList.waitForExistence(timeout: 1))
-		XCTAssertTrue(editor.exists)
+		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
+		XCTAssertFalse(editor.exists)
 	}
 
-	func testEmptyTopicExplainsHowToAddEntriesWithoutListControls() {
+	func testEmptyContextualSectionsKeepSplitLayoutWithoutDiaryOverview() {
 		let app = launchWorkspace()
 
 		app.buttons["sidebar.topic.fixture-topic"].click()
@@ -445,15 +445,38 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.buttons["New Entry"].exists)
 		XCTAssertFalse(app.descendants(matching: .any)["entry-list.header"].exists)
 		XCTAssertFalse(app.searchFields["Search Work Topic"].exists)
+		XCTAssertTrue(app.descendants(matching: .any)["workspace.split"].exists)
+		XCTAssertFalse(app.descendants(matching: .any)["diary.overview"].exists)
+
+		app.buttons["sidebar.templates"].click()
+		XCTAssertTrue(
+			app.descendants(matching: .any)["template.empty-state"].waitForExistence(timeout: 2)
+		)
+		XCTAssertTrue(app.descendants(matching: .any)["workspace.split"].exists)
+		XCTAssertFalse(app.descendants(matching: .any)["diary.overview"].exists)
+	}
+
+	func testTabBarPlusCreatesBasicEntryOutsideTopicContext() {
+		let app = launchWorkspace()
+
+		app.buttons["sidebar.topic.fixture-topic"].click()
+		let newTabButton = app.buttons["browser-tab.create"]
+		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
+		newTabButton.click()
+
+		XCTAssertEqual(app.windows.firstMatch.title, "Entries")
+		XCTAssertTrue(app.buttons["Untitled"].firstMatch.waitForExistence(timeout: 2))
 	}
 
 	func testCreatingEntryInTopicKeepsTopicSelected() {
 		let app = launchWorkspace()
 
 		app.buttons["sidebar.topic.fixture-topic"].click()
-		app.buttons["New Entry"].firstMatch.click()
+		let createEntryButton = app.buttons["entry.create"]
+		XCTAssertTrue(createEntryButton.waitForExistence(timeout: 2))
+		createEntryButton.click()
 
-		let editor = app.textViews["template.editor"]
+		let editor = app.textViews["entry.editor"]
 		XCTAssertTrue(editor.waitForExistence(timeout: 2))
 		editor.typeText("Topic draft")
 

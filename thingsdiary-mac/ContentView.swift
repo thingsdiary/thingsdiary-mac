@@ -441,7 +441,7 @@ private struct EntriesView: View {
 	@State private var confirmingEmptyTrash = false
 	@State private var templateDraftsByID: [String: String] = [:]
 	@State private var templatePendingDeletion: ThingsDiaryTemplate?
-	@State private var isEditorFocusMode = false
+	@State private var isEntryListCollapsed = false
 	@State private var isEditorWorkspaceCompact = false
 	@State private var compactWorkspacePane: CompactWorkspacePane = .editor
 	@State private var currentWorkspaceLayout = EntryWorkspaceLayout.listOnly
@@ -452,7 +452,7 @@ private struct EntriesView: View {
 	@State private var browserTabReorderSession: TabReorderSession<WorkspaceTabID>?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
 	@State private var sidebarToggleInSidebar = true
-	@Namespace private var sidebarToggleNamespace
+	@Namespace private var workspaceControlsNamespace
 	@SceneStorage("entries.preferredSidebarWidth") private var preferredSidebarWidth = 220.0
 	@SceneStorage("entries.preferredListWidth") private var preferredEntryListWidth = 320.0
 
@@ -616,7 +616,7 @@ private struct EntriesView: View {
 				)
 				tabs.reconcile(validTabIDs: validTabIDs)
 				if tabs.activeTabID == nil {
-					isEditorFocusMode = false
+					isEntryListCollapsed = false
 					compactWorkspacePane = .editor
 				}
 			}
@@ -627,7 +627,7 @@ private struct EntriesView: View {
 				)
 				tabs.reconcile(validTabIDs: validTabIDs)
 				if tabs.activeTabID == nil {
-					isEditorFocusMode = false
+					isEntryListCollapsed = false
 					compactWorkspacePane = .editor
 				}
 			}
@@ -706,6 +706,7 @@ private struct EntriesView: View {
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
+		.animation(.easeInOut(duration: 0.24), value: isEntryListCollapsed)
 		.background {
 			EntrySaveShortcutMonitor {
 				guard canSaveActiveTab else { return false }
@@ -780,7 +781,7 @@ private struct EntriesView: View {
 				.gesture(WindowDragGesture())
 				.overlay(alignment: .trailing) {
 					if sidebarToggleInSidebar {
-						animatedSidebarToggleButton
+						workspaceNavigationControls
 							.padding(.trailing, 10)
 					}
 				}
@@ -818,30 +819,65 @@ private struct EntriesView: View {
 		.background(.background)
 	}
 
-	@ViewBuilder private var workspaceHeader: some View {
-		Group {
-			switch currentWorkspaceLayout {
-			case .listOnly:
-				entryListTitlebar
-			case .split:
+	private var workspaceHeader: some View {
+		GeometryReader { proxy in
+			let availableWidth = max(proxy.size.width, 0)
+			let listWidth = effectiveEntryListWidth(
+				preferredWidth: CGFloat(preferredEntryListWidth),
+				availableWidth: availableWidth
+			)
+			let browserWidth: CGFloat =
+				switch currentWorkspaceLayout {
+				case .listOnly: 0
+				case .split: max(availableWidth - listWidth - entryListDividerWidth, 0)
+				case .editorOnly: availableWidth
+				}
+
+			ZStack(alignment: .trailing) {
 				HStack(spacing: 0) {
 					entryListTitlebar
-						.frame(width: effectiveListWidth)
-					entryListDivider(
-						isInteractive: true,
-						height: workspaceTitlebarHeight,
-						accessibilityIdentifier: "workspace.entry-list-divider.header"
-					)
+						.frame(
+							width: currentWorkspaceLayout == .listOnly ? availableWidth : listWidth
+						)
+					if currentWorkspaceLayout != .listOnly {
+						entryListDivider(
+							isInteractive: currentWorkspaceLayout == .split,
+							height: workspaceTitlebarHeight,
+							accessibilityIdentifier: "workspace.entry-list-divider.header"
+						)
+					}
+				}
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.allowsHitTesting(currentWorkspaceLayout != .editorOnly)
+					.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
+
+				HStack(spacing: 0) {
 					browserTabsBar
 				}
-			case .editorOnly:
-				browserTabsBar
+				.frame(width: browserWidth, alignment: .trailing)
+				.background(TitlebarMaterialBackground())
+				.clipped()
+				.allowsHitTesting(currentWorkspaceLayout != .listOnly)
+				.accessibilityHidden(currentWorkspaceLayout == .listOnly)
+				.zIndex(1)
 			}
 		}
 		.frame(height: workspaceTitlebarHeight)
 		.fixedSize(horizontal: false, vertical: true)
 		.layoutPriority(1)
 		.background(TitlebarMaterialBackground())
+		.overlay(alignment: .leading) {
+			ZStack(alignment: .leading) {
+				if !sidebarToggleInSidebar {
+					workspaceHeaderNavigationControls
+				}
+				if !sidebarToggleInSidebar {
+					workspaceHeaderNavigationDivider
+						.transition(.identity)
+				}
+			}
+		}
+		.animation(.easeInOut(duration: 0.24), value: currentWorkspaceLayout)
 	}
 
 	private var entryListTitlebar: some View {
@@ -849,6 +885,12 @@ private struct EntriesView: View {
 			Text(selectionTitle)
 				.font(.headline)
 				.lineLimit(1)
+				.opacity(
+					sidebarToggleInSidebar && currentWorkspaceLayout != .editorOnly ? 1 : 0
+				)
+				.accessibilityHidden(
+					!sidebarToggleInSidebar || currentWorkspaceLayout == .editorOnly
+				)
 				.accessibilityIdentifier("entry-list.section-title")
 
 			Spacer(minLength: 8)
@@ -865,29 +907,7 @@ private struct EntriesView: View {
 				.help("Show Editor")
 			}
 
-			if activeSelection == .trash {
-				IconButton(
-					icon: displayedEntries.isEmpty ? .trashEmpty : .trash,
-					iconSize: 18
-				) {
-					confirmingEmptyTrash = true
-				}
-				.disabled(displayedEntries.isEmpty)
-				.accessibilityIdentifier("trash.empty")
-				.accessibilityLabel("Empty Trash")
-				.help("Empty Trash")
-			} else if activeSelection == .templates {
-				IconButton(icon: .newEntry, action: createTemplate)
-					.accessibilityIdentifier("template.create")
-					.accessibilityLabel("New Template")
-					.help("New Template")
-			} else if activeSelection != .archive {
-				IconButton(icon: .newEntry, action: beginCreatingEntry)
-					.accessibilityIdentifier("entry.create")
-					.accessibilityLabel("New Entry")
-					.keyboardShortcut("n", modifiers: .command)
-					.help("Create a new entry")
-			}
+			entryListTitlebarAction
 		}
 		.buttonStyle(.borderless)
 		.frame(
@@ -895,24 +915,60 @@ private struct EntriesView: View {
 			minHeight: workspaceTitlebarHeight,
 			maxHeight: workspaceTitlebarHeight
 		)
-		.padding(
-			.leading,
-			sidebarToggleInSidebar ? listPaneHorizontalInset : trafficLightsTrailingInset + 58
-		)
+		.padding(.leading, listPaneHorizontalInset)
 		.padding(.trailing, listPaneHorizontalInset)
 		.background(WorkspaceWindowDragArea())
-		.overlay(alignment: .leading) {
-			if !sidebarToggleInSidebar {
-				HStack(spacing: 10) {
-					Color.clear.frame(width: trafficLightsTrailingInset)
-					animatedSidebarToggleButton
-				}
-				.padding(.leading, 10)
-			}
-		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.accessibilityElement(children: .contain)
 		.accessibilityIdentifier("entry-list.titlebar")
+	}
+
+	private var entryListTitlebarAction: some View {
+		ZStack {
+			entryListTitlebarActionContent
+				.id(activeSelection)
+				.transition(.opacity)
+		}
+		.frame(width: 30, height: 30)
+		.opacity(
+			sidebarToggleInSidebar && currentWorkspaceLayout != .editorOnly ? 1 : 0
+		)
+		.allowsHitTesting(
+			sidebarToggleInSidebar && currentWorkspaceLayout != .editorOnly
+		)
+		.accessibilityHidden(
+			!sidebarToggleInSidebar || currentWorkspaceLayout == .editorOnly
+		)
+		.animation(.easeInOut(duration: 0.16), value: activeSelection)
+	}
+
+	@ViewBuilder private var entryListTitlebarActionContent: some View {
+		switch activeSelection {
+		case .trash:
+			IconButton(
+				icon: displayedEntries.isEmpty ? .trashEmpty : .trash,
+				iconSize: 18
+			) {
+				confirmingEmptyTrash = true
+			}
+			.disabled(displayedEntries.isEmpty)
+			.accessibilityIdentifier("trash.empty")
+			.accessibilityLabel("Empty Trash")
+			.help("Empty Trash")
+		case .templates:
+			IconButton(icon: .newEntry, action: createTemplate)
+				.accessibilityIdentifier("template.create")
+				.accessibilityLabel("New Template")
+				.help("New Template")
+		case .archive:
+			Color.clear
+		case .entries, .bookmarks, .topic:
+			IconButton(icon: .newEntry, action: beginCreatingEntry)
+				.accessibilityIdentifier("entry.create")
+				.accessibilityLabel("New Entry")
+				.keyboardShortcut("n", modifiers: .command)
+				.help("Create a new entry")
+		}
 	}
 
 	private var sidebarToggleButton: some View {
@@ -926,11 +982,66 @@ private struct EntriesView: View {
 		sidebarToggleButton
 			.matchedGeometryEffect(
 				id: "workspace-sidebar-toggle",
-				in: sidebarToggleNamespace,
+				in: workspaceControlsNamespace,
 				properties: .position,
 				anchor: .center
 			)
 			.zIndex(2)
+	}
+
+	private var entryListToggleButton: some View {
+		IconButton(icon: .menu, action: toggleEntryList)
+			.accessibilityIdentifier(
+				currentWorkspaceLayout == .editorOnly
+					? "workspace.show-entry-list"
+					: "workspace.hide-entry-list"
+			)
+			.accessibilityLabel(
+				currentWorkspaceLayout == .editorOnly ? "Show Entry List" : "Hide Entry List"
+			)
+			.help(currentWorkspaceLayout == .editorOnly ? "Show Entry List" : "Hide Entry List")
+	}
+
+	private var animatedEntryListToggleButton: some View {
+		entryListToggleButton
+			.matchedGeometryEffect(
+				id: "workspace-entry-list-toggle",
+				in: workspaceControlsNamespace,
+				properties: .position,
+				anchor: .center
+			)
+			.zIndex(2)
+	}
+
+	private var workspaceNavigationControls: some View {
+		HStack(spacing: 4) {
+			animatedSidebarToggleButton
+			animatedEntryListToggleButton
+		}
+		.fixedSize(horizontal: true, vertical: false)
+	}
+
+	private var workspaceHeaderNavigationControls: some View {
+		HStack(spacing: 8) {
+			Color.clear.frame(width: trafficLightsTrailingInset)
+			workspaceNavigationControls
+		}
+		.padding(.leading, 10)
+		.fixedSize(horizontal: true, vertical: false)
+	}
+
+	private var workspaceHeaderNavigationDivider: some View {
+		Rectangle()
+			.fill(Color(nsColor: .separatorColor))
+			.frame(width: 1, height: 24)
+			.offset(
+				x: 10 + trafficLightsTrailingInset + 8 + 64 + 8
+			)
+			.allowsHitTesting(false)
+	}
+
+	private var workspaceHeaderNavigationControlsReservedWidth: CGFloat {
+		10 + trafficLightsTrailingInset + 8 + 64 + 8 + 1 + 8
 	}
 
 	private var browserTabsBar: some View {
@@ -942,20 +1053,13 @@ private struct EntriesView: View {
 		return HStack(spacing: 8) {
 			browserTabsStrip(tabWidth: tabWidth)
 				.frame(maxWidth: .infinity)
-
-			if tabs.activeTabID != nil {
-				Divider()
-					.frame(height: 24)
-					.allowsHitTesting(false)
-				editorTitlebarActions
-			}
 		}
 		.frame(maxWidth: .infinity)
 		.frame(height: workspaceTitlebarHeight)
 		.padding(
 			.leading,
 			!sidebarToggleInSidebar && currentWorkspaceLayout == .editorOnly
-				? trafficLightsTrailingInset + 46
+				? workspaceHeaderNavigationControlsReservedWidth
 				: 0
 		)
 		.padding(.trailing, 10)
@@ -964,15 +1068,8 @@ private struct EntriesView: View {
 				.contentShape(Rectangle())
 				.gesture(WindowDragGesture())
 		}
-		.overlay(alignment: .leading) {
-			if !sidebarToggleInSidebar, currentWorkspaceLayout == .editorOnly {
-				HStack(spacing: 8) {
-					Color.clear.frame(width: trafficLightsTrailingInset)
-					animatedSidebarToggleButton
-				}
-			}
-		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
+		.animation(.easeInOut(duration: 0.24), value: currentWorkspaceLayout)
 		.accessibilityElement(children: .contain)
 		.accessibilityIdentifier("browser-tabs.titlebar")
 		.alert(
@@ -1078,8 +1175,8 @@ private struct EntriesView: View {
 				)
 				.frame(width: browserTabCreateButtonWidth)
 				.accessibilityIdentifier("browser-tab.create")
-				.accessibilityLabel(activeSelection == .templates ? "New Template" : "New Entry")
-				.help(activeSelection == .templates ? "New Template" : "New Entry")
+				.accessibilityLabel("New Entry")
+				.help("New Entry")
 				.offset(x: createButtonOffset)
 				.opacity(hidesCreateButton ? 0 : 1)
 				.allowsHitTesting(!hidesCreateButton)
@@ -1154,38 +1251,6 @@ private struct EntriesView: View {
 			.accessibilityIdentifier("entry-tab.placeholder")
 	}
 
-	private var editorTitlebarActions: some View {
-		HStack(spacing: 10) {
-			if isEditorFocusMode {
-				IconButton(icon: .minimize) {
-					isEditorFocusMode = false
-					if isEditorWorkspaceCompact {
-						compactWorkspacePane = .list
-					}
-				}
-				.accessibilityIdentifier("workspace.exit-editor-focus")
-				.accessibilityLabel("Exit Editor Focus")
-				.help("Exit Editor Focus")
-			} else if currentWorkspaceLayout == .split {
-				IconButton(icon: .maximize) {
-					isEditorFocusMode = true
-				}
-				.accessibilityIdentifier("workspace.focus-editor")
-				.accessibilityLabel("Focus Editor")
-				.help("Focus Editor")
-			} else {
-				IconButton(icon: .menu) {
-					compactWorkspacePane = .list
-				}
-				.accessibilityIdentifier("workspace.show-entry-list")
-				.accessibilityLabel("Show Entry List")
-				.help("Show Entry List")
-			}
-		}
-		.buttonStyle(.borderless)
-		.fixedSize(horizontal: true, vertical: false)
-	}
-
 	private var adaptiveWorkspace: some View {
 		GeometryReader { proxy in
 			let availableWidth = max(proxy.size.width, 0)
@@ -1196,10 +1261,9 @@ private struct EntriesView: View {
 				isDragging: draggedEntryID != nil
 			)
 			let layout = entryWorkspaceLayout(
-				selectionIsEmpty: selectionIsEmpty,
 				hasSelectedEntry: tabs.activeTabID != nil,
 				availableWidth: availableWidth,
-				isEditorFocusMode: isEditorFocusMode,
+				isEntryListCollapsed: isEntryListCollapsed,
 				isCompact: compact,
 				compactPane: compactWorkspacePane
 			)
@@ -1329,30 +1393,48 @@ private struct EntriesView: View {
 		layout: EntryWorkspaceLayout,
 		availableWidth: CGFloat
 	) -> some View {
-		switch layout {
-		case .listOnly:
-			entryListPane()
-		case .split:
-			let listWidth = effectiveEntryListWidth(
-				preferredWidth: CGFloat(preferredEntryListWidth),
-				availableWidth: availableWidth
-			)
+		let listWidth = effectiveEntryListWidth(
+			preferredWidth: CGFloat(preferredEntryListWidth),
+			availableWidth: availableWidth
+		)
+		let browserWidth: CGFloat =
+			switch layout {
+			case .listOnly: 0
+			case .split: max(availableWidth - listWidth - entryListDividerWidth, 0)
+			case .editorOnly: availableWidth
+			}
+
+		ZStack(alignment: .trailing) {
 			HStack(spacing: 0) {
 				entryListPane()
-					.frame(width: listWidth)
-					.frame(maxHeight: .infinity)
-				entryListDivider(
-					isInteractive: true,
-					accessibilityIdentifier: "workspace.entry-list-divider.content"
-				)
+					.frame(width: layout == .listOnly ? availableWidth : listWidth)
+					.opacity(layout == .editorOnly ? 0 : 1)
+				if layout != .listOnly {
+					entryListDivider(
+						isInteractive: layout == .split,
+						accessibilityIdentifier: "workspace.entry-list-divider.content"
+					)
+				}
+			}
+				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+				.allowsHitTesting(layout != .editorOnly)
+				.accessibilityHidden(layout == .editorOnly)
+
+			HStack(spacing: 0) {
 				entryDetailPane(layout: layout)
 					.frame(minWidth: minimumEntryEditorWidth, maxWidth: .infinity, maxHeight: .infinity)
 			}
+			.frame(width: browserWidth, alignment: .trailing)
+			.frame(maxHeight: .infinity)
+			.background(.background)
+			.clipped()
+			.allowsHitTesting(layout != .listOnly)
+			.accessibilityHidden(layout == .listOnly)
+			.zIndex(1)
 			.accessibilityElement(children: .contain)
-			.accessibilityIdentifier("workspace.split")
-		case .editorOnly:
-			entryDetailPane(layout: layout)
+			.accessibilityIdentifier(layout == .split ? "workspace.split" : "workspace.editor")
 		}
+		.animation(.easeInOut(duration: 0.24), value: layout)
 	}
 
 	@ViewBuilder private func entryListDivider(
@@ -1433,8 +1515,14 @@ private struct EntriesView: View {
 				.padding(.vertical, 6)
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 				.background(.background)
-		} else {
+		} else if showsDiaryOverview(
+			for: activeSelection,
+			selectionIsEmpty: selectionIsEmpty
+		) {
 			diaryOverview
+		} else {
+			Color.clear
+				.accessibilityHidden(true)
 		}
 	}
 
@@ -1777,20 +1865,19 @@ private struct EntriesView: View {
 	}
 
 	private func beginCreatingBrowserTab() {
-		if activeSelection == .templates {
-			createTemplate()
-		} else {
-			beginEntryDraft(appearsInList: true)
-		}
+		beginEntryDraft(appearsInList: true, inheritsSelection: false)
 	}
 
-	private func beginEntryDraft(appearsInList: Bool) {
+	private func beginEntryDraft(
+		appearsInList: Bool,
+		inheritsSelection: Bool = true
+	) {
 		let topicID: String? =
-			switch activeSelection {
+			switch inheritsSelection ? activeSelection : .entries {
 			case .topic(let topicID): topicID
 			default: nil
 			}
-		let bookmarked = activeSelection == .bookmarks
+		let bookmarked = inheritsSelection && activeSelection == .bookmarks
 		guard
 			let draft = model.beginEntryDraft(
 				appearsInList: appearsInList,
@@ -1811,6 +1898,18 @@ private struct EntriesView: View {
 	private func toggleSidebar() {
 		withAnimation(.easeInOut(duration: 0.24)) {
 			sidebarToggleInSidebar.toggle()
+		}
+	}
+
+	private func toggleEntryList() {
+		withAnimation(.easeInOut(duration: 0.24)) {
+			if currentWorkspaceLayout == .editorOnly {
+				isEntryListCollapsed = false
+				compactWorkspacePane = .list
+			} else {
+				isEntryListCollapsed = true
+				compactWorkspacePane = .editor
+			}
 		}
 	}
 
@@ -2043,7 +2142,7 @@ private struct EntriesView: View {
 		discardDraft(for: tabID)
 		tabs.close(tabID)
 		if tabs.activeTabID == nil {
-			isEditorFocusMode = false
+			isEntryListCollapsed = false
 			compactWorkspacePane = .editor
 		}
 	}

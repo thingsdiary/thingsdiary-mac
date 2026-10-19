@@ -227,77 +227,88 @@ func adaptsEditorWorkspaceWidthWithoutLayoutChurn() {
 func choosesEntryWorkspaceLayout() {
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: false,
 			hasSelectedEntry: true,
 			availableWidth: minimumSplitWorkspaceWidth,
-			isEditorFocusMode: false,
+			isEntryListCollapsed: false,
 			isCompact: false,
 			compactPane: .editor
 		) == .split)
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: false,
 			hasSelectedEntry: true,
 			availableWidth: minimumSplitWorkspaceWidth - 1,
-			isEditorFocusMode: false,
+			isEntryListCollapsed: false,
 			isCompact: true,
 			compactPane: .editor
 		) == .editorOnly)
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: false,
 			hasSelectedEntry: true,
 			availableWidth: minimumSplitWorkspaceWidth - 1,
-			isEditorFocusMode: false,
+			isEntryListCollapsed: false,
 			isCompact: true,
 			compactPane: .list
 		) == .listOnly)
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: false,
 			hasSelectedEntry: true,
 			availableWidth: 1_200,
-			isEditorFocusMode: true,
+			isEntryListCollapsed: true,
 			isCompact: false,
 			compactPane: .editor
 		) == .editorOnly)
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: true,
 			hasSelectedEntry: false,
 			availableWidth: 1_200,
-			isEditorFocusMode: false,
+			isEntryListCollapsed: true,
 			isCompact: false,
 			compactPane: .editor
-		) == .listOnly)
+		) == .editorOnly)
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: true,
+			hasSelectedEntry: false,
+			availableWidth: 1_200,
+			isEntryListCollapsed: false,
+			isCompact: false,
+			compactPane: .editor
+		) == .split)
+	#expect(
+		entryWorkspaceLayout(
 			hasSelectedEntry: true,
 			availableWidth: 1_200,
-			isEditorFocusMode: false,
+			isEntryListCollapsed: false,
 			isCompact: false,
 			compactPane: .editor
 		) == .split)
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: false,
 			hasSelectedEntry: false,
 			availableWidth: minimumDiaryOverviewWidth,
-			isEditorFocusMode: false,
+			isEntryListCollapsed: false,
 			isCompact: false,
 			compactPane: .editor
 		) == .split)
 	#expect(
 		entryWorkspaceLayout(
-			selectionIsEmpty: false,
 			hasSelectedEntry: false,
 			availableWidth: minimumDiaryOverviewWidth - 1,
-			isEditorFocusMode: false,
+			isEntryListCollapsed: false,
 			isCompact: false,
 			compactPane: .editor
 		) == .listOnly
 	)
+}
+
+@Test("Empty contextual sections hide the diary overview")
+func hidesDiaryOverviewInEmptyContextualSections() {
+	#expect(!showsDiaryOverview(for: .topic("topic-1"), selectionIsEmpty: true))
+	#expect(!showsDiaryOverview(for: .templates, selectionIsEmpty: true))
+	#expect(!showsDiaryOverview(for: .archive, selectionIsEmpty: true))
+	#expect(!showsDiaryOverview(for: .trash, selectionIsEmpty: true))
+	#expect(showsDiaryOverview(for: .entries, selectionIsEmpty: true))
+	#expect(showsDiaryOverview(for: .bookmarks, selectionIsEmpty: true))
+	#expect(showsDiaryOverview(for: .archive, selectionIsEmpty: false))
 }
 
 @Test("Browser tabs keep entries and templates in one ordered collection")

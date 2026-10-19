@@ -390,22 +390,33 @@ nonisolated func updatedEditorWorkspaceCompactState(
 }
 
 nonisolated func entryWorkspaceLayout(
-	selectionIsEmpty: Bool,
 	hasSelectedEntry: Bool,
 	availableWidth: CGFloat,
-	isEditorFocusMode: Bool,
+	isEntryListCollapsed: Bool,
 	isCompact: Bool,
 	compactPane: CompactWorkspacePane
 ) -> EntryWorkspaceLayout {
+	if isEntryListCollapsed { return .editorOnly }
 	if hasSelectedEntry {
-		if isEditorFocusMode { return .editorOnly }
 		guard !isCompact else {
 			return compactPane == .editor ? .editorOnly : .listOnly
 		}
 		return .split
 	}
-	guard !selectionIsEmpty else { return .listOnly }
 	return availableWidth >= minimumDiaryOverviewWidth ? .split : .listOnly
+}
+
+nonisolated func showsDiaryOverview(
+	for selection: DiaryNavigationSelection,
+	selectionIsEmpty: Bool
+) -> Bool {
+	guard selectionIsEmpty else { return true }
+	switch selection {
+	case .topic, .templates, .archive, .trash:
+		return false
+	case .entries, .bookmarks:
+		return true
+	}
 }
 
 nonisolated enum EntryAction: Equatable {
