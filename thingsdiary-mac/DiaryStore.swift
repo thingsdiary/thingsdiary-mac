@@ -188,6 +188,28 @@ actor DiaryStore {
 		state = nextState
 	}
 
+	func removeTopic(
+		diaryID: String,
+		topicID: String,
+		entries: [ThingsDiaryEntry]
+	) throws {
+		var nextState = state
+		nextState.topics.removeAll { $0.diaryID == diaryID && $0.id == topicID }
+		nextState.entries.removeAll { $0.diaryID == diaryID }
+		nextState.entries.append(contentsOf: entries.map(StoredEntry.init))
+
+		let entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+		nextState.pendingEntryWrites = nextState.pendingEntryWrites.map { storedWrite in
+			guard let entry = entriesByID[storedWrite.entry.id] else { return storedWrite }
+			return StoredPendingEntryWrite(
+				PendingEntryWrite(operation: storedWrite.operation, entry: entry)
+			)
+		}
+
+		try persist(nextState)
+		state = nextState
+	}
+
 	func upsertTemplate(_ template: ThingsDiaryTemplate) throws {
 		var nextState = state
 		nextState.templates.removeAll { $0.id == template.id }

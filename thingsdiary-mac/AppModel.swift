@@ -46,6 +46,12 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 		_ topic: ThingsDiaryTopic,
 		params: ThingsDiaryTopicParams
 	) async throws -> ThingsDiaryTopic
+	func deleteTopic(
+		diaryID: String,
+		topicID: String,
+		deleteEntries: Bool?,
+		soft: Bool?
+	) async throws
 	func createTemplate(
 		diaryID: String,
 		params: ThingsDiaryTemplateParams
@@ -85,6 +91,15 @@ extension ThingsDiaryAppClient {
 		_ topic: ThingsDiaryTopic,
 		params: ThingsDiaryTopicParams
 	) async throws -> ThingsDiaryTopic {
+		throw DiaryStoreError.unsupportedRemoteEntry
+	}
+
+	func deleteTopic(
+		diaryID: String,
+		topicID: String,
+		deleteEntries: Bool?,
+		soft: Bool?
+	) async throws {
 		throw DiaryStoreError.unsupportedRemoteEntry
 	}
 
@@ -198,6 +213,20 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 		params: ThingsDiaryTopicParams
 	) async throws -> ThingsDiaryTopic {
 		try await client.updateTopic(topic, params: params)
+	}
+
+	func deleteTopic(
+		diaryID: String,
+		topicID: String,
+		deleteEntries: Bool?,
+		soft: Bool?
+	) async throws {
+		try await client.deleteTopic(
+			diaryID: diaryID,
+			topicID: topicID,
+			deleteEntries: deleteEntries,
+			soft: soft
+		)
 	}
 
 	func createTemplate(
@@ -374,6 +403,13 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 			)
 		}
 
+		func deleteTopic(
+			diaryID: String,
+			topicID: String,
+			deleteEntries: Bool?,
+			soft: Bool?
+		) async throws {}
+
 		func createTemplate(
 			diaryID: String,
 			params: ThingsDiaryTemplateParams
@@ -490,6 +526,7 @@ final class ThingsDiaryAppModel {
 						index == 1
 						? "Fixture Entry\nA useful preview for UI testing."
 						: "Fixture Entry \(index)\nSample note \(index) for UI testing.",
+					topicID: index == 19 ? "fixture-topic-2" : nil,
 					createdAt: timestamp,
 					updatedAt: timestamp,
 					version: 1
@@ -1021,6 +1058,68 @@ final class ThingsDiaryAppModel {
 		} catch {
 			screen = .error("Could not update the topic.")
 		}
+	}
+
+	@discardableResult
+	func deleteTopic(_ topic: ThingsDiaryTopic, deleteEntries: Bool) async -> Bool {
+		guard case .entries(let diary, let entries) = screen else { return false }
+		do {
+			try await client.deleteTopic(
+				diaryID: topic.diaryID,
+				topicID: topic.id,
+				deleteEntries: deleteEntries,
+				soft: true
+			)
+
+			let now = Date()
+			let nextEntries = entries.map { entry in
+				guard entry.topicID == topic.id else { return entry }
+				return entryAfterDeletingTopic(
+					entry,
+					deleteEntry: deleteEntries,
+					at: now
+				)
+			}
+			try await store?.removeTopic(
+				diaryID: topic.diaryID,
+				topicID: topic.id,
+				entries: nextEntries
+			)
+			topics.removeAll { $0.id == topic.id }
+			if deleteEntries {
+				let deletedEntryIDs = Set(
+					entries.lazy.filter { $0.topicID == topic.id }.map(\.id)
+				)
+				entryDraftIDs.subtract(deletedEntryIDs)
+				entryDraftIDsHiddenFromList.subtract(deletedEntryIDs)
+				entryPendingCreationIDs.subtract(deletedEntryIDs)
+			}
+			screen = .entries(diary: diary, entries: nextEntries)
+			return true
+		} catch {
+			screen = .error("Could not delete the topic.")
+			return false
+		}
+	}
+
+	private func entryAfterDeletingTopic(
+		_ entry: ThingsDiaryEntry,
+		deleteEntry: Bool,
+		at date: Date
+	) -> ThingsDiaryEntry {
+		ThingsDiaryEntry(
+			id: entry.id,
+			diaryID: entry.diaryID,
+			content: entry.content,
+			topicID: deleteEntry ? entry.topicID : nil,
+			archived: entry.archived,
+			bookmarked: entry.bookmarked,
+			previewHidden: entry.previewHidden,
+			createdAt: entry.createdAt,
+			updatedAt: date,
+			deletedAt: deleteEntry ? date : entry.deletedAt,
+			version: max(entry.version + 1, UInt64(date.timeIntervalSince1970 * 1_000))
+		)
 	}
 
 	@discardableResult

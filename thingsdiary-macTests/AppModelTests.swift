@@ -437,6 +437,76 @@ func removesTopicDefaultTemplate() async {
 }
 
 @MainActor
+@Test("Deleting a topic can delete its notes")
+func deletingTopicDeletesItsEntries() async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let work = topic(id: "topic-1", diaryID: selectedDiary.id, title: "Work")
+	let linkedEntry = entry(
+		id: "entry-1",
+		diaryID: selectedDiary.id,
+		content: "Linked note",
+		topicID: work.id
+	)
+	let unrelatedEntry = entry(id: "entry-2", diaryID: selectedDiary.id, content: "Other note")
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		entriesResult: .success([linkedEntry, unrelatedEntry]),
+		topicsResult: .success([work])
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	await model.selectDiary(selectedDiary)
+
+	let deleted = await model.deleteTopic(work, deleteEntries: true)
+
+	#expect(deleted)
+	#expect(model.topics.isEmpty)
+	guard case .entries(_, let entries) = model.screen else {
+		Issue.record("Expected the diary workspace")
+		return
+	}
+	#expect(entries.first(where: { $0.id == linkedEntry.id })?.deletedAt != nil)
+	#expect(entries.first(where: { $0.id == unrelatedEntry.id }) == unrelatedEntry)
+	#expect(await client.receivedDeletedTopicID == work.id)
+	#expect(await client.receivedDeleteTopicEntries == true)
+	#expect(await client.receivedDeleteTopicSoft == true)
+}
+
+@MainActor
+@Test("Deleting a topic can keep its notes without a topic")
+func deletingTopicKeepsEntriesWithoutTopic() async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let work = topic(id: "topic-1", diaryID: selectedDiary.id, title: "Work")
+	let linkedEntry = entry(
+		id: "entry-1",
+		diaryID: selectedDiary.id,
+		content: "Linked note",
+		topicID: work.id
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		entriesResult: .success([linkedEntry]),
+		topicsResult: .success([work])
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	await model.selectDiary(selectedDiary)
+
+	let deleted = await model.deleteTopic(work, deleteEntries: false)
+
+	#expect(deleted)
+	#expect(model.topics.isEmpty)
+	guard case .entries(_, let entries) = model.screen else {
+		Issue.record("Expected the diary workspace")
+		return
+	}
+	let keptEntry = entries.first(where: { $0.id == linkedEntry.id })
+	#expect(keptEntry?.topicID == nil)
+	#expect(keptEntry?.deletedAt == nil)
+	#expect(await client.receivedDeletedTopicID == work.id)
+	#expect(await client.receivedDeleteTopicEntries == false)
+	#expect(await client.receivedDeleteTopicSoft == true)
+}
+
+@MainActor
 @Test("Creating and updating a template sends its content to the client")
 func createsAndUpdatesTemplate() async {
 	let selectedDiary = diary(id: "diary-1", title: "Personal")
@@ -1235,11 +1305,17 @@ private func diary(id: String, title: String) -> ThingsDiaryDiary {
 	)
 }
 
-private func entry(id: String, diaryID: String, content: String) -> ThingsDiaryEntry {
+private func entry(
+	id: String,
+	diaryID: String,
+	content: String,
+	topicID: String? = nil
+) -> ThingsDiaryEntry {
 	ThingsDiaryEntry(
 		id: id,
 		diaryID: diaryID,
 		content: content,
+		topicID: topicID,
 		createdAt: Date(timeIntervalSince1970: 3),
 		updatedAt: Date(timeIntervalSince1970: 4),
 		version: 5
@@ -1351,6 +1427,9 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedTemplatesDiaryID: String?
 	private(set) var receivedCreateTopicParams: ThingsDiaryTopicParams?
 	private(set) var receivedUpdateTopicParams: ThingsDiaryTopicParams?
+	private(set) var receivedDeletedTopicID: String?
+	private(set) var receivedDeleteTopicEntries: Bool?
+	private(set) var receivedDeleteTopicSoft: Bool?
 	private(set) var receivedCreateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var receivedUpdateTemplateParams: ThingsDiaryTemplateParams?
 
@@ -1444,6 +1523,17 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		receivedUpdateTopicParams = params
 		guard let updateTopicResult else { throw TestFailure.rejected }
 		return try updateTopicResult.get()
+	}
+
+	func deleteTopic(
+		diaryID: String,
+		topicID: String,
+		deleteEntries: Bool?,
+		soft: Bool?
+	) async throws {
+		receivedDeletedTopicID = topicID
+		receivedDeleteTopicEntries = deleteEntries
+		receivedDeleteTopicSoft = soft
 	}
 
 	func createTemplate(diaryID: String, params: ThingsDiaryTemplateParams) async throws -> ThingsDiaryTemplate {

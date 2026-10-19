@@ -1108,6 +1108,54 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(title.value as? String, "Work Topic")
 	}
 
+	func testTopicContextMenuEditsTopic() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic"]
+
+		topic.rightClick()
+		XCTAssertTrue(app.menuItems["Edit"].firstMatch.waitForExistence(timeout: 2))
+		XCTAssertTrue(app.menuItems["Delete"].firstMatch.exists)
+		app.menuItems["Edit"].firstMatch.click()
+
+		let title = app.descendants(matching: .any)["topic.title"]
+		XCTAssertTrue(title.waitForExistence(timeout: 2))
+		XCTAssertEqual(title.value as? String, "Work Topic")
+	}
+
+	func testDeletingTopicCanKeepItsEntriesWithoutTopic() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
+		let linkedEntry = app.descendants(matching: .any)["entry.fixture-entry-19"]
+
+		topic.click()
+		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
+		topic.rightClick()
+		app.menuItems["Delete"].firstMatch.click()
+		XCTAssertTrue(app.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
+		app.sheets.firstMatch.buttons["Keep Entries"].click()
+
+		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
+		app.buttons["sidebar.entries"].click()
+		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
+	}
+
+	func testDeletingTopicCanDeleteItsEntries() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
+		let linkedEntry = app.descendants(matching: .any)["entry.fixture-entry-19"]
+
+		topic.click()
+		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
+		topic.rightClick()
+		app.menuItems["Delete"].firstMatch.click()
+		XCTAssertTrue(app.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
+		app.sheets.firstMatch.buttons["Delete Entries"].click()
+
+		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
+		app.buttons["sidebar.trash"].click()
+		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
+	}
+
 	func testCreatingEditingAndSavingTemplate() {
 		let app = launchWorkspace()
 		let workspace = workspace(in: app)

@@ -421,6 +421,7 @@ private struct EntriesView: View {
 	@State private var hoveredDiaryID: String?
 	@State private var showingTopicCreator = false
 	@State private var editingTopic: ThingsDiaryTopic?
+	@State private var topicPendingDeletion: ThingsDiaryTopic?
 	@State private var topicTitle = ""
 	@State private var topicDescription = ""
 	@State private var topicColor = ""
@@ -636,6 +637,23 @@ private struct EntriesView: View {
 			.task { presentRequestedDiarySettings() }
 			.sheet(isPresented: $showingTopicsAndTemplates) { topicsAndTemplatesSheet }
 			.sheet(isPresented: $showingTopicCreator) { topicCreatorSheet }
+			.alert(
+				"Delete Topic?",
+				isPresented: Binding(
+					get: { topicPendingDeletion != nil },
+					set: { if !$0 { topicPendingDeletion = nil } }
+				)
+			) {
+				Button("Delete Entries", role: .destructive) {
+					deletePendingTopic(deleteEntries: true)
+				}
+				Button("Keep Entries") {
+					deletePendingTopic(deleteEntries: false)
+				}
+				Button("Cancel", role: .cancel) { topicPendingDeletion = nil }
+			} message: {
+				Text(topicDeletionMessage)
+			}
 			.alert(
 				entryConfirmationTitle,
 				isPresented: Binding(
@@ -1530,6 +1548,14 @@ private struct EntriesView: View {
 								dropDestination: .topic(topic.id),
 								doubleClick: { beginEditing(topic) }
 							)
+							.contextMenu {
+								Button("Edit", systemImage: "pencil") {
+									beginEditing(topic)
+								}
+								Button("Delete", systemImage: "trash", role: .destructive) {
+									topicPendingDeletion = topic
+								}
+							}
 						}
 					}
 
@@ -2606,6 +2632,27 @@ private struct EntriesView: View {
 		topicEntryPreviewable = topic.entryPreviewable
 		topicDefaultTemplateID = topic.defaultTemplateID
 		showingTopicCreator = true
+	}
+
+	private var topicDeletionMessage: String {
+		guard let topic = topicPendingDeletion else { return "" }
+		let entryCount = entries.count { $0.topicID == topic.id && $0.deletedAt == nil }
+		if entryCount == 0 {
+			return "This topic has no entries."
+		}
+		return "Choose whether to delete its \(entryCount) entries or keep them without a topic."
+	}
+
+	private func deletePendingTopic(deleteEntries: Bool) {
+		guard let topic = topicPendingDeletion else { return }
+		topicPendingDeletion = nil
+		Task {
+			if await model.deleteTopic(topic, deleteEntries: deleteEntries),
+				activeSelection == .topic(topic.id)
+			{
+				selection = deleteEntries ? .trash : .entries
+			}
+		}
 	}
 
 	private var topicCreatorSheet: some View {
