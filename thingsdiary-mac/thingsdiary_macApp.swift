@@ -12,6 +12,41 @@ extension FocusedValues {
 	}
 }
 
+private struct UITestingWindowActivator: NSViewRepresentable {
+	let isEnabled: Bool
+
+	final class ActivatorView: NSView {
+		var isEnabled = false
+		private var configuredWindow: NSWindow?
+
+		override func viewDidMoveToWindow() {
+			super.viewDidMoveToWindow()
+			guard isEnabled, let window, configuredWindow !== window else { return }
+			configuredWindow = window
+			DispatchQueue.main.async {
+				guard let visibleFrame = NSScreen.main?.visibleFrame else { return }
+				let origin = CGPoint(
+					x: visibleFrame.midX - window.frame.width / 2,
+					y: visibleFrame.midY - window.frame.height / 2
+				)
+				window.setFrameOrigin(origin)
+				window.makeKeyAndOrderFront(nil)
+				NSApplication.shared.activate(ignoringOtherApps: true)
+			}
+		}
+	}
+
+	func makeNSView(context: Context) -> ActivatorView {
+		let view = ActivatorView(frame: .zero)
+		view.isEnabled = isEnabled
+		return view
+	}
+
+	func updateNSView(_ view: ActivatorView, context: Context) {
+		view.isEnabled = isEnabled
+	}
+}
+
 private struct EntryCommands: Commands {
 	@FocusedValue(\.entrySaveAction) private var save
 
@@ -69,6 +104,13 @@ struct ThingsDiaryApp: App {
 					TabOverlapLab()
 				} else {
 					ContentView(model: model)
+						.background(
+							UITestingWindowActivator(
+								isEnabled: ProcessInfo.processInfo.arguments.contains(
+									"--ui-testing-workspace"
+								)
+							)
+						)
 				}
 			#else
 				ContentView(model: model)

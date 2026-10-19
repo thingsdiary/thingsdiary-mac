@@ -22,23 +22,51 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 	private func launchWorkspace(additionalArguments: [String] = []) -> XCUIApplication {
 		let app = XCUIApplication()
-		app.launchArguments = ["--ui-testing-workspace"] + additionalArguments
+		app.launchArguments =
+			[
+				"-ApplePersistenceIgnoreState",
+				"YES",
+				"--ui-testing-workspace",
+			] + additionalArguments
 		app.launch()
-		XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 2))
-		while app.windows.count > 1 {
-			let restoredWindow = app.windows.element(boundBy: app.windows.count - 1)
-			restoredWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
-			app.typeKey("w", modifierFlags: .command)
-			XCTAssertFalse(restoredWindow.waitForExistence(timeout: 2))
-		}
+		app.activate()
+		let fixtureWindow = app.windows["Entries"]
+		XCTAssertTrue(fixtureWindow.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.windows.count, 1)
 		return app
 	}
 
 	private func typeText(_ text: String, into element: XCUIElement) {
 		element.click()
-		for character in text {
-			element.typeText(String(character))
-		}
+		element.typeText(text)
+	}
+
+	private func filterEntries(
+		in app: XCUIApplication,
+		query: String = "19"
+	) -> (search: XCUIElement, hiddenEntry: XCUIElement) {
+		let workspace = app.dialogs.firstMatch.exists ? app.dialogs.firstMatch : app.windows.firstMatch
+		let search = workspace.searchFields["Search Entries"]
+		let hiddenEntry = workspace.descendants(matching: .any)["entry.fixture-entry"]
+		let matchingEntry = workspace.descendants(matching: .any)["entry.fixture-entry-19"]
+
+		XCTAssertTrue(search.waitForExistence(timeout: 2))
+		XCTAssertTrue(hiddenEntry.waitForExistence(timeout: 2))
+		app.activate()
+		typeText(query, into: search)
+
+		XCTAssertTrue(search.waitForValue(query, timeout: 2))
+		XCTAssertTrue(matchingEntry.waitForExistence(timeout: 2))
+		XCTAssertFalse(hiddenEntry.exists)
+		return (search, hiddenEntry)
+	}
+
+	private func assertSearchIsCleared(
+		_ search: XCUIElement,
+		restoredEntry: XCUIElement
+	) {
+		XCTAssertTrue(search.waitForValue("", timeout: 2))
+		XCTAssertTrue(restoredEntry.waitForExistence(timeout: 2))
 	}
 
 	private func workspace(in app: XCUIApplication) -> XCUIElement {
@@ -297,6 +325,44 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(archiveSearch.value as? String, "")
 		XCTAssertTrue(workspace.descendants(matching: .any)["entry.fixture-archived-entry"].exists)
 		XCTAssertEqual(app.windows.firstMatch.title, "Archive")
+	}
+
+	func testSearchFiltersEntriesWhileTyping() {
+		let app = launchWorkspace()
+		_ = filterEntries(in: app)
+	}
+
+	func testDeletingSearchTextRestoresFilteredEntries() {
+		let app = launchWorkspace()
+		let (search, hiddenEntry) = filterEntries(in: app)
+
+		for _ in 0..<2 {
+			search.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+			search.typeKey(.delete, modifierFlags: [])
+		}
+
+		assertSearchIsCleared(search, restoredEntry: hiddenEntry)
+	}
+
+	func testEscapeClearsSearchAndRestoresFilteredEntries() {
+		let app = launchWorkspace()
+		let (search, hiddenEntry) = filterEntries(in: app)
+
+		search.typeKey(.escape, modifierFlags: [])
+
+		assertSearchIsCleared(search, restoredEntry: hiddenEntry)
+	}
+
+	func testSearchClearButtonRestoresFilteredEntries() {
+		let app = launchWorkspace()
+		let (search, hiddenEntry) = filterEntries(in: app)
+
+		search.click()
+		let clearButton = search.buttons["cancel"]
+		XCTAssertTrue(clearButton.waitForExistence(timeout: 2))
+		search.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).click()
+
+		assertSearchIsCleared(search, restoredEntry: hiddenEntry)
 	}
 
 	func testOverviewColumnStaysHiddenInCompactWorkspace() {

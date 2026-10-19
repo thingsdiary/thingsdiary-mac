@@ -85,6 +85,18 @@ private struct EntrySaveShortcutMonitor: NSViewRepresentable {
 
 private final class EscapeHandlingSearchField: NSSearchField {
 	var escapeHandler: (() -> Void)?
+	var mouseValueChangeHandler: ((String) -> Void)?
+
+	override func mouseDown(with event: NSEvent) {
+		let location = convert(event.locationInWindow, from: nil)
+		let clickedCancelButton = (cell as? NSSearchFieldCell)?
+			.cancelButtonRect(forBounds: bounds)
+			.contains(location) == true
+		super.mouseDown(with: event)
+		guard clickedCancelButton else { return }
+		stringValue = ""
+		mouseValueChangeHandler?("")
+	}
 
 	override func cancelOperation(_ sender: Any?) {
 		escapeHandler?()
@@ -106,11 +118,16 @@ private struct InlineSearchField: NSViewRepresentable {
 		field.delegate = context.coordinator
 		field.placeholderString = "Search"
 		field.sendsSearchStringImmediately = true
+		field.target = context.coordinator
+		field.action = #selector(Coordinator.searchFieldAction(_:))
 		field.setAccessibilityIdentifier("entry-list.search")
 		field.setAccessibilityLabel(accessibilityLabel)
 		field.escapeHandler = { [weak field, weak coordinator = context.coordinator] in
 			guard let field, let coordinator else { return }
 			coordinator.handleEscape(in: field)
+		}
+		field.mouseValueChangeHandler = { [weak coordinator = context.coordinator] value in
+			coordinator?.handleMouseValueChange(value)
 		}
 		return field
 	}
@@ -155,6 +172,14 @@ private struct InlineSearchField: NSViewRepresentable {
 			guard let field = notification.object as? NSSearchField else { return }
 			parent.isFocused = true
 			parent.text = field.stringValue
+		}
+
+		@objc func searchFieldAction(_ field: NSSearchField) {
+			parent.text = field.stringValue
+		}
+
+		func handleMouseValueChange(_ value: String) {
+			parent.text = value
 		}
 
 		func handleEscape(in field: NSSearchField) {
