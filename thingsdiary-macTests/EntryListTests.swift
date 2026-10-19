@@ -547,14 +547,15 @@ func adaptsEntryTabWidth() {
 func newTabButtonFollowsLastTab() {
 	let tabsWidth = browserTabsContentWidth(tabWidth: 170, tabCount: 2)
 
-	#expect(tabsWidth == 349)
+	#expect(browserTabLeadingPadding == 12)
+	#expect(tabsWidth == 355)
 	#expect(
 		browserTabCreateButtonOffset(
 			availableWidth: 500,
 			tabsContentWidth: tabsWidth
-		) == 357
+		) == 363
 	)
-	#expect(browserTabsViewportWidth(createButtonOffset: 357) == tabsWidth)
+	#expect(browserTabsViewportWidth(createButtonOffset: 363) == tabsWidth)
 	#expect(
 		!browserTabCreateButtonIsPinned(
 			availableWidth: 500,

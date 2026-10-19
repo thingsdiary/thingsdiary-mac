@@ -402,7 +402,7 @@ private enum EntryDraftSaveOutcome {
 }
 
 private struct EntriesView: View {
-	private let listPaneHorizontalInset: CGFloat = 12
+	private let listPaneHorizontalInset = workspaceTitlebarHorizontalInset
 	private let minimumSidebarWidth: CGFloat = 180
 	private let maximumSidebarWidth: CGFloat = 300
 
@@ -1055,7 +1055,7 @@ private struct EntriesView: View {
 				? workspaceHeaderNavigationControlsReservedWidth
 				: 0
 		)
-		.padding(.trailing, 10)
+		.padding(.trailing, workspaceTitlebarHorizontalInset)
 		.background {
 			Color.clear
 				.contentShape(Rectangle())
