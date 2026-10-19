@@ -574,7 +574,6 @@ private struct EntriesView: View {
 				guard case .entry(let entryID) = tabs.activeTabID else { return }
 				tabs.promote(.entry(entryID))
 				draftsByEntryID[entryID] = value
-				model.promoteEntryDraft(entryID, content: value)
 			}
 		)
 	}
@@ -1835,13 +1834,15 @@ private struct EntriesView: View {
 			case .topic(let topicID): topicID
 			default: nil
 			}
+		let bookmarked = activeSelection == .bookmarks
 		guard
 			let draft = model.beginEntryDraft(
 				appearsInList: appearsInList,
-				topicID: topicID
+				topicID: topicID,
+				bookmarked: bookmarked
 			)
 		else { return }
-		if topicID == nil {
+		if topicID == nil, !bookmarked {
 			selection = .entries
 		}
 		openEntry(draft)

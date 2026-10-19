@@ -44,9 +44,8 @@ final class DiaryWorkspaceUITests: XCTestCase {
 	private func workspace(in app: XCUIApplication) -> XCUIElement {
 		let window = app.windows.firstMatch
 		XCTAssertTrue(window.waitForExistence(timeout: 2))
-		let workspace = app.windows[window.identifier]
-		workspace.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
-		return workspace
+		window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
+		return window
 	}
 
 	private func activate(_ workspace: XCUIElement) {
@@ -138,6 +137,67 @@ final class DiaryWorkspaceUITests: XCTestCase {
 			.withOffset(CGVector(dx: 0, dy: none.frame.height))
 			.click()
 		XCTAssertEqual(picker.value as? String, content)
+	}
+
+	@discardableResult
+	private func createTopic(
+		_ title: String,
+		app: XCUIApplication
+	) -> XCUIElement {
+		let topics = app.buttons["topics.toggle"].firstMatch
+		XCTAssertTrue(topics.waitForExistence(timeout: 2))
+		topics.hover()
+		let createTopic = app.descendants(matching: .any)["topic.create"].firstMatch
+		XCTAssertTrue(createTopic.waitForExistence(timeout: 2))
+		createTopic.click()
+		let titleField = app.textFields["topic.title"].firstMatch
+		XCTAssertTrue(titleField.waitForExistence(timeout: 2))
+		titleField.click()
+		titleField.typeText(title)
+		app.buttons["Create"].firstMatch.click()
+		XCTAssertFalse(titleField.waitForExistence(timeout: 2))
+
+		let topic = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND NOT (identifier IN %@)",
+				"sidebar.topic.",
+				["sidebar.topic.fixture-topic", "sidebar.topic.fixture-topic-2"]
+			)
+		).firstMatch
+		XCTAssertTrue(topic.waitForExistence(timeout: 2))
+		return topic
+	}
+
+	private func newEntryDraft(in workspace: XCUIElement) -> String {
+		workspace.buttons["entry.create"].click()
+		let tab = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		return String(tab.identifier.dropFirst("entry-tab.".count))
+	}
+
+	private func closeEntryTab(
+		_ entryID: String,
+		app: XCUIApplication,
+		discardUnsavedChanges: Bool = false
+	) {
+		let tab = app.buttons["entry-tab.\(entryID)"].firstMatch
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		tab.rightClick()
+		let close = app.menuItems["Close"].firstMatch
+		XCTAssertTrue(close.waitForExistence(timeout: 2))
+		close.click()
+		if discardUnsavedChanges {
+			let discard = app.sheets.firstMatch.buttons["Don't Save"]
+			XCTAssertTrue(discard.waitForExistence(timeout: 2))
+			discard.click()
+		}
+		XCTAssertTrue(tab.waitForNonExistence(timeout: 2))
 	}
 
 	func testSidebarChangesEntrySection() {
@@ -613,6 +673,102 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.textViews.firstMatch.waitForExistence(timeout: 2))
 		XCTAssertTrue(app.buttons["Untitled"].firstMatch.waitForExistence(timeout: 2))
 		XCTAssertFalse(app.buttons["Create"].exists)
+	}
+
+	func testClosingEphemeralEntryCreatedInBookmarksDiscardsIt() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		workspace.buttons["sidebar.bookmarks"].click()
+
+		let draftID = newEntryDraft(in: workspace)
+		XCTAssertEqual(app.windows.firstMatch.title, "Bookmarks")
+		let editor = app.textViews["entry.editor"].firstMatch
+		editor.click()
+		editor.typeText("Discarded bookmark draft")
+		let row = app.descendants(matching: .any)["entry.\(draftID)"].firstMatch
+
+		closeEntryTab(
+			draftID,
+			app: app,
+			discardUnsavedChanges: true
+		)
+
+		XCTAssertTrue(row.waitForNonExistence(timeout: 2))
+		XCTAssertEqual(app.windows.firstMatch.title, "Bookmarks")
+	}
+
+	func testSavingEntryCreatedInBookmarksKeepsBookmarkedEntryAfterClosingTab() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		workspace.buttons["sidebar.bookmarks"].click()
+
+		let draftID = newEntryDraft(in: workspace)
+		XCTAssertEqual(app.windows.firstMatch.title, "Bookmarks")
+		let content = "Saved bookmark entry"
+		let editor = app.textViews["entry.editor"].firstMatch
+		editor.click()
+		editor.typeText(content)
+		app.typeKey("s", modifierFlags: .command)
+		XCTAssertTrue(
+			app.buttons["entry-tab.\(draftID)"].firstMatch.waitForValue("Saved", timeout: 2)
+		)
+
+		closeEntryTab(draftID, app: app)
+
+		let row = app.descendants(matching: .any)["entry.\(draftID)"].firstMatch
+		XCTAssertTrue(row.waitForExistence(timeout: 2))
+		row.click()
+		XCTAssertTrue(editor.waitForValue(content, timeout: 2))
+		XCTAssertEqual(app.windows.firstMatch.title, "Bookmarks")
+	}
+
+	func testClosingEphemeralEntryCreatedInNewTopicDiscardsIt() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let topic = createTopic("Ephemeral Topic", app: app)
+		let topicTitle = topic.label
+
+		let draftID = newEntryDraft(in: workspace)
+		XCTAssertEqual(app.windows.firstMatch.title, topicTitle)
+		let editor = app.textViews["entry.editor"].firstMatch
+		editor.click()
+		editor.typeText("Discarded topic draft")
+		let row = app.descendants(matching: .any)["entry.\(draftID)"].firstMatch
+
+		closeEntryTab(
+			draftID,
+			app: app,
+			discardUnsavedChanges: true
+		)
+
+		XCTAssertTrue(row.waitForNonExistence(timeout: 2))
+		XCTAssertEqual(app.windows.firstMatch.title, topicTitle)
+	}
+
+	func testSavingEntryCreatedInNewTopicKeepsEntryAfterClosingTab() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let topic = createTopic("Saved Topic", app: app)
+		let topicTitle = topic.label
+
+		let draftID = newEntryDraft(in: workspace)
+		XCTAssertEqual(app.windows.firstMatch.title, topicTitle)
+		let content = "Saved topic entry"
+		let editor = app.textViews["entry.editor"].firstMatch
+		editor.click()
+		editor.typeText(content)
+		app.typeKey("s", modifierFlags: .command)
+		XCTAssertTrue(
+			app.buttons["entry-tab.\(draftID)"].firstMatch.waitForValue("Saved", timeout: 2)
+		)
+
+		closeEntryTab(draftID, app: app)
+
+		let row = app.descendants(matching: .any)["entry.\(draftID)"].firstMatch
+		XCTAssertTrue(row.waitForExistence(timeout: 2))
+		row.click()
+		XCTAssertTrue(editor.waitForValue(content, timeout: 2))
+		XCTAssertEqual(app.windows.firstMatch.title, topicTitle)
 	}
 
 	func testEmptyEntryCanBeSavedAndLaterCleared() {

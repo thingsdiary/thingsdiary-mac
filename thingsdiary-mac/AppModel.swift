@@ -714,7 +714,11 @@ final class ThingsDiaryAppModel {
 	}
 
 	@discardableResult
-	func beginEntryDraft(appearsInList: Bool, topicID: String? = nil) -> ThingsDiaryEntry? {
+	func beginEntryDraft(
+		appearsInList: Bool,
+		topicID: String? = nil,
+		bookmarked: Bool = false
+	) -> ThingsDiaryEntry? {
 		guard case .entries(let diary, let entries) = screen else { return nil }
 		let now = Date()
 		let defaultTemplateContent =
@@ -727,6 +731,7 @@ final class ThingsDiaryAppModel {
 			diaryID: diary.id,
 			content: defaultTemplateContent ?? "",
 			topicID: topicID,
+			bookmarked: bookmarked,
 			createdAt: now,
 			updatedAt: now,
 			version: UInt64(now.timeIntervalSince1970 * 1_000)
