@@ -1531,9 +1531,6 @@ private struct EntriesView: View {
 						dropDestination: .bookmarks
 					)
 
-					Divider()
-						.padding(.vertical, 4)
-
 					HStack(spacing: 8) {
 						if model.topics.isEmpty {
 							HStack(spacing: 8) {
@@ -1621,9 +1618,6 @@ private struct EntriesView: View {
 						}
 					}
 
-					Divider()
-						.padding(.vertical, 4)
-
 					sidebarRow(
 						"Templates",
 						systemImage: "doc.on.doc",
@@ -1631,9 +1625,6 @@ private struct EntriesView: View {
 						identifier: "sidebar.templates",
 						showsCount: false
 					)
-
-					Divider()
-						.padding(.vertical, 4)
 
 					sidebarRow(
 						"Archive",
