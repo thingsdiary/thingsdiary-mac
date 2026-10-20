@@ -404,6 +404,8 @@ actor DiaryStore {
 
 	private static func importLegacyJSON(at url: URL, into database: DatabaseQueue) throws {
 		guard FileManager.default.fileExists(atPath: url.path) else { return }
+		let backupURL = url.appendingPathExtension("backup")
+		guard !FileManager.default.fileExists(atPath: backupURL.path) else { return }
 		let imported = try database.write { database in
 			guard try isEmpty(database) else { return false }
 			let state = try decoder.decode(StoredState.self, from: Data(contentsOf: url))
@@ -411,10 +413,7 @@ actor DiaryStore {
 			return true
 		}
 		guard imported else { return }
-		let backupURL = url.appendingPathExtension("backup")
-		if !FileManager.default.fileExists(atPath: backupURL.path) {
-			try FileManager.default.copyItem(at: url, to: backupURL)
-		}
+		try FileManager.default.copyItem(at: url, to: backupURL)
 	}
 
 	private static func isEmpty(_ database: Database) throws -> Bool {

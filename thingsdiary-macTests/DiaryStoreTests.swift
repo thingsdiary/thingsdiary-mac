@@ -52,6 +52,13 @@ func diaryStoreImportsLegacyJSON() async throws {
 	let reopened = try DiaryStore(fileURL: databaseURL, legacyJSONURL: legacyURL)
 	#expect(await reopened.entries(diaryID: "diary-1").map(\.id) == ["entry-1"])
 	#expect(await reopened.pendingEntryWrites().map(\.id) == ["entry-1"])
+
+	let otherAccount = try DiaryStore(
+		fileURL: directory.appending(path: "other-account.sqlite"),
+		legacyJSONURL: legacyURL
+	)
+	#expect(await otherAccount.selectedDiary() == nil)
+	#expect(await otherAccount.entries(diaryID: "diary-1").isEmpty)
 }
 
 @Test("Malformed legacy JSON leaves the source and database empty")
