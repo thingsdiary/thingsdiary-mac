@@ -30,6 +30,52 @@ func diaryStoreSupportsInMemoryPersistence() async throws {
 	#expect(await store.entries(diaryID: diary.id) == [entry])
 }
 
+@Test("Diary store imports the legacy JSON once and keeps a backup")
+func diaryStoreImportsLegacyJSON() async throws {
+	let directory = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-legacy-\(UUID().uuidString)", directoryHint: .isDirectory)
+	defer { try? FileManager.default.removeItem(at: directory) }
+	try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+	let databaseURL = directory.appending(path: "store.sqlite")
+	let legacyURL = directory.appending(path: "state.json")
+	let legacyData = try legacyStoreData()
+	try legacyData.write(to: legacyURL)
+
+	let store = try DiaryStore(fileURL: databaseURL, legacyJSONURL: legacyURL)
+
+	#expect(await store.selectedDiary()?.id == "diary-1")
+	#expect(await store.entries(diaryID: "diary-1").map(\.id) == ["entry-1"])
+	#expect(await store.pendingEntryWrites().map(\.id) == ["entry-1"])
+	#expect(try Data(contentsOf: legacyURL) == legacyData)
+	#expect(try Data(contentsOf: legacyURL.appendingPathExtension("backup")) == legacyData)
+
+	let reopened = try DiaryStore(fileURL: databaseURL, legacyJSONURL: legacyURL)
+	#expect(await reopened.entries(diaryID: "diary-1").map(\.id) == ["entry-1"])
+	#expect(await reopened.pendingEntryWrites().map(\.id) == ["entry-1"])
+}
+
+@Test("Malformed legacy JSON leaves the source and database empty")
+func diaryStoreRejectsMalformedLegacyJSONAtomically() async throws {
+	let directory = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-broken-legacy-\(UUID().uuidString)")
+	defer { try? FileManager.default.removeItem(at: directory) }
+	try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+	let databaseURL = directory.appending(path: "store.sqlite")
+	let legacyURL = directory.appending(path: "state.json")
+	let malformed = Data("{".utf8)
+	try malformed.write(to: legacyURL)
+
+	#expect(throws: (any Error).self) {
+		_ = try DiaryStore(fileURL: databaseURL, legacyJSONURL: legacyURL)
+	}
+	#expect(try Data(contentsOf: legacyURL) == malformed)
+	#expect(!FileManager.default.fileExists(atPath: legacyURL.appendingPathExtension("backup").path))
+
+	try legacyStoreData().write(to: legacyURL)
+	let recovered = try DiaryStore(fileURL: databaseURL, legacyJSONURL: legacyURL)
+	#expect(await recovered.selectedDiary()?.id == "diary-1")
+}
+
 @Test("Diary store reopens the selected diary and its entries without a network")
 func diaryStorePersistsDownloadedState() async throws {
 	let fileURL = FileManager.default.temporaryDirectory
@@ -607,6 +653,47 @@ func diaryStorePreservesNewerWriteAfterConflict() async throws {
 	#expect(await store.pendingEntryWrites().isEmpty)
 	#expect(await store.entryConflicts().isEmpty)
 	#expect(await store.entries(diaryID: oldWrite.diaryID) == [newWrite])
+}
+
+private func legacyStoreData() throws -> Data {
+	let diary: [String: Any] = [
+		"id": "diary-1",
+		"title": "Personal",
+		"description": "Imported diary",
+		"createdAt": 1_000,
+		"updatedAt": 2_000,
+		"version": 3,
+	]
+	let entry: [String: Any] = [
+		"id": "entry-1",
+		"diaryID": "diary-1",
+		"content": "Imported note",
+		"archived": false,
+		"bookmarked": true,
+		"previewHidden": false,
+		"createdAt": 4_000,
+		"updatedAt": 5_000,
+		"version": 6,
+	]
+	return try JSONSerialization.data(
+		withJSONObject: [
+			"selectedDiary": diary,
+			"entries": [entry],
+			"pendingEntryWrites": [
+				[
+					"operation": "create",
+					"entry": entry,
+				]
+			],
+			"checkpoints": [
+				"diary-1": [
+					"lastChangeAt": 5_000,
+					"changeIDsAtLastDate": ["change-1"],
+				]
+			],
+		],
+		options: [.sortedKeys]
+	)
 }
 
 private enum SyncTestFailure: Error {

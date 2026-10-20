@@ -1732,7 +1732,10 @@ final class ThingsDiaryAppModel {
 
 	private func openStore(for login: String) throws {
 		guard let storeDirectory else { return }
-		store = try DiaryStore(fileURL: DiaryStore.fileURL(in: storeDirectory, login: login))
+		store = try DiaryStore(
+			fileURL: DiaryStore.fileURL(in: storeDirectory, login: login),
+			legacyJSONURL: storeDirectory.appending(path: "state.json")
+		)
 	}
 
 	private func isValidEmail(_ value: String) -> Bool {

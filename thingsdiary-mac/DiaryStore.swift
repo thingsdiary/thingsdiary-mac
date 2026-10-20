@@ -135,8 +135,11 @@ actor DiaryStore {
 			.appending(path: filename)
 	}
 
-	init(fileURL: URL) throws {
+	init(fileURL: URL, legacyJSONURL: URL? = nil) throws {
 		database = try DiaryDatabase.open(at: fileURL)
+		if let legacyJSONURL {
+			try Self.importLegacyJSON(at: legacyJSONURL, into: database)
+		}
 		state = try Self.load(from: database)
 	}
 
@@ -523,75 +526,99 @@ actor DiaryStore {
 
 	private func persist(_ state: StoredState) throws {
 		try database.write { database in
-			try database.execute(sql: "DELETE FROM sync")
-			try database.execute(sql: "DELETE FROM entries")
-			try database.execute(sql: "DELETE FROM topics")
-			try database.execute(sql: "DELETE FROM templates")
-			try database.execute(sql: "DELETE FROM diaries")
+			try Self.write(state, to: database)
+		}
+	}
 
-			if let diary = state.selectedDiary {
-				try database.execute(
-					sql: """
-						INSERT INTO diaries (id, selected, last_sync_at, payload)
-						VALUES (?, 1, ?, ?)
-						""",
-					arguments: [
-						diary.id,
-						state.checkpoints[diary.id]?.lastChangeAt,
-						try Self.encoder.encode(diary),
-					]
-				)
-			}
+	private static func importLegacyJSON(at url: URL, into database: DatabaseQueue) throws {
+		guard FileManager.default.fileExists(atPath: url.path) else { return }
+		let imported = try database.write { database in
+			guard try isEmpty(database) else { return false }
+			let state = try decoder.decode(StoredState.self, from: Data(contentsOf: url))
+			try write(state, to: database)
+			return true
+		}
+		guard imported else { return }
+		let backupURL = url.appendingPathExtension("backup")
+		if !FileManager.default.fileExists(atPath: backupURL.path) {
+			try FileManager.default.copyItem(at: url, to: backupURL)
+		}
+	}
 
-			for entry in state.entries {
-				try database.execute(
-					sql: "INSERT INTO entries (diary_id, id, payload) VALUES (?, ?, ?)",
-					arguments: [entry.diaryID, entry.id, try Self.encoder.encode(entry)]
-				)
+	private static func isEmpty(_ database: Database) throws -> Bool {
+		for table in ["diaries", "entries", "topics", "templates", "sync"] {
+			if try Int.fetchOne(database, sql: "SELECT COUNT(*) FROM \(table)") != 0 {
+				return false
 			}
-			for topic in state.topics {
-				try database.execute(
-					sql: "INSERT INTO topics (diary_id, id, payload) VALUES (?, ?, ?)",
-					arguments: [topic.diaryID, topic.id, try Self.encoder.encode(topic)]
-				)
-			}
-			for template in state.templates {
-				try database.execute(
-					sql: "INSERT INTO templates (diary_id, id, payload) VALUES (?, ?, ?)",
-					arguments: [
-						template.diaryID,
-						template.id,
-						try Self.encoder.encode(template),
-					]
-				)
-			}
-			for write in state.pendingEntryWrites {
-				try database.execute(
-					sql: """
-						INSERT INTO sync (kind, diary_id, entity_id, operation, payload)
-						VALUES ('pending', ?, ?, ?, ?)
-						""",
-					arguments: [
-						write.entry.diaryID,
-						write.entry.id,
-						write.operation.rawValue,
-						try Self.encoder.encode(write),
-					]
-				)
-			}
-			for conflict in state.entryConflicts {
-				try database.execute(
-					sql: """
-						INSERT INTO sync (kind, diary_id, entity_id, payload)
-						VALUES ('conflict', ?, ?, ?)
-						""",
-					arguments: [
-						conflict.local.diaryID,
-						conflict.local.id,
-						try Self.encoder.encode(conflict),
-					]
-				)
-			}
+		}
+		return true
+	}
+
+	private static func write(_ state: StoredState, to database: Database) throws {
+		try database.execute(sql: "DELETE FROM sync")
+		try database.execute(sql: "DELETE FROM entries")
+		try database.execute(sql: "DELETE FROM topics")
+		try database.execute(sql: "DELETE FROM templates")
+		try database.execute(sql: "DELETE FROM diaries")
+
+		if let diary = state.selectedDiary {
+			try database.execute(
+				sql: """
+					INSERT INTO diaries (id, selected, last_sync_at, payload)
+					VALUES (?, 1, ?, ?)
+					""",
+				arguments: [
+					diary.id,
+					state.checkpoints[diary.id]?.lastChangeAt,
+					try encoder.encode(diary),
+				]
+			)
+		}
+
+		for entry in state.entries {
+			try database.execute(
+				sql: "INSERT INTO entries (diary_id, id, payload) VALUES (?, ?, ?)",
+				arguments: [entry.diaryID, entry.id, try encoder.encode(entry)]
+			)
+		}
+		for topic in state.topics {
+			try database.execute(
+				sql: "INSERT INTO topics (diary_id, id, payload) VALUES (?, ?, ?)",
+				arguments: [topic.diaryID, topic.id, try encoder.encode(topic)]
+			)
+		}
+		for template in state.templates {
+			try database.execute(
+				sql: "INSERT INTO templates (diary_id, id, payload) VALUES (?, ?, ?)",
+				arguments: [template.diaryID, template.id, try encoder.encode(template)]
+			)
+		}
+		for write in state.pendingEntryWrites {
+			try database.execute(
+				sql: """
+					INSERT INTO sync (kind, diary_id, entity_id, operation, payload)
+					VALUES ('pending', ?, ?, ?, ?)
+					""",
+				arguments: [
+					write.entry.diaryID,
+					write.entry.id,
+					write.operation.rawValue,
+					try encoder.encode(write),
+				]
+			)
+		}
+		for conflict in state.entryConflicts {
+			try database.execute(
+				sql: """
+					INSERT INTO sync (kind, diary_id, entity_id, payload)
+					VALUES ('conflict', ?, ?, ?)
+					""",
+				arguments: [
+					conflict.local.diaryID,
+					conflict.local.id,
+					try encoder.encode(conflict),
+				]
+			)
 		}
 	}
 
