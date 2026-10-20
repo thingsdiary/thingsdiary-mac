@@ -103,8 +103,9 @@ The following rules are mandatory:
 The existing `state.json` is imported only after the SQLite schema is ready. The
 import is idempotent and runs in one database transaction. The source JSON is
 kept as a recoverable backup after a successful import and remains untouched
-after a failed import. Creating that backup is also the durable one-time claim
-that prevents the same legacy data from being imported into another account.
+after a failed import. Before the transaction, the importer atomically writes a
+destination-bound claim beside the JSON. Another account skips a claimed source;
+the recoverable backup marks a completed import.
 
 ### Network synchronization
 
