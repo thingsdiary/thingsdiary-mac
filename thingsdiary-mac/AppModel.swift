@@ -552,7 +552,8 @@ final class ThingsDiaryAppModel {
 	var availableDiaries: [ThingsDiaryDiary] { loadedDiaries }
 
 	private let client: any ThingsDiaryAppClient
-	private let store: DiaryStore?
+	private var store: DiaryStore?
+	private let storeDirectory: URL?
 	private let sessionStore: any AuthSessionStore
 	private var diarySelectionID: UUID?
 	private var loadedDiaries: [ThingsDiaryDiary] = []
@@ -572,10 +573,12 @@ final class ThingsDiaryAppModel {
 	init(
 		client: any ThingsDiaryAppClient = LiveThingsDiaryAppClient(),
 		store: DiaryStore? = nil,
+		storeDirectory: URL? = nil,
 		sessionStore: any AuthSessionStore = InMemoryAuthSessionStore()
 	) {
 		self.client = client
 		self.store = store
+		self.storeDirectory = storeDirectory
 		self.sessionStore = sessionStore
 	}
 
@@ -670,6 +673,12 @@ final class ThingsDiaryAppModel {
 		}
 
 		login = savedSession.login
+		do {
+			try openStore(for: savedSession.login)
+		} catch {
+			screen = .error("Could not open the local database.")
+			return
+		}
 		var hasCachedDiary = false
 		if let store, let diary = await store.selectedDiary() {
 			loadedDiaries = [diary]
@@ -1703,6 +1712,7 @@ final class ThingsDiaryAppModel {
 				password: password,
 				secretKey: secretKey
 			)
+			try openStore(for: login)
 			try sessionStore.save(
 				SavedAuthSession(
 					login: login.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1718,6 +1728,11 @@ final class ThingsDiaryAppModel {
 
 	func retry() {
 		screen = .login
+	}
+
+	private func openStore(for login: String) throws {
+		guard let storeDirectory else { return }
+		store = try DiaryStore(fileURL: DiaryStore.fileURL(in: storeDirectory, login: login))
 	}
 
 	private func isValidEmail(_ value: String) -> Bool {

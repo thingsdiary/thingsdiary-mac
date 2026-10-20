@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 import ThingsDiaryClient
@@ -123,6 +124,16 @@ actor DiaryStore {
 	private let database: DatabaseQueue
 	private var state: StoredState
 	private var activeSynchronization: ActiveSynchronization?
+
+	nonisolated static func fileURL(in directory: URL, login: String) -> URL {
+		let normalizedLogin = login.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+		let digest = SHA256.hash(data: Data(normalizedLogin.utf8))
+		let filename = digest.map { String(format: "%02x", $0) }.joined() + ".sqlite"
+		return
+			directory
+			.appending(path: "accounts", directoryHint: .isDirectory)
+			.appending(path: filename)
+	}
 
 	init(fileURL: URL) throws {
 		database = try DiaryDatabase.open(at: fileURL)

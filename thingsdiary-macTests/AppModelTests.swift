@@ -216,6 +216,44 @@ func startupRestoresCacheAndAuthenticationWhileOffline() async throws {
 }
 
 @MainActor
+@Test("Startup opens the database that belongs to the saved login")
+func startupOpensSavedLoginDatabase() async throws {
+	let directory = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-accounts-\(UUID().uuidString)", directoryHint: .isDirectory)
+	defer { try? FileManager.default.removeItem(at: directory) }
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let cachedEntry = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Cached note")
+	let login = " Person@Example.test "
+	let store = try DiaryStore(fileURL: DiaryStore.fileURL(in: directory, login: login))
+	try await store.replaceSelectedDiary(selectedDiary, entries: [cachedEntry])
+	let sessionStore = TestAuthSessionStore()
+	try sessionStore.save(
+		SavedAuthSession(login: login, authentication: testAuthentication())
+	)
+	let client = StubAppClient(
+		result: .failure(TestFailure.rejected),
+		currentSessionResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(
+		client: client,
+		storeDirectory: directory,
+		sessionStore: sessionStore
+	)
+
+	await model.start()
+
+	#expect(model.screen == .entries(diary: selectedDiary, entries: [cachedEntry]))
+	#expect(
+		DiaryStore.fileURL(in: directory, login: login)
+			== DiaryStore.fileURL(in: directory, login: "person@example.test")
+	)
+	#expect(
+		DiaryStore.fileURL(in: directory, login: login)
+			!= DiaryStore.fileURL(in: directory, login: "someone@example.test")
+	)
+}
+
+@MainActor
 @Test("Login routes multiple diaries to the picker")
 func loginShowsDiaryPickerForMultipleDiaries() async {
 	let diaries = [diary(id: "diary-1", title: "Personal"), diary(id: "diary-2", title: "Work")]

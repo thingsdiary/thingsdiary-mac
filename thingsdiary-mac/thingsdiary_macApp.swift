@@ -89,14 +89,12 @@ struct ThingsDiaryApp: App {
 			for: .applicationSupportDirectory,
 			in: .userDomainMask
 		)[0]
-		let store = try? DiaryStore(
-			fileURL:
-				applicationSupport
-				.appending(path: "ThingsDiary", directoryHint: .isDirectory)
-				.appending(path: "store.sqlite"))
+		let storeDirectory =
+			applicationSupport
+			.appending(path: "ThingsDiary", directoryHint: .isDirectory)
 		_model = State(
 			initialValue: ThingsDiaryAppModel(
-				store: store,
+				storeDirectory: storeDirectory,
 				sessionStore: KeychainAuthSessionStore()
 			)
 		)
