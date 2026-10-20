@@ -15,13 +15,21 @@ extension XCUIElement {
 }
 
 final class DiaryWorkspaceUITests: XCTestCase {
+	private var launchedApp: XCUIApplication?
+
 	override func tearDown() {
-		XCUIApplication().terminate()
+		launchedApp?.terminate()
+		launchedApp = nil
 		super.tearDown()
 	}
 
 	private func launchWorkspace(additionalArguments: [String] = []) -> XCUIApplication {
+		guard launchedApp == nil else {
+			XCTFail("Each UI test must launch the workspace only once")
+			return launchedApp!
+		}
 		let app = XCUIApplication()
+		launchedApp = app
 		app.launchArguments =
 			[
 				"-ApplePersistenceIgnoreState",
@@ -29,7 +37,6 @@ final class DiaryWorkspaceUITests: XCTestCase {
 				"--ui-testing-workspace",
 			] + additionalArguments
 		app.launch()
-		app.activate()
 		let fixtureWindow = app.windows["Entries"]
 		XCTAssertTrue(fixtureWindow.waitForExistence(timeout: 2))
 		XCTAssertEqual(app.windows.count, 1)
@@ -52,7 +59,6 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		XCTAssertTrue(search.waitForExistence(timeout: 2))
 		XCTAssertTrue(hiddenEntry.waitForExistence(timeout: 2))
-		app.activate()
 		typeText(query, into: search)
 
 		XCTAssertTrue(search.waitForValue(query, timeout: 2))
@@ -72,12 +78,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 	private func workspace(in app: XCUIApplication) -> XCUIElement {
 		let window = app.windows.firstMatch
 		XCTAssertTrue(window.waitForExistence(timeout: 2))
-		window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
 		return window
-	}
-
-	private func activate(_ workspace: XCUIElement) {
-		workspace.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02)).click()
 	}
 
 	private func saveFromFileMenu(in app: XCUIApplication) {
@@ -88,9 +89,16 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		save.click()
 	}
 
-	private func clearText(in editor: XCUIElement) {
-		editor.click()
-		editor.typeKey("a", modifierFlags: .command)
+	private func selectAllText(in element: XCUIElement, app: XCUIApplication) {
+		element.click()
+		app.menuBars.menuBarItems["Edit"].click()
+		let selectAll = app.menuItems["Select All"]
+		XCTAssertTrue(selectAll.waitForExistence(timeout: 2))
+		selectAll.click()
+	}
+
+	private func clearText(in editor: XCUIElement, app: XCUIApplication) {
+		selectAllText(in: editor, app: app)
 		editor.typeKey(.delete, modifierFlags: [])
 	}
 
@@ -106,8 +114,8 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(save.isEnabled)
 		save.click()
 		editor.click()
-		app.typeKey("s", modifierFlags: .command)
-		app.typeKey("s", modifierFlags: .control)
+		editor.typeKey("s", modifierFlags: .command)
+		editor.typeKey("s", modifierFlags: .control)
 		XCTAssertEqual(editor.value as? String, content)
 		XCTAssertTrue((tab.value as? String)?.hasSuffix("Saved") == true)
 		XCTAssertFalse(app.sheets.firstMatch.exists)
@@ -609,14 +617,15 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		let title = app.textFields["diary.edit.title"]
 		XCTAssertTrue(title.waitForExistence(timeout: 2))
-		title.typeText("R")
-		XCTAssertEqual(title.value as? String, "R")
+		title.click()
+		title.typeText("!")
+		XCTAssertEqual(title.value as? String, "!Test Diary")
 		app.buttons["Save"].click()
 
 		XCTAssertFalse(title.waitForExistence(timeout: 2))
 		let updatedSwitcher = app.buttons["diary.switcher"].firstMatch
 		XCTAssertTrue(updatedSwitcher.waitForExistence(timeout: 2))
-		XCTAssertEqual(updatedSwitcher.label, "Current diary, R")
+		XCTAssertEqual(updatedSwitcher.label, "Current diary, !Test Diary")
 	}
 
 	func testDropTargetsAreAccessibleFromWorkspace() {
@@ -908,7 +917,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let editor = app.textViews["entry.editor"].firstMatch
 		editor.click()
 		editor.typeText(content)
-		app.typeKey("s", modifierFlags: .command)
+		saveFromFileMenu(in: app)
 		XCTAssertTrue(
 			app.buttons["entry-tab.\(draftID)"].firstMatch.waitForValue("Saved", timeout: 2)
 		)
@@ -957,7 +966,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let editor = app.textViews["entry.editor"].firstMatch
 		editor.click()
 		editor.typeText(content)
-		app.typeKey("s", modifierFlags: .command)
+		saveFromFileMenu(in: app)
 		XCTAssertTrue(
 			app.buttons["entry-tab.\(draftID)"].firstMatch.waitForValue("Saved", timeout: 2)
 		)
@@ -994,7 +1003,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		saveFromFileMenu(in: app)
 		XCTAssertTrue(workspace.buttons["entry-tab.\(entryID)"].waitForValue("Saved", timeout: 2))
 
-		clearText(in: editor)
+		clearText(in: editor, app: app)
 		XCTAssertEqual(editor.value as? String, "")
 		saveFromFileMenu(in: app)
 		XCTAssertTrue(workspace.buttons["entry-tab.\(entryID)"].waitForValue("Saved", timeout: 2))
@@ -1088,16 +1097,18 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 	func testCommandAndControlSaveClearDirtyState() {
 		let app = launchWorkspace()
-		let workspace = app.dialogs.firstMatch.exists ? app.dialogs.firstMatch : app.windows.firstMatch
-		workspace.buttons["entry.fixture-entry"].click()
-		let editor = workspace.textViews.firstMatch
-		let tab = workspace.buttons["entry-tab.fixture-entry"]
+		let entry = app.buttons["entry.fixture-entry"]
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+		entry.click()
+		let editor = app.textViews["entry.editor"]
+		let tab = app.buttons["entry-tab.fixture-entry"]
 		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
 
 		editor.click()
 		editor.typeText(" Command edit")
 		XCTAssertEqual(tab.value as? String, "Unsaved changes")
-		app.typeKey("s", modifierFlags: .command)
+		editor.typeKey("s", modifierFlags: .command)
 		XCTAssertTrue(
 			tab.waitForValue("Saved", timeout: 2)
 		)
@@ -1105,7 +1116,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		editor.click()
 		editor.typeText(" Control edit")
 		XCTAssertEqual(tab.value as? String, "Unsaved changes")
-		app.typeKey("s", modifierFlags: .control)
+		editor.typeKey("s", modifierFlags: .control)
 		XCTAssertTrue(
 			tab.waitForValue("Saved", timeout: 2)
 		)
@@ -1209,7 +1220,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.buttons["Cancel"].exists)
 	}
 
-	func testTrashContextMenuDisablesEmptyTrashWhenTrashIsEmpty() {
+	func testTrashContextMenuEnablesEmptyTrashWhenTrashHasEntries() {
 		let app = launchWorkspace()
 		let trash = app.buttons["sidebar.trash"]
 
@@ -1221,11 +1232,12 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		XCTAssertTrue(app.staticTexts["Empty Trash?"].waitForExistence(timeout: 2))
 		app.sheets.firstMatch.buttons["Cancel"].click()
-		app.terminate()
+	}
 
-		let emptyApp = launchWorkspace(additionalArguments: ["--ui-testing-empty-trash"])
-		emptyApp.buttons["sidebar.trash"].rightClick()
-		let disabledEmptyTrash = emptyApp.menuItems["Empty Trash"]
+	func testTrashContextMenuDisablesEmptyTrashWhenTrashIsEmpty() {
+		let app = launchWorkspace(additionalArguments: ["--ui-testing-empty-trash"])
+		app.buttons["sidebar.trash"].rightClick()
+		let disabledEmptyTrash = app.menuItems["Empty Trash"]
 		XCTAssertTrue(disabledEmptyTrash.waitForExistence(timeout: 2))
 		XCTAssertFalse(disabledEmptyTrash.isEnabled)
 	}
@@ -1254,7 +1266,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(title.value as? String, "Work Topic")
 	}
 
-	func testDeletingTopicWithEntriesCanKeepOrDeleteThem() {
+	func testDeletingTopicWithEntriesCanKeepEntries() {
 		let app = launchWorkspace()
 		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
 		let linkedEntry = app.descendants(matching: .any)["entry.fixture-entry-19"]
@@ -1274,21 +1286,22 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
 		app.buttons["sidebar.entries"].click()
 		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
-		app.terminate()
+	}
 
-		let deleteApp = launchWorkspace()
-		let deleteTopic = deleteApp.buttons["sidebar.topic.fixture-topic-2"]
-		let deletedEntry = deleteApp.descendants(matching: .any)["entry.fixture-entry-19"]
+	func testDeletingTopicWithEntriesCanDeleteEntries() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
+		let deletedEntry = app.descendants(matching: .any)["entry.fixture-entry-19"]
 
-		deleteTopic.click()
+		topic.click()
 		XCTAssertTrue(deletedEntry.waitForExistence(timeout: 2))
-		deleteTopic.rightClick()
-		deleteApp.menuItems["Delete"].firstMatch.click()
-		XCTAssertTrue(deleteApp.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
-		deleteApp.sheets.firstMatch.buttons["Delete Entries"].click()
+		topic.rightClick()
+		app.menuItems["Delete"].firstMatch.click()
+		XCTAssertTrue(app.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
+		app.sheets.firstMatch.buttons["Delete Entries"].click()
 
-		XCTAssertTrue(deleteTopic.waitForNonExistence(timeout: 2))
-		deleteApp.buttons["sidebar.trash"].click()
+		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
+		app.buttons["sidebar.trash"].click()
 		XCTAssertTrue(deletedEntry.waitForExistence(timeout: 2))
 	}
 
@@ -1353,7 +1366,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let savedTab = workspace.buttons["template-tab.\(templateID)"]
 		XCTAssertTrue(savedTab.waitForValue("Saved", timeout: 2))
 
-		clearText(in: editor)
+		clearText(in: editor, app: app)
 		XCTAssertEqual(editor.value as? String, "")
 		saveFromFileMenu(in: app)
 		XCTAssertTrue(savedTab.waitForValue("Saved", timeout: 2))
@@ -1396,7 +1409,6 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let content = "n"
 		createAndSaveTemplate(content, app: app)
 
-		activate(workspace)
 		workspace.buttons["topic.create"].click()
 		let title = workspace.textFields["topic.title"]
 		XCTAssertTrue(title.waitForExistence(timeout: 2))
@@ -1418,7 +1430,6 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let content = "e"
 		createAndSaveTemplate(content, app: app)
 
-		activate(workspace)
 		let topic = workspace.buttons["sidebar.topic.fixture-topic"]
 		topic.click()
 		topic.doubleClick()
@@ -1441,7 +1452,6 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let content = "d"
 		createAndSaveTemplate(content, app: app)
 
-		activate(workspace)
 		let topic = workspace.buttons["sidebar.topic.fixture-topic"]
 		topic.doubleClick()
 		let title = workspace.textFields["topic.title"]
