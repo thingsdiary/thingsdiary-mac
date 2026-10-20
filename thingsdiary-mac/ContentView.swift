@@ -843,9 +843,9 @@ private struct EntriesView: View {
 						)
 					}
 				}
-					.frame(maxWidth: .infinity, alignment: .leading)
-					.allowsHitTesting(currentWorkspaceLayout != .editorOnly)
-					.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.allowsHitTesting(currentWorkspaceLayout != .editorOnly)
+				.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
 
 				HStack(spacing: 0) {
 					browserTabsBar
@@ -1413,9 +1413,9 @@ private struct EntriesView: View {
 					)
 				}
 			}
-				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-				.allowsHitTesting(layout != .editorOnly)
-				.accessibilityHidden(layout == .editorOnly)
+			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+			.allowsHitTesting(layout != .editorOnly)
+			.accessibilityHidden(layout == .editorOnly)
 
 			HStack(spacing: 0) {
 				entryDetailPane(layout: layout)
