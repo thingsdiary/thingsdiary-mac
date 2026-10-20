@@ -165,7 +165,9 @@ actor DiaryStore {
 			checkpoints: state.checkpoints,
 			entryConflicts: state.entryConflicts
 		)
-		try persist(nextState)
+		try database.write { database in
+			try Self.replaceDomain(with: nextState, in: database)
+		}
 		state = nextState
 	}
 
@@ -190,8 +192,11 @@ actor DiaryStore {
 	func upsertTopic(_ topic: ThingsDiaryTopic) throws {
 		var nextState = state
 		nextState.topics.removeAll { $0.id == topic.id }
-		nextState.topics.append(StoredTopic(topic))
-		try persist(nextState)
+		let stored = StoredTopic(topic)
+		nextState.topics.append(stored)
+		try database.write { database in
+			try Self.upsert(stored, in: database)
+		}
 		state = nextState
 	}
 
@@ -213,34 +218,63 @@ actor DiaryStore {
 			)
 		}
 
-		try persist(nextState)
+		try database.write { database in
+			try database.execute(
+				sql: "DELETE FROM topics WHERE diary_id = ? AND id = ?",
+				arguments: [diaryID, topicID]
+			)
+			try database.execute(sql: "DELETE FROM entries WHERE diary_id = ?", arguments: [diaryID])
+			for entry in entries.map(StoredEntry.init) {
+				try Self.upsert(entry, in: database)
+			}
+			for write in nextState.pendingEntryWrites where write.entry.diaryID == diaryID {
+				try Self.upsert(write, in: database)
+			}
+		}
 		state = nextState
 	}
 
 	func upsertTemplate(_ template: ThingsDiaryTemplate) throws {
 		var nextState = state
 		nextState.templates.removeAll { $0.id == template.id }
-		nextState.templates.append(StoredTemplate(template))
-		try persist(nextState)
+		let stored = StoredTemplate(template)
+		nextState.templates.append(stored)
+		try database.write { database in
+			try Self.upsert(stored, in: database)
+		}
 		state = nextState
 	}
 
 	func removeTemplate(diaryID: String, templateID: String) throws {
 		var nextState = state
 		nextState.templates.removeAll { $0.diaryID == diaryID && $0.id == templateID }
-		try persist(nextState)
+		try database.write { database in
+			try database.execute(
+				sql: "DELETE FROM templates WHERE diary_id = ? AND id = ?",
+				arguments: [diaryID, templateID]
+			)
+		}
 		state = nextState
 	}
 
 	func savePendingEntry(_ write: PendingEntryWrite) throws {
 		var nextState = state
 		nextState.entries.removeAll { $0.id == write.entry.id }
+		let storedEntry = StoredEntry(write.entry)
 		if write.operation != .remove {
-			nextState.entries.append(StoredEntry(write.entry))
+			nextState.entries.append(storedEntry)
 		}
 		nextState.pendingEntryWrites.removeAll { $0.entry.id == write.entry.id }
-		nextState.pendingEntryWrites.append(StoredPendingEntryWrite(write))
-		try persist(nextState)
+		let storedWrite = StoredPendingEntryWrite(write)
+		nextState.pendingEntryWrites.append(storedWrite)
+		try database.write { database in
+			if write.operation == .remove {
+				try Self.deleteEntry(id: write.id, diaryID: write.entry.diaryID, in: database)
+			} else {
+				try Self.upsert(storedEntry, in: database)
+			}
+			try Self.upsert(storedWrite, in: database)
+		}
 		state = nextState
 	}
 
@@ -269,90 +303,104 @@ actor DiaryStore {
 	}
 
 	func applyRemoteEntry(_ entry: ThingsDiaryEntry) throws {
-		try update { nextState in
-			guard !nextState.pendingEntryWrites.contains(where: { $0.entry.id == entry.id })
-			else { return }
-			guard
-				!nextState.entries.contains(where: {
-					$0.id == entry.id && $0.version > entry.version
-				})
-			else { return }
-			nextState.entries.removeAll { $0.id == entry.id }
-			nextState.entries.append(StoredEntry(entry))
+		guard !state.pendingEntryWrites.contains(where: { $0.entry.id == entry.id })
+		else { return }
+		guard
+			!state.entries.contains(where: {
+				$0.id == entry.id && $0.version > entry.version
+			})
+		else { return }
+		var nextState = state
+		nextState.entries.removeAll { $0.id == entry.id }
+		let stored = StoredEntry(entry)
+		nextState.entries.append(stored)
+		try database.write { database in
+			try Self.upsert(stored, in: database)
 		}
+		state = nextState
 	}
 
 	func removeRemoteEntry(id: String, changedAt: Date) throws {
-		try update { nextState in
-			guard
-				!nextState.pendingEntryWrites.contains(where: { $0.entry.id == id })
-			else { return }
-			guard
-				!nextState.entries.contains(where: {
-					$0.id == id && $0.updatedAt > changedAt
-				})
-			else { return }
-			nextState.entries.removeAll { $0.id == id }
+		guard !state.pendingEntryWrites.contains(where: { $0.entry.id == id }) else { return }
+		guard !state.entries.contains(where: { $0.id == id && $0.updatedAt > changedAt })
+		else { return }
+		var nextState = state
+		guard let entry = nextState.entries.first(where: { $0.id == id }) else { return }
+		nextState.entries.removeAll { $0.id == id }
+		try database.write { database in
+			try Self.deleteEntry(id: id, diaryID: entry.diaryID, in: database)
 		}
+		state = nextState
 	}
 
 	func applyRemoteTopic(_ topic: ThingsDiaryTopic) throws {
-		try update { nextState in
-			guard
-				!nextState.topics.contains(where: {
-					$0.id == topic.id && $0.version > topic.version
-				})
-			else { return }
-			nextState.topics.removeAll { $0.id == topic.id }
-			nextState.topics.append(StoredTopic(topic))
+		guard !state.topics.contains(where: { $0.id == topic.id && $0.version > topic.version })
+		else { return }
+		var nextState = state
+		nextState.topics.removeAll { $0.id == topic.id }
+		let stored = StoredTopic(topic)
+		nextState.topics.append(stored)
+		try database.write { database in
+			try Self.upsert(stored, in: database)
 		}
+		state = nextState
 	}
 
 	func removeRemoteTopic(id: String, changedAt: Date) throws {
-		try update { nextState in
-			guard
-				!nextState.topics.contains(where: {
-					$0.id == id && $0.updatedAt > changedAt
-				})
-			else { return }
-			nextState.topics.removeAll { $0.id == id }
+		guard !state.topics.contains(where: { $0.id == id && $0.updatedAt > changedAt })
+		else { return }
+		var nextState = state
+		guard let topic = nextState.topics.first(where: { $0.id == id }) else { return }
+		nextState.topics.removeAll { $0.id == id }
+		try database.write { database in
+			try database.execute(
+				sql: "DELETE FROM topics WHERE diary_id = ? AND id = ?",
+				arguments: [topic.diaryID, id]
+			)
 		}
+		state = nextState
 	}
 
 	func applyRemoteTemplate(_ template: ThingsDiaryTemplate) throws {
-		try update { nextState in
-			guard
-				!nextState.templates.contains(where: {
-					$0.id == template.id && $0.version > template.version
-				})
-			else { return }
-			nextState.templates.removeAll { $0.id == template.id }
-			nextState.templates.append(StoredTemplate(template))
+		guard
+			!state.templates.contains(where: {
+				$0.id == template.id && $0.version > template.version
+			})
+		else { return }
+		var nextState = state
+		nextState.templates.removeAll { $0.id == template.id }
+		let stored = StoredTemplate(template)
+		nextState.templates.append(stored)
+		try database.write { database in
+			try Self.upsert(stored, in: database)
 		}
+		state = nextState
 	}
 
 	func removeRemoteTemplate(id: String, changedAt: Date) throws {
-		try update { nextState in
-			guard
-				!nextState.templates.contains(where: {
-					$0.id == id && $0.updatedAt > changedAt
-				})
-			else { return }
-			nextState.templates.removeAll { $0.id == id }
+		guard !state.templates.contains(where: { $0.id == id && $0.updatedAt > changedAt })
+		else { return }
+		var nextState = state
+		guard let template = nextState.templates.first(where: { $0.id == id }) else { return }
+		nextState.templates.removeAll { $0.id == id }
+		try database.write { database in
+			try database.execute(
+				sql: "DELETE FROM templates WHERE diary_id = ? AND id = ?",
+				arguments: [template.diaryID, id]
+			)
 		}
+		state = nextState
 	}
 
 	func finishPull(diaryID: String, at date: Date) throws {
 		var nextState = state
 		nextState.checkpoints[diaryID] = StoredCheckpoint(lastChangeAt: date)
-		try persist(nextState)
-		state = nextState
-	}
-
-	private func update(_ mutation: (inout StoredState) -> Void) throws {
-		var nextState = state
-		mutation(&nextState)
-		try persist(nextState)
+		try database.write { database in
+			try database.execute(
+				sql: "UPDATE diaries SET last_sync_at = ? WHERE id = ?",
+				arguments: [date, diaryID]
+			)
+		}
 		state = nextState
 	}
 
@@ -366,20 +414,25 @@ actor DiaryStore {
 		guard currentWrite == write else {
 			if write.operation == .create, currentWrite.operation == .create {
 				nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
-				nextState.pendingEntryWrites.append(
-					StoredPendingEntryWrite(
-						PendingEntryWrite(operation: .update, entry: currentWrite.entry)
-					)
+				let storedWrite = StoredPendingEntryWrite(
+					PendingEntryWrite(operation: .update, entry: currentWrite.entry)
 				)
-				try persist(nextState)
+				nextState.pendingEntryWrites.append(storedWrite)
+				try database.write { database in
+					try Self.upsert(storedWrite, in: database)
+				}
 				state = nextState
 			}
 			return
 		}
+		let storedEntry = StoredEntry(serverEntry)
 		nextState.entries.removeAll { $0.id == serverEntry.id }
-		nextState.entries.append(StoredEntry(serverEntry))
+		nextState.entries.append(storedEntry)
 		nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
-		try persist(nextState)
+		try database.write { database in
+			try Self.upsert(storedEntry, in: database)
+			try Self.deleteSync(kind: "pending", write: write, in: database)
+		}
 		state = nextState
 	}
 
@@ -390,7 +443,10 @@ actor DiaryStore {
 		}
 		nextState.entries.removeAll { $0.id == write.id }
 		nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
-		try persist(nextState)
+		try database.write { database in
+			try Self.deleteEntry(id: write.id, diaryID: write.entry.diaryID, in: database)
+			try Self.deleteSync(kind: "pending", write: write, in: database)
+		}
 		state = nextState
 	}
 
@@ -404,32 +460,115 @@ actor DiaryStore {
 		guard currentWrite == write else {
 			if write.operation == .create, currentWrite.operation == .create {
 				nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
-				nextState.pendingEntryWrites.append(
-					StoredPendingEntryWrite(
-						PendingEntryWrite(operation: .update, entry: currentWrite.entry)
-					)
+				let storedWrite = StoredPendingEntryWrite(
+					PendingEntryWrite(operation: .update, entry: currentWrite.entry)
 				)
-				try persist(nextState)
+				nextState.pendingEntryWrites.append(storedWrite)
+				try database.write { database in
+					try Self.upsert(storedWrite, in: database)
+				}
 				state = nextState
 			}
 			return
 		}
+		let storedEntry = StoredEntry(server)
 		nextState.entries.removeAll { $0.id == server.id }
-		nextState.entries.append(StoredEntry(server))
+		nextState.entries.append(storedEntry)
 		nextState.pendingEntryWrites.removeAll { $0.entry.id == write.id }
 		nextState.entryConflicts.removeAll { $0.local.id == write.id }
-		nextState.entryConflicts.append(
-			StoredEntryConflict(
-				DiaryEntryConflict(local: write.entry, server: server)
-			))
-		try persist(nextState)
+		let storedConflict = StoredEntryConflict(
+			DiaryEntryConflict(local: write.entry, server: server)
+		)
+		nextState.entryConflicts.append(storedConflict)
+		try database.write { database in
+			try Self.upsert(storedEntry, in: database)
+			try Self.deleteSync(kind: "pending", write: write, in: database)
+			try Self.upsert(storedConflict, in: database)
+		}
 		state = nextState
 	}
 
-	private func persist(_ state: StoredState) throws {
-		try database.write { database in
-			try Self.write(state, to: database)
-		}
+	private static func upsert(_ entry: StoredEntry, in database: Database) throws {
+		try database.execute(
+			sql: """
+				INSERT INTO entries (diary_id, id, payload) VALUES (?, ?, ?)
+				ON CONFLICT (diary_id, id) DO UPDATE SET payload = excluded.payload
+				""",
+			arguments: [entry.diaryID, entry.id, try encoder.encode(entry)]
+		)
+	}
+
+	private static func upsert(_ topic: StoredTopic, in database: Database) throws {
+		try database.execute(
+			sql: """
+				INSERT INTO topics (diary_id, id, payload) VALUES (?, ?, ?)
+				ON CONFLICT (diary_id, id) DO UPDATE SET payload = excluded.payload
+				""",
+			arguments: [topic.diaryID, topic.id, try encoder.encode(topic)]
+		)
+	}
+
+	private static func upsert(_ template: StoredTemplate, in database: Database) throws {
+		try database.execute(
+			sql: """
+				INSERT INTO templates (diary_id, id, payload) VALUES (?, ?, ?)
+				ON CONFLICT (diary_id, id) DO UPDATE SET payload = excluded.payload
+				""",
+			arguments: [template.diaryID, template.id, try encoder.encode(template)]
+		)
+	}
+
+	private static func upsert(_ write: StoredPendingEntryWrite, in database: Database) throws {
+		try database.execute(
+			sql: """
+				INSERT INTO sync (kind, diary_id, entity_id, operation, payload)
+				VALUES ('pending', ?, ?, ?, ?)
+				ON CONFLICT (kind, diary_id, entity_id) DO UPDATE SET
+					operation = excluded.operation,
+					payload = excluded.payload
+				""",
+			arguments: [
+				write.entry.diaryID,
+				write.entry.id,
+				write.operation.rawValue,
+				try encoder.encode(write),
+			]
+		)
+	}
+
+	private static func upsert(_ conflict: StoredEntryConflict, in database: Database) throws {
+		try database.execute(
+			sql: """
+				INSERT INTO sync (kind, diary_id, entity_id, operation, payload)
+				VALUES ('conflict', ?, ?, NULL, ?)
+				ON CONFLICT (kind, diary_id, entity_id) DO UPDATE SET
+					operation = NULL,
+					payload = excluded.payload
+				""",
+			arguments: [
+				conflict.local.diaryID,
+				conflict.local.id,
+				try encoder.encode(conflict),
+			]
+		)
+	}
+
+	private static func deleteEntry(id: String, diaryID: String, in database: Database) throws {
+		try database.execute(
+			sql: "DELETE FROM entries WHERE diary_id = ? AND id = ?",
+			arguments: [diaryID, id]
+		)
+	}
+
+	private static func deleteSync(
+		kind: String,
+		write: PendingEntryWrite,
+		in database: Database
+	) throws {
+		try database.execute(
+			sql: "DELETE FROM sync WHERE kind = ? AND diary_id = ? AND entity_id = ?",
+			arguments: [kind, write.entry.diaryID, write.id]
+		)
 	}
 
 	private static func importLegacyJSON(at url: URL, into database: DatabaseQueue) throws {
@@ -457,6 +596,16 @@ actor DiaryStore {
 
 	private static func write(_ state: StoredState, to database: Database) throws {
 		try database.execute(sql: "DELETE FROM sync")
+		try replaceDomain(with: state, in: database)
+		for write in state.pendingEntryWrites {
+			try upsert(write, in: database)
+		}
+		for conflict in state.entryConflicts {
+			try upsert(conflict, in: database)
+		}
+	}
+
+	private static func replaceDomain(with state: StoredState, in database: Database) throws {
 		try database.execute(sql: "DELETE FROM entries")
 		try database.execute(sql: "DELETE FROM topics")
 		try database.execute(sql: "DELETE FROM templates")
@@ -477,49 +626,13 @@ actor DiaryStore {
 		}
 
 		for entry in state.entries {
-			try database.execute(
-				sql: "INSERT INTO entries (diary_id, id, payload) VALUES (?, ?, ?)",
-				arguments: [entry.diaryID, entry.id, try encoder.encode(entry)]
-			)
+			try upsert(entry, in: database)
 		}
 		for topic in state.topics {
-			try database.execute(
-				sql: "INSERT INTO topics (diary_id, id, payload) VALUES (?, ?, ?)",
-				arguments: [topic.diaryID, topic.id, try encoder.encode(topic)]
-			)
+			try upsert(topic, in: database)
 		}
 		for template in state.templates {
-			try database.execute(
-				sql: "INSERT INTO templates (diary_id, id, payload) VALUES (?, ?, ?)",
-				arguments: [template.diaryID, template.id, try encoder.encode(template)]
-			)
-		}
-		for write in state.pendingEntryWrites {
-			try database.execute(
-				sql: """
-					INSERT INTO sync (kind, diary_id, entity_id, operation, payload)
-					VALUES ('pending', ?, ?, ?, ?)
-					""",
-				arguments: [
-					write.entry.diaryID,
-					write.entry.id,
-					write.operation.rawValue,
-					try encoder.encode(write),
-				]
-			)
-		}
-		for conflict in state.entryConflicts {
-			try database.execute(
-				sql: """
-					INSERT INTO sync (kind, diary_id, entity_id, payload)
-					VALUES ('conflict', ?, ?, ?)
-					""",
-				arguments: [
-					conflict.local.diaryID,
-					conflict.local.id,
-					try encoder.encode(conflict),
-				]
-			)
+			try upsert(template, in: database)
 		}
 	}
 

@@ -48,25 +48,18 @@ nonisolated enum DiaryDatabase {
 				table.column("payload", .blob).notNull()
 				table.primaryKey(["diary_id", "id"])
 			}
-			try database.create(index: "entries_by_diary", on: "entries", columns: ["diary_id"])
 			try database.create(table: "topics") { table in
 				table.column("diary_id", .text).notNull()
 				table.column("id", .text).notNull()
 				table.column("payload", .blob).notNull()
 				table.primaryKey(["diary_id", "id"])
 			}
-			try database.create(index: "topics_by_diary", on: "topics", columns: ["diary_id"])
 			try database.create(table: "templates") { table in
 				table.column("diary_id", .text).notNull()
 				table.column("id", .text).notNull()
 				table.column("payload", .blob).notNull()
 				table.primaryKey(["diary_id", "id"])
 			}
-			try database.create(
-				index: "templates_by_diary",
-				on: "templates",
-				columns: ["diary_id"]
-			)
 			try database.create(table: "sync") { table in
 				table.column("kind", .text).notNull()
 				table.column("diary_id", .text).notNull()

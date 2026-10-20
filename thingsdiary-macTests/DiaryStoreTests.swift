@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 import ThingsDiaryClient
 
@@ -116,6 +117,57 @@ func diaryStorePersistsDownloadedState() async throws {
 
 	#expect(await reopenedStore.selectedDiary() == diary)
 	#expect(await reopenedStore.entries(diaryID: diary.id) == [entry])
+}
+
+@Test("Saving one note does not rewrite unrelated rows")
+func diaryStoreWritesOnlyChangedRows() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-row-write-\(UUID().uuidString).sqlite")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let diary = ThingsDiaryDiary(
+		id: "diary-1",
+		title: "Personal",
+		description: "",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 2),
+		version: 3
+	)
+	let changed = ThingsDiaryEntry(
+		id: "entry-1",
+		diaryID: diary.id,
+		content: "Changed",
+		createdAt: Date(timeIntervalSince1970: 4),
+		updatedAt: Date(timeIntervalSince1970: 6),
+		version: 7
+	)
+	let unrelated = ThingsDiaryEntry(
+		id: "entry-2",
+		diaryID: diary.id,
+		content: "Untouched",
+		createdAt: Date(timeIntervalSince1970: 4),
+		updatedAt: Date(timeIntervalSince1970: 5),
+		version: 6
+	)
+	let store = try DiaryStore(fileURL: fileURL)
+	try await store.replaceSelectedDiary(diary, entries: [changed, unrelated])
+	let inspector = try DatabaseQueue(path: fileURL.path)
+	try await inspector.write { database in
+		try database.execute(
+			sql: """
+				CREATE TRIGGER protect_unrelated_entry
+				BEFORE DELETE ON entries
+				WHEN OLD.id = 'entry-2'
+				BEGIN
+					SELECT RAISE(ABORT, 'unrelated entry rewritten');
+				END
+				""")
+	}
+	try inspector.close()
+
+	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: changed))
+
+	let storedEntries = await store.entries(diaryID: diary.id)
+	#expect(storedEntries.contains(unrelated))
 }
 
 @Test("Diary store reopens plaintext topics and templates without a network")
