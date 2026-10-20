@@ -184,6 +184,38 @@ func loginPersistsAuthentication() async {
 }
 
 @MainActor
+@Test("Startup restores cached diary and authentication while offline")
+func startupRestoresCacheAndAuthenticationWhileOffline() async throws {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let cachedEntry = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Cached note")
+	let store = try DiaryStore.inMemory()
+	try await store.replaceSelectedDiary(selectedDiary, entries: [cachedEntry])
+	let sessionStore = TestAuthSessionStore()
+	let authentication = testAuthentication()
+	try sessionStore.save(
+		SavedAuthSession(
+			login: "person@example.test",
+			authentication: authentication
+		)
+	)
+	let client = StubAppClient(
+		result: .failure(TestFailure.rejected),
+		currentSessionResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(
+		client: client,
+		store: store,
+		sessionStore: sessionStore
+	)
+
+	await model.start()
+
+	#expect(model.screen == .entries(diary: selectedDiary, entries: [cachedEntry]))
+	#expect(await client.restoredAuthentication == authentication)
+	#expect(try sessionStore.load()?.authentication == authentication)
+}
+
+@MainActor
 @Test("Login routes multiple diaries to the picker")
 func loginShowsDiaryPickerForMultipleDiaries() async {
 	let diaries = [diary(id: "diary-1", title: "Personal"), diary(id: "diary-2", title: "Work")]
@@ -1482,6 +1514,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	let updateTopicResult: Result<ThingsDiaryTopic, Error>?
 	let createTemplateResult: Result<ThingsDiaryTemplate, Error>?
 	let updateTemplateResult: Result<ThingsDiaryTemplate, Error>?
+	let currentSessionResult: Result<Bool, Error>
 	private(set) var receivedLogin: String?
 	private(set) var receivedPassword: String?
 	private(set) var receivedSecretKey: String?
@@ -1501,6 +1534,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedDeleteTopicSoft: Bool?
 	private(set) var receivedCreateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var receivedUpdateTemplateParams: ThingsDiaryTemplateParams?
+	private(set) var restoredAuthentication: ThingsDiaryAuthState?
 
 	init(
 		result: Result<[ThingsDiaryDiary], Error>,
@@ -1520,7 +1554,8 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		createTopicResult: Result<ThingsDiaryTopic, Error>? = nil,
 		updateTopicResult: Result<ThingsDiaryTopic, Error>? = nil,
 		createTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil,
-		updateTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil
+		updateTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil,
+		currentSessionResult: Result<Bool, Error> = .success(true)
 	) {
 		self.result = result
 		self.createDiaryResult = createDiaryResult
@@ -1538,6 +1573,15 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		self.updateTopicResult = updateTopicResult
 		self.createTemplateResult = createTemplateResult
 		self.updateTemplateResult = updateTemplateResult
+		self.currentSessionResult = currentSessionResult
+	}
+
+	func restoreAuthentication(_ authentication: ThingsDiaryAuthState) {
+		restoredAuthentication = authentication
+	}
+
+	func currentSession() async throws -> Bool {
+		try currentSessionResult.get()
 	}
 
 	func register(

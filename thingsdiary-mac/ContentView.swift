@@ -128,6 +128,7 @@ struct ContentView: View {
 			}
 		}
 		.frame(minWidth: 520, minHeight: 420)
+		.task { await model.start() }
 		.sheet(
 			isPresented: Binding(
 				get: { model.presentation != .none },

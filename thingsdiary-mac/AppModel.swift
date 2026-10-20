@@ -24,6 +24,8 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 		password: String,
 		secretKey: String
 	) async throws -> ThingsDiaryAuthState
+	func restoreAuthentication(_ authentication: ThingsDiaryAuthState) async
+	func currentSession() async throws -> Bool
 	func diaries() async throws -> [ThingsDiaryDiary]
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary
 	func updateDiary(
@@ -72,6 +74,10 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 }
 
 extension ThingsDiaryAppClient {
+	func restoreAuthentication(_ authentication: ThingsDiaryAuthState) async {}
+
+	func currentSession() async throws -> Bool { true }
+
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
 		throw DiaryStoreError.unsupportedRemoteEntry
 	}
@@ -172,6 +178,14 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 			password: password,
 			secretKey: secretKey
 		)
+	}
+
+	func restoreAuthentication(_ authentication: ThingsDiaryAuthState) async {
+		await client.restoreAuthentication(authentication)
+	}
+
+	func currentSession() async throws -> Bool {
+		try await client.currentSession()
 	}
 
 	func diaries() async throws -> [ThingsDiaryDiary] {
@@ -542,6 +556,7 @@ final class ThingsDiaryAppModel {
 	private let sessionStore: any AuthSessionStore
 	private var diarySelectionID: UUID?
 	private var loadedDiaries: [ThingsDiaryDiary] = []
+	private var hasStarted = false
 
 	var canSubmit: Bool {
 		!login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -640,6 +655,50 @@ final class ThingsDiaryAppModel {
 			return model
 		}
 	#endif
+
+	func start() async {
+		guard !hasStarted else { return }
+		hasStarted = true
+
+		let savedSession: SavedAuthSession
+		do {
+			guard let session = try sessionStore.load() else { return }
+			savedSession = session
+		} catch {
+			screen = .error("Could not load the saved session.")
+			return
+		}
+
+		login = savedSession.login
+		var hasCachedDiary = false
+		if let store, let diary = await store.selectedDiary() {
+			loadedDiaries = [diary]
+			topics = await store.topics(diaryID: diary.id)
+			templates = await store.templates(diaryID: diary.id)
+			screen = .entries(
+				diary: diary,
+				entries: await store.entries(diaryID: diary.id)
+			)
+			presentation = .none
+			hasCachedDiary = true
+		}
+
+		await client.restoreAuthentication(savedSession.authentication)
+		do {
+			guard try await client.currentSession() else {
+				try sessionStore.clear()
+				if !hasCachedDiary {
+					screen = .login
+				}
+				return
+			}
+			await routeToDiaries(try await client.diaries())
+		} catch {
+			if !hasCachedDiary {
+				screen = .login
+			}
+		}
+	}
 
 	func showRegistration() {
 		password = ""
