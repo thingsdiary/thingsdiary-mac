@@ -192,6 +192,76 @@ func diaryStoreWritesOnlyChangedRows() async throws {
 	#expect(storedEntries.contains(unrelated))
 }
 
+@Test("Removing a topic does not rewrite unrelated entries")
+func diaryStoreRemovesTopicWithRowScopedWrites() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-topic-row-write-\(UUID().uuidString).sqlite")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let diary = ThingsDiaryDiary(
+		id: "diary-1",
+		title: "Personal",
+		description: "",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 2),
+		version: 3
+	)
+	let topic = ThingsDiaryTopic(
+		id: "topic-1",
+		diaryID: diary.id,
+		title: "Work",
+		description: "",
+		color: "blue",
+		entryPreviewable: true,
+		createdAt: Date(timeIntervalSince1970: 3),
+		updatedAt: Date(timeIntervalSince1970: 4),
+		version: 1
+	)
+	let affected = ThingsDiaryEntry(
+		id: "entry-1",
+		diaryID: diary.id,
+		content: "Changed",
+		topicID: topic.id,
+		createdAt: Date(timeIntervalSince1970: 4),
+		updatedAt: Date(timeIntervalSince1970: 5),
+		version: 6
+	)
+	let unrelated = ThingsDiaryEntry(
+		id: "entry-2",
+		diaryID: diary.id,
+		content: "Untouched",
+		createdAt: Date(timeIntervalSince1970: 4),
+		updatedAt: Date(timeIntervalSince1970: 5),
+		version: 6
+	)
+	let updated = ThingsDiaryEntry(
+		id: affected.id,
+		diaryID: diary.id,
+		content: affected.content,
+		createdAt: affected.createdAt,
+		updatedAt: affected.updatedAt,
+		version: affected.version
+	)
+	let store = try DiaryStore(fileURL: fileURL)
+	try await store.replaceSelectedDiary(diary, entries: [affected, unrelated], topics: [topic])
+	let inspector = try DatabaseQueue(path: fileURL.path)
+	try await inspector.write { database in
+		try database.execute(
+			sql: """
+				CREATE TRIGGER protect_unrelated_topic_entry
+				BEFORE DELETE ON entries
+				WHEN OLD.id = 'entry-2'
+				BEGIN
+					SELECT RAISE(ABORT, 'unrelated entry rewritten');
+				END
+				""")
+	}
+	try inspector.close()
+
+	try await store.removeTopic(diaryID: diary.id, topicID: topic.id, entries: [updated, unrelated])
+
+	#expect(await store.entries(diaryID: diary.id).contains(unrelated))
+}
+
 @Test("Diary store reopens plaintext topics and templates without a network")
 func diaryStorePersistsTopicsAndTemplates() async throws {
 	let fileURL = FileManager.default.temporaryDirectory

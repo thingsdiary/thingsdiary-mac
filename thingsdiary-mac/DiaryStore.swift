@@ -209,17 +209,30 @@ actor DiaryStore {
 		topicID: String,
 		entries: [ThingsDiaryEntry]
 	) throws {
+		let currentEntries = Dictionary(
+			uniqueKeysWithValues: state.entries
+				.filter { $0.diaryID == diaryID }
+				.map { ($0.id, $0.value) }
+		)
+		let entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+		let removedEntryIDs = currentEntries.keys.filter { entriesByID[$0] == nil }
+		let changedEntries = entries.filter { currentEntries[$0.id] != $0 }
+
 		var nextState = state
 		nextState.topics.removeAll { $0.diaryID == diaryID && $0.id == topicID }
 		nextState.entries.removeAll { $0.diaryID == diaryID }
 		nextState.entries.append(contentsOf: entries.map(StoredEntry.init))
 
-		let entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+		var changedWrites: [StoredPendingEntryWrite] = []
 		nextState.pendingEntryWrites = nextState.pendingEntryWrites.map { storedWrite in
 			guard let entry = entriesByID[storedWrite.entry.id] else { return storedWrite }
-			return StoredPendingEntryWrite(
+			let updatedWrite = StoredPendingEntryWrite(
 				PendingEntryWrite(operation: storedWrite.operation, entry: entry)
 			)
+			if storedWrite.entry.value != entry {
+				changedWrites.append(updatedWrite)
+			}
+			return updatedWrite
 		}
 
 		try database.write { database in
@@ -227,11 +240,13 @@ actor DiaryStore {
 				sql: "DELETE FROM topics WHERE diary_id = ? AND id = ?",
 				arguments: [diaryID, topicID]
 			)
-			try database.execute(sql: "DELETE FROM entries WHERE diary_id = ?", arguments: [diaryID])
-			for entry in entries.map(StoredEntry.init) {
-				try Self.upsert(entry, in: database)
+			for entryID in removedEntryIDs {
+				try Self.deleteEntry(id: entryID, diaryID: diaryID, in: database)
 			}
-			for write in nextState.pendingEntryWrites where write.entry.diaryID == diaryID {
+			for entry in changedEntries {
+				try Self.upsert(StoredEntry(entry), in: database)
+			}
+			for write in changedWrites {
 				try Self.upsert(write, in: database)
 			}
 		}
