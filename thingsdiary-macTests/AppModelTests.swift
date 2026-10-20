@@ -205,8 +205,8 @@ func cancelDiaryPickerPreservesWorkspace() async {
 }
 
 @MainActor
-@Test("Diary settings request selects the diary and can be consumed once")
-func diarySettingsRequestSelectsDiary() async {
+@Test("Diary edit request selects the diary and can be consumed once")
+func diaryEditRequestSelectsDiary() async {
 	let selectedDiary = diary(id: "diary-1", title: "Personal")
 	let requestedDiary = diary(id: "diary-2", title: "Work")
 	let model = ThingsDiaryAppModel(
@@ -214,16 +214,16 @@ func diarySettingsRequestSelectsDiary() async {
 	)
 	await model.selectDiary(selectedDiary)
 
-	await model.requestDiarySettings(for: requestedDiary)
+	await model.requestDiaryEdit(for: requestedDiary)
 
 	guard case .entries(let openDiary, _) = model.screen else {
 		Issue.record("Expected the requested diary workspace")
 		return
 	}
 	#expect(openDiary == requestedDiary)
-	#expect(model.diarySettingsRequestID == requestedDiary.id)
-	#expect(model.consumeDiarySettingsRequest(for: requestedDiary.id))
-	#expect(!model.consumeDiarySettingsRequest(for: requestedDiary.id))
+	#expect(model.diaryEditRequestID == requestedDiary.id)
+	#expect(model.consumeDiaryEditRequest(for: requestedDiary.id))
+	#expect(!model.consumeDiaryEditRequest(for: requestedDiary.id))
 }
 
 @MainActor
@@ -386,6 +386,47 @@ func createsAndUpdatesTopic() async {
 				color: "green",
 				entryPreviewable: false,
 				defaultTemplateID: "template-2"
+			))
+}
+
+@MainActor
+@Test("Updating a diary replaces it in the workspace and diary list")
+func updatesDiary() async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let entry = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Note")
+	let updatedDiary = ThingsDiaryDiary(
+		id: selectedDiary.id,
+		title: "Renamed",
+		description: "Daily notes",
+		createdAt: selectedDiary.createdAt,
+		updatedAt: Date(timeIntervalSince1970: 4),
+		version: 5
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		updateDiaryResult: .success(updatedDiary),
+		entriesResult: .success([entry])
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+	await model.submit()
+
+	let saved = await model.updateDiary(
+		selectedDiary,
+		title: "  Renamed  ",
+		description: "  Daily notes  "
+	)
+
+	#expect(saved)
+	#expect(model.screen == .entries(diary: updatedDiary, entries: [entry]))
+	#expect(model.availableDiaries == [updatedDiary])
+	#expect(
+		await client.receivedUpdateDiaryParams
+			== ThingsDiaryDiaryParams(
+				title: "Renamed",
+				description: "Daily notes"
 			))
 }
 
@@ -1401,6 +1442,7 @@ private actor DelayedEntriesAppClient: ThingsDiaryAppClient {
 private actor StubAppClient: ThingsDiaryAppClient {
 	let result: Result<[ThingsDiaryDiary], Error>
 	let createDiaryResult: Result<ThingsDiaryDiary, Error>?
+	let updateDiaryResult: Result<ThingsDiaryDiary, Error>?
 	let registrationResult: Result<ThingsDiaryPublicKeys, Error>
 	let entriesResult: Result<[ThingsDiaryEntry], Error>
 	let createEntryResult: Result<ThingsDiaryEntry, Error>?
@@ -1419,6 +1461,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedSecretKey: String?
 	private(set) var receivedRegistrationSecretKey: String?
 	private(set) var receivedCreateDiaryParams: ThingsDiaryCreateParams?
+	private(set) var receivedUpdateDiaryParams: ThingsDiaryDiaryParams?
 	private(set) var receivedEntriesDiaryID: String?
 	private(set) var receivedUpdateParams: ThingsDiaryEntryParams?
 	private(set) var receivedCreateParams: ThingsDiaryEntryParams?
@@ -1436,6 +1479,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	init(
 		result: Result<[ThingsDiaryDiary], Error>,
 		createDiaryResult: Result<ThingsDiaryDiary, Error>? = nil,
+		updateDiaryResult: Result<ThingsDiaryDiary, Error>? = nil,
 		registrationResult: Result<ThingsDiaryPublicKeys, Error> = .success(
 			ThingsDiaryPublicKeys(signing: "signing", encryption: "encryption")
 		),
@@ -1454,6 +1498,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	) {
 		self.result = result
 		self.createDiaryResult = createDiaryResult
+		self.updateDiaryResult = updateDiaryResult
 		self.registrationResult = registrationResult
 		self.entriesResult = entriesResult
 		self.createEntryResult = createEntryResult
@@ -1496,6 +1541,15 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		receivedCreateDiaryParams = params
 		guard let createDiaryResult else { throw TestFailure.rejected }
 		return try createDiaryResult.get()
+	}
+
+	func updateDiary(
+		_ diary: ThingsDiaryDiary,
+		params: ThingsDiaryDiaryParams
+	) async throws -> ThingsDiaryDiary {
+		receivedUpdateDiaryParams = params
+		guard let updateDiaryResult else { throw TestFailure.rejected }
+		return try updateDiaryResult.get()
 	}
 
 	func entries(diaryID: String) async throws -> [ThingsDiaryEntry] {

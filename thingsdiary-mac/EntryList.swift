@@ -43,7 +43,7 @@ nonisolated let minimumSplitWorkspaceWidth =
 	minimumEntryListWidth + entryListDividerWidth + minimumEntryEditorWidth
 nonisolated let minimumDiaryOverviewWidth: CGFloat = 620
 
-nonisolated func diarySettingsVisible(
+nonisolated func diaryEditControlVisible(
 	for diaryID: String,
 	firstDiaryID: String?,
 	hoveredDiaryID: String?

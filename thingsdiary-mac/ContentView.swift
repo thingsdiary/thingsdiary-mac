@@ -416,7 +416,11 @@ private struct EntriesView: View {
 	@State private var tabs = BrowserTabsState<WorkspaceTabID>()
 	@State private var draftsByEntryID: [String: String] = [:]
 	@FocusState private var editorIsFocused: Bool
-	@State private var showingTopicsAndTemplates = false
+	@State private var showingDiaryEditor = false
+	@State private var diaryTitle = ""
+	@State private var diaryDescription = ""
+	@State private var diaryEditError: String?
+	@State private var diarySaveInProgress = false
 	@State private var showingDiaryMenu = false
 	@State private var hoveredDiaryID: String?
 	@State private var showingTopicCreator = false
@@ -623,11 +627,11 @@ private struct EntriesView: View {
 				)
 				tabs.reconcile(validTabIDs: validTabIDs)
 			}
-			.onChange(of: model.diarySettingsRequestID) {
-				presentRequestedDiarySettings()
+			.onChange(of: model.diaryEditRequestID) {
+				presentRequestedDiaryEditor()
 			}
-			.task { presentRequestedDiarySettings() }
-			.sheet(isPresented: $showingTopicsAndTemplates) { topicsAndTemplatesSheet }
+			.task { presentRequestedDiaryEditor() }
+			.sheet(isPresented: $showingDiaryEditor) { diaryEditorSheet }
 			.sheet(isPresented: $showingTopicCreator) { topicCreatorSheet }
 			.alert(
 				"Delete Topic?",
@@ -1727,6 +1731,12 @@ private struct EntriesView: View {
 		.padding(.init(top: 6, leading: 6, bottom: 2, trailing: 6))
 		.anchorPreference(key: DiarySwitcherAnchorKey.self, value: .bounds) { $0 }
 		.accessibilityIdentifier("diary.switcher")
+		.contextMenu {
+			Button("Edit", systemImage: "square.and.pencil") {
+				beginEditingDiary()
+			}
+			.accessibilityIdentifier("diary.edit.current")
+		}
 	}
 
 	private var diaryMenu: some View {
@@ -1775,7 +1785,7 @@ private struct EntriesView: View {
 
 	private func diaryMenuRow(_ candidate: ThingsDiaryDiary) -> some View {
 		let isSelected = candidate.id == diary.id
-		let settingsVisible = diarySettingsVisible(
+		let editControlVisible = diaryEditControlVisible(
 			for: candidate.id,
 			firstDiaryID: model.availableDiaries.first?.id,
 			hoveredDiaryID: hoveredDiaryID
@@ -1807,7 +1817,7 @@ private struct EntriesView: View {
 
 			Button {
 				showingDiaryMenu = false
-				Task { await model.requestDiarySettings(for: candidate) }
+				Task { await model.requestDiaryEdit(for: candidate) }
 			} label: {
 				Image(systemName: "gearshape")
 					.frame(width: 24, height: 24)
@@ -1815,21 +1825,21 @@ private struct EntriesView: View {
 			}
 			.buttonStyle(.plain)
 			.foregroundStyle(.secondary)
-			.opacity(settingsVisible ? 1 : 0)
-			.allowsHitTesting(settingsVisible)
-			.accessibilityHidden(!settingsVisible)
-			.accessibilityIdentifier("diary.settings.\(candidate.id)")
-			.help("Settings for \(candidate.title)")
+			.opacity(editControlVisible ? 1 : 0)
+			.allowsHitTesting(editControlVisible)
+			.accessibilityHidden(!editControlVisible)
+			.accessibilityIdentifier("diary.edit.\(candidate.id)")
+			.help("Edit \(candidate.title)")
 		}
 		.onHover { hovering in
 			hoveredDiaryID = hovering ? candidate.id : nil
 		}
 	}
 
-	private func presentRequestedDiarySettings() {
-		guard model.consumeDiarySettingsRequest(for: diary.id) else { return }
+	private func presentRequestedDiaryEditor() {
+		guard model.consumeDiaryEditRequest(for: diary.id) else { return }
 		showingDiaryMenu = false
-		showingTopicsAndTemplates = true
+		beginEditingDiary()
 	}
 
 	private func beginCreatingEntry() {
@@ -2751,6 +2761,14 @@ private struct EntriesView: View {
 		showingTopicCreator = true
 	}
 
+	private func beginEditingDiary() {
+		diaryTitle = diary.title
+		diaryDescription = diary.description
+		diaryEditError = nil
+		diarySaveInProgress = false
+		showingDiaryEditor = true
+	}
+
 	private func beginEditing(_ topic: ThingsDiaryTopic) {
 		editingTopic = topic
 		topicTitle = topic.title
@@ -2885,6 +2903,55 @@ private struct EntriesView: View {
 		.frame(minWidth: 560, minHeight: 420)
 	}
 
+	private var diaryEditorSheet: some View {
+		NavigationStack {
+			Form {
+				TextField("Title", text: $diaryTitle)
+					.accessibilityIdentifier("diary.edit.title")
+				TextField("Description", text: $diaryDescription, axis: .vertical)
+					.accessibilityIdentifier("diary.edit.description")
+					.lineLimit(3...6)
+				if let diaryEditError {
+					Text(diaryEditError)
+						.foregroundStyle(.red)
+						.accessibilityIdentifier("diary.edit.error")
+				}
+			}
+			.formStyle(.grouped)
+			.navigationTitle("Edit Diary")
+			.toolbar {
+				ToolbarItem(placement: .cancellationAction) {
+					Button("Cancel") { showingDiaryEditor = false }
+						.disabled(diarySaveInProgress)
+				}
+				ToolbarItem(placement: .confirmationAction) {
+					Button("Save") {
+						diaryEditError = nil
+						diarySaveInProgress = true
+						Task {
+							let saved = await model.updateDiary(
+								diary,
+								title: diaryTitle,
+								description: diaryDescription
+							)
+							diarySaveInProgress = false
+							if saved {
+								showingDiaryEditor = false
+							} else {
+								diaryEditError = "Could not update the diary. Try again."
+							}
+						}
+					}
+					.disabled(
+						diarySaveInProgress
+							|| diaryTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+					)
+				}
+			}
+		}
+		.frame(minWidth: 520, minHeight: 320)
+	}
+
 	private var selectionTitle: String {
 		switch activeSelection {
 		case .entries: "Entries"
@@ -2896,50 +2963,6 @@ private struct EntriesView: View {
 		}
 	}
 
-	private var topicsAndTemplatesSheet: some View {
-		NavigationStack {
-			Form {
-				Section("Topics") {
-					ForEach(model.topics) { topic in
-						Button {
-							showingTopicsAndTemplates = false
-							DispatchQueue.main.async { beginEditing(topic) }
-						} label: {
-							HStack {
-								Circle()
-									.fill(topicColorValue(topic.color))
-									.frame(width: 9, height: 9)
-								Text(topic.title)
-								Spacer()
-								Image(systemName: "chevron.right")
-									.foregroundStyle(.secondary)
-							}
-						}
-					}
-					Button("New Topic", systemImage: "plus") {
-						showingTopicsAndTemplates = false
-						DispatchQueue.main.async {
-							editingTopic = nil
-							topicTitle = ""
-							topicDescription = ""
-							topicColor = topicColors[0]
-							topicEntryPreviewable = true
-							topicDefaultTemplateID = nil
-							showingTopicCreator = true
-						}
-					}
-				}
-
-			}
-			.navigationTitle("Diary Settings")
-			.toolbar {
-				ToolbarItem(placement: .confirmationAction) {
-					Button("Done") { showingTopicsAndTemplates = false }
-				}
-			}
-		}
-		.frame(minWidth: 460, minHeight: 520)
-	}
 }
 
 private struct EntryActionsMenuContent: View {

@@ -4,12 +4,12 @@ import ThingsDiaryClient
 
 @testable import thingsdiary
 
-@Test("Diary settings default to the first row and follow the hovered row")
-func diarySettingsVisibilityFollowsHover() {
-	#expect(diarySettingsVisible(for: "first", firstDiaryID: "first", hoveredDiaryID: nil))
-	#expect(!diarySettingsVisible(for: "second", firstDiaryID: "first", hoveredDiaryID: nil))
-	#expect(!diarySettingsVisible(for: "first", firstDiaryID: "first", hoveredDiaryID: "second"))
-	#expect(diarySettingsVisible(for: "second", firstDiaryID: "first", hoveredDiaryID: "second"))
+@Test("Diary edit control defaults to the first row and follows the hovered row")
+func diaryEditControlVisibilityFollowsHover() {
+	#expect(diaryEditControlVisible(for: "first", firstDiaryID: "first", hoveredDiaryID: nil))
+	#expect(!diaryEditControlVisible(for: "second", firstDiaryID: "first", hoveredDiaryID: nil))
+	#expect(!diaryEditControlVisible(for: "first", firstDiaryID: "first", hoveredDiaryID: "second"))
+	#expect(diaryEditControlVisible(for: "second", firstDiaryID: "first", hoveredDiaryID: "second"))
 }
 
 @Test("Entry list filters sections, searches content, and sorts by update time")

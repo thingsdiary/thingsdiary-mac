@@ -576,7 +576,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.buttons["sidebar.entries"].exists)
 	}
 
-	func testDiarySettingsAppearOnHover() {
+	func testDiaryEditorOpensDirectlyFromHoverControlWithCurrentValues() {
 		let app = launchWorkspace()
 
 		app.buttons["diary.switcher"].click()
@@ -584,11 +584,39 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(diaryRow.waitForExistence(timeout: 2))
 		diaryRow.hover()
 
-		let settings = app.buttons["diary.settings.fixture-diary"]
-		XCTAssertTrue(settings.waitForExistence(timeout: 2))
-		settings.click()
+		let edit = app.buttons["diary.edit.fixture-diary"]
+		XCTAssertTrue(edit.waitForExistence(timeout: 2))
+		edit.click()
 
-		XCTAssertTrue(app.staticTexts["Topics & Templates"].waitForExistence(timeout: 2))
+		let title = app.textFields["diary.edit.title"]
+		let description = app.textFields["diary.edit.description"]
+		XCTAssertTrue(title.waitForExistence(timeout: 2))
+		XCTAssertEqual(title.value as? String, "Test Diary")
+		XCTAssertEqual(description.value as? String, "UI testing workspace")
+		XCTAssertTrue(app.staticTexts["Edit Diary"].exists)
+		XCTAssertFalse(app.staticTexts["Diary Settings"].exists)
+	}
+
+	func testDiaryCanBeEditedFromSwitcherContextMenu() {
+		let app = launchWorkspace()
+		let switcher = app.buttons["diary.switcher"]
+		XCTAssertTrue(switcher.waitForExistence(timeout: 2))
+
+		switcher.rightClick()
+		let edit = app.menuItems["diary.edit.current"]
+		XCTAssertTrue(edit.waitForExistence(timeout: 2))
+		edit.click()
+
+		let title = app.textFields["diary.edit.title"]
+		XCTAssertTrue(title.waitForExistence(timeout: 2))
+		title.typeText("R")
+		XCTAssertEqual(title.value as? String, "R")
+		app.buttons["Save"].click()
+
+		XCTAssertFalse(title.waitForExistence(timeout: 2))
+		let updatedSwitcher = app.buttons["diary.switcher"].firstMatch
+		XCTAssertTrue(updatedSwitcher.waitForExistence(timeout: 2))
+		XCTAssertEqual(updatedSwitcher.label, "Current diary, R")
 	}
 
 	func testDropTargetsAreAccessibleFromWorkspace() {

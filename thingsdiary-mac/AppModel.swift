@@ -22,6 +22,10 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 	func login(login: String, password: String, secretKey: String) async throws
 	func diaries() async throws -> [ThingsDiaryDiary]
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary
+	func updateDiary(
+		_ diary: ThingsDiaryDiary,
+		params: ThingsDiaryDiaryParams
+	) async throws -> ThingsDiaryDiary
 	func entries(diaryID: String) async throws -> [ThingsDiaryEntry]
 	func topics(diaryID: String) async throws -> [ThingsDiaryTopic]
 	func templates(diaryID: String) async throws -> [ThingsDiaryTemplate]
@@ -65,6 +69,13 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 
 extension ThingsDiaryAppClient {
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
+		throw DiaryStoreError.unsupportedRemoteEntry
+	}
+
+	func updateDiary(
+		_ diary: ThingsDiaryDiary,
+		params: ThingsDiaryDiaryParams
+	) async throws -> ThingsDiaryDiary {
 		throw DiaryStoreError.unsupportedRemoteEntry
 	}
 
@@ -161,6 +172,13 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
 		try await client.createDiary(params)
+	}
+
+	func updateDiary(
+		_ diary: ThingsDiaryDiary,
+		params: ThingsDiaryDiaryParams
+	) async throws -> ThingsDiaryDiary {
+		try await client.updateDiary(diary, params: params)
 	}
 
 	func entries(diaryID: String) async throws -> [ThingsDiaryEntry] {
@@ -310,6 +328,21 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 		func login(login: String, password: String, secretKey: String) async throws {}
 
 		func diaries() async throws -> [ThingsDiaryDiary] { [] }
+
+		func updateDiary(
+			_ diary: ThingsDiaryDiary,
+			params: ThingsDiaryDiaryParams
+		) async throws -> ThingsDiaryDiary {
+			let now = Date()
+			return ThingsDiaryDiary(
+				id: diary.id,
+				title: params.title,
+				description: params.description,
+				createdAt: diary.createdAt,
+				updatedAt: now,
+				version: max(diary.version + 1, UInt64(now.timeIntervalSince1970 * 1_000))
+			)
+		}
 
 		func entries(diaryID: String) async throws -> [ThingsDiaryEntry] { [] }
 
@@ -471,7 +504,7 @@ final class ThingsDiaryAppModel {
 	private(set) var topics: [ThingsDiaryTopic] = []
 	private(set) var templates: [ThingsDiaryTemplate] = []
 	private(set) var presentation: ThingsDiaryAppPresentation = .none
-	private(set) var diarySettingsRequestID: String?
+	private(set) var diaryEditRequestID: String?
 	private var creationReturnPresentation: ThingsDiaryAppPresentation?
 	private(set) var diaryCreationError: String?
 	private(set) var entryDraftIDs: Set<String> = []
@@ -631,7 +664,7 @@ final class ThingsDiaryAppModel {
 		presentation = .diaryPicker
 	}
 
-	func requestDiarySettings(for diary: ThingsDiaryDiary) async {
+	func requestDiaryEdit(for diary: ThingsDiaryDiary) async {
 		if case .entries(let selectedDiary, _) = screen,
 			selectedDiary.id != diary.id
 		{
@@ -642,12 +675,12 @@ final class ThingsDiaryAppModel {
 		else {
 			return
 		}
-		diarySettingsRequestID = diary.id
+		diaryEditRequestID = diary.id
 	}
 
-	func consumeDiarySettingsRequest(for diaryID: String) -> Bool {
-		guard diarySettingsRequestID == diaryID else { return false }
-		diarySettingsRequestID = nil
+	func consumeDiaryEditRequest(for diaryID: String) -> Bool {
+		guard diaryEditRequestID == diaryID else { return false }
+		diaryEditRequestID = nil
 		return true
 	}
 
@@ -681,6 +714,40 @@ final class ThingsDiaryAppModel {
 			await selectDiary(diary)
 		} catch {
 			diaryCreationError = "Could not create the diary. Try again."
+		}
+	}
+
+	@discardableResult
+	func updateDiary(
+		_ diary: ThingsDiaryDiary,
+		title: String,
+		description: String
+	) async -> Bool {
+		let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !title.isEmpty else { return false }
+		do {
+			let updated = try await client.updateDiary(
+				diary,
+				params: ThingsDiaryDiaryParams(
+					title: title,
+					description: description.trimmingCharacters(in: .whitespacesAndNewlines)
+				)
+			)
+			loadedDiaries = loadedDiaries.map { $0.id == updated.id ? updated : $0 }
+			if case .entries(let currentDiary, let entries) = screen,
+				currentDiary.id == updated.id
+			{
+				try await store?.replaceSelectedDiary(
+					updated,
+					entries: entries,
+					topics: topics,
+					templates: templates
+				)
+				screen = .entries(diary: updated, entries: entries)
+			}
+			return true
+		} catch {
+			return false
 		}
 	}
 
