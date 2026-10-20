@@ -553,6 +553,7 @@ final class ThingsDiaryAppModel {
 
 	private let client: any ThingsDiaryAppClient
 	private var store: DiaryStore?
+	private var synchronizer: DiarySynchronizer?
 	private let storeDirectory: URL?
 	private let sessionStore: any AuthSessionStore
 	private var diarySelectionID: UUID?
@@ -578,6 +579,7 @@ final class ThingsDiaryAppModel {
 	) {
 		self.client = client
 		self.store = store
+		synchronizer = store.map { DiarySynchronizer(store: $0, remote: client) }
 		self.storeDirectory = storeDirectory
 		self.sessionStore = sessionStore
 	}
@@ -873,7 +875,7 @@ final class ThingsDiaryAppModel {
 					topics: topics,
 					templates: templates
 				)
-				try await store.synchronize(with: client)
+				try await synchronizer?.synchronize()
 			}
 			let displayedEntries: [ThingsDiaryEntry]
 			if let store {
@@ -1049,7 +1051,7 @@ final class ThingsDiaryAppModel {
 						entry: localEntry
 					))
 				screen = .entries(diary: diary, entries: entries + [localEntry])
-				try await store.synchronize(with: client)
+				try await synchronizer?.synchronize()
 				await refreshEntriesFromStore(store, diaryID: diary.id)
 			} catch {
 				await refreshEntriesFromStore(store, diaryID: diary.id)
@@ -1082,7 +1084,7 @@ final class ThingsDiaryAppModel {
 				try await store.savePendingEntry(
 					PendingEntryWrite(operation: .create, entry: entry)
 				)
-				try await store.synchronize(with: client)
+				try await synchronizer?.synchronize()
 				let isStillPending = await store.pendingEntryWrites().contains {
 					$0.id == entry.id
 				}
@@ -1431,7 +1433,7 @@ final class ThingsDiaryAppModel {
 					diary: diary,
 					entries: entries.map { $0.id == localEntry.id ? localEntry : $0 }
 				)
-				try await store.synchronize(with: client)
+				try await synchronizer?.synchronize()
 			} catch {}
 			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
@@ -1488,7 +1490,7 @@ final class ThingsDiaryAppModel {
 					diary: diary,
 					entries: entries.map { $0.id == localEntry.id ? localEntry : $0 }
 				)
-				try await store.synchronize(with: client)
+				try await synchronizer?.synchronize()
 			} catch {}
 			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
@@ -1521,7 +1523,7 @@ final class ThingsDiaryAppModel {
 					diary: diary,
 					entries: entries.filter { $0.id != entry.id }
 				)
-				try await store.synchronize(with: client)
+				try await synchronizer?.synchronize()
 			} catch {}
 			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
@@ -1591,7 +1593,7 @@ final class ThingsDiaryAppModel {
 				return false
 			}
 			do {
-				try await store.synchronize(with: client)
+				try await synchronizer?.synchronize()
 				if operation == .create {
 					let isStillPending = await store.pendingEntryWrites().contains {
 						$0.id == entry.id
@@ -1732,10 +1734,12 @@ final class ThingsDiaryAppModel {
 
 	private func openStore(for login: String) throws {
 		guard let storeDirectory else { return }
-		store = try DiaryStore(
+		let store = try DiaryStore(
 			fileURL: DiaryStore.fileURL(in: storeDirectory, login: login),
 			legacyJSONURL: storeDirectory.appending(path: "state.json")
 		)
+		self.store = store
+		synchronizer = DiarySynchronizer(store: store, remote: client)
 	}
 
 	private func isValidEmail(_ value: String) -> Bool {

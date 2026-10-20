@@ -216,15 +216,16 @@ func diaryStoreRetriesCreateIdempotently() async throws {
 	let write = PendingEntryWrite(operation: .create, entry: localEntry)
 	let store = try DiaryStore(fileURL: fileURL)
 	let remote = LostCreateResponseRemote(serverEntry: serverEntry)
+	let synchronizer = DiarySynchronizer(store: store, remote: remote)
 	try await store.savePendingEntry(write)
 
 	do {
-		try await store.synchronize(with: remote)
+		try await synchronizer.synchronize()
 		Issue.record("Expected the first lost response to fail")
 	} catch {}
 
 	#expect(await store.pendingEntryWrites() == [write])
-	try await store.synchronize(with: remote)
+	try await synchronizer.synchronize()
 
 	#expect(await remote.receivedEntryIDs == [localEntry.id, localEntry.id])
 	#expect(await store.pendingEntryWrites().isEmpty)
@@ -293,11 +294,11 @@ func diaryStorePullsAndCheckpointsChanges() async throws {
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.replaceSelectedDiary(diary, entries: [oldEntry, removedEntry])
 
-	try await store.synchronize(with: remote)
+	try await DiarySynchronizer(store: store, remote: remote).synchronize()
 
 	#expect(await store.entries(diaryID: diary.id) == [serverEntry])
 	let reopenedStore = try DiaryStore(fileURL: fileURL)
-	try await reopenedStore.synchronize(with: remote)
+	try await DiarySynchronizer(store: reopenedStore, remote: remote).synchronize()
 
 	#expect(await remote.requestedEntryIDs == [serverEntry.id, serverEntry.id])
 	#expect(await remote.requestedSince.last == changedAt)
@@ -360,12 +361,12 @@ func diaryStorePullsTopicAndTemplateChanges() async throws {
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.replaceSelectedDiary(diary, entries: [])
 
-	try await store.synchronize(with: remote)
+	try await DiarySynchronizer(store: store, remote: remote).synchronize()
 
 	#expect(await store.topics(diaryID: diary.id) == [topic])
 	#expect(await store.templates(diaryID: diary.id) == [template])
 	let reopened = try DiaryStore(fileURL: fileURL)
-	try await reopened.synchronize(with: remote)
+	try await DiarySynchronizer(store: reopened, remote: remote).synchronize()
 	#expect(await remote.topicRequests == [topic.id, topic.id])
 	#expect(await remote.templateRequests == [template.id, template.id])
 	#expect(await reopened.topics(diaryID: diary.id) == [topic])
@@ -410,7 +411,10 @@ func diaryStorePreservesEntryConflict() async throws {
 			entry: localEntry
 		))
 
-	try await store.synchronize(with: ConflictRemote(serverEntry: serverEntry))
+	try await DiarySynchronizer(
+		store: store,
+		remote: ConflictRemote(serverEntry: serverEntry)
+	).synchronize()
 
 	#expect(await store.entries(diaryID: diary.id) == [serverEntry])
 	#expect(await store.pendingEntryWrites().isEmpty)
@@ -462,7 +466,7 @@ func diaryStoreSynchronizesSoftDelete() async throws {
 		))
 	let remote = DeleteRemote(serverEntry: serverDeleted)
 
-	try await store.synchronize(with: remote)
+	try await DiarySynchronizer(store: store, remote: remote).synchronize()
 
 	#expect(await remote.deletedEntryIDs == [localDeleted.id])
 	#expect(await store.pendingEntryWrites().isEmpty)
@@ -487,7 +491,7 @@ func diaryStoreSynchronizesPermanentDelete() async throws {
 	try await store.savePendingEntry(PendingEntryWrite(operation: .remove, entry: entry))
 	let remote = PermanentDeleteRemote()
 
-	try await store.synchronize(with: remote)
+	try await DiarySynchronizer(store: store, remote: remote).synchronize()
 
 	#expect(await remote.deletedEntryIDs == [entry.id])
 	#expect(await remote.receivedSoftValues == [false])
@@ -528,7 +532,8 @@ func diaryStoreDrainsWritesQueuedDuringPull() async throws {
 	try await store.replaceSelectedDiary(diary, entries: [])
 	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: first))
 	let remote = DelayedPullRemote()
-	let firstSynchronization = Task { try await store.synchronize(with: remote) }
+	let synchronizer = DiarySynchronizer(store: store, remote: remote)
+	let firstSynchronization = Task { try await synchronizer.synchronize() }
 	for _ in 0..<100 {
 		if await remote.pullStarted { break }
 		try await Task.sleep(for: .milliseconds(1))
@@ -536,7 +541,7 @@ func diaryStoreDrainsWritesQueuedDuringPull() async throws {
 	#expect(await remote.pullStarted)
 
 	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: second))
-	let secondSynchronization = Task { try await store.synchronize(with: remote) }
+	let secondSynchronization = Task { try await synchronizer.synchronize() }
 	try await firstSynchronization.value
 	try await secondSynchronization.value
 
@@ -592,7 +597,8 @@ func diaryStorePreservesSaveDuringEntryPull() async throws {
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.replaceSelectedDiary(diary, entries: [original])
 	let remote = DelayedEntryPullRemote(change: change, serverEntry: serverEntry)
-	let synchronization = Task { try await store.synchronize(with: remote) }
+	let synchronizer = DiarySynchronizer(store: store, remote: remote)
+	let synchronization = Task { try await synchronizer.synchronize() }
 	for _ in 0..<100 {
 		if await remote.getEntryStarted { break }
 		try await Task.sleep(for: .milliseconds(1))
@@ -639,7 +645,8 @@ func diaryStorePreservesNewerWriteAfterConflict() async throws {
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: oldWrite))
 	let remote = DelayedConflictThenSuccessRemote(serverEntry: serverEntry)
-	let synchronization = Task { try await store.synchronize(with: remote) }
+	let synchronizer = DiarySynchronizer(store: store, remote: remote)
+	let synchronization = Task { try await synchronizer.synchronize() }
 	for _ in 0..<100 {
 		if await remote.firstUpdateStarted { break }
 		try await Task.sleep(for: .milliseconds(1))
