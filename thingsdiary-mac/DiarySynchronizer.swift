@@ -9,17 +9,11 @@ actor DiarySynchronizer {
 
 	private let store: DiaryStore
 	private let remote: any DiaryStoreRemote
-	private let now: @Sendable () -> Date
 	private var activeSynchronization: ActiveSynchronization?
 
-	init(
-		store: DiaryStore,
-		remote: any DiaryStoreRemote,
-		now: @escaping @Sendable () -> Date = Date.init
-	) {
+	init(store: DiaryStore, remote: any DiaryStoreRemote) {
 		self.store = store
 		self.remote = remote
-		self.now = now
 	}
 
 	func synchronize() async throws {
@@ -113,7 +107,7 @@ actor DiarySynchronizer {
 
 	private func pullChanges(diaryID: String) async throws {
 		let previousCheckpoint = await store.lastChangeAt(diaryID: diaryID)
-		let nextCheckpoint = now()
+		var nextCheckpoint = previousCheckpoint
 		var nextPageToken: String?
 		repeat {
 			let page = try await remote.getDiaryChanges(
@@ -127,10 +121,13 @@ actor DiarySynchronizer {
 					continue
 				}
 				try await apply(change, diaryID: diaryID)
+				nextCheckpoint = max(nextCheckpoint ?? change.createdAt, change.createdAt)
 			}
 			nextPageToken = page.nextPageToken
 		} while nextPageToken != nil
-		try await store.finishPull(diaryID: diaryID, at: nextCheckpoint)
+		if let nextCheckpoint {
+			try await store.finishPull(diaryID: diaryID, at: nextCheckpoint)
+		}
 	}
 
 	private func apply(_ change: ThingsDiaryChange, diaryID: String) async throws {
@@ -147,7 +144,7 @@ actor DiarySynchronizer {
 				)
 				try await store.applyRemoteEntry(entry)
 			case .removed:
-				try await store.removeRemoteEntry(id: change.entityID)
+				try await store.removeRemoteEntry(id: change.entityID, changedAt: change.createdAt)
 			}
 		case .topic:
 			switch change.operation {
@@ -158,7 +155,7 @@ actor DiarySynchronizer {
 				)
 				try await store.applyRemoteTopic(topic)
 			case .removed:
-				try await store.removeRemoteTopic(id: change.entityID)
+				try await store.removeRemoteTopic(id: change.entityID, changedAt: change.createdAt)
 			}
 		case .template:
 			switch change.operation {
@@ -169,7 +166,7 @@ actor DiarySynchronizer {
 				)
 				try await store.applyRemoteTemplate(template)
 			case .removed:
-				try await store.removeRemoteTemplate(id: change.entityID)
+				try await store.removeRemoteTemplate(id: change.entityID, changedAt: change.createdAt)
 			}
 		case .diary:
 			break

@@ -72,11 +72,12 @@ stays queued.
 
 The current synchronization algorithm uses one checkpoint per diary. The first
 SQLite version stores `last_sync_at` on `diaries`. Pull synchronization records
-the time immediately before requesting changes and advances the checkpoint only
-after the final page is applied. Replaying an overlapping interval is allowed;
-remote application must be idempotent. Persisted page tokens and same-timestamp
-change-ID arrays are deferred until evidence shows that replay is too costly or
-the server exposes a durable cursor.
+the greatest server-issued change timestamp and advances the checkpoint only
+after the final page is applied. The boundary is inclusive, so replaying it is
+expected and remote application must be idempotent. This avoids relying on the
+client wall clock. Persisted page tokens and same-timestamp change-ID arrays are
+deferred until evidence shows that replay is too costly or the server exposes a
+durable cursor.
 
 ### Migrations and versions
 

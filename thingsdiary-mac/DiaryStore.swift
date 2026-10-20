@@ -272,15 +272,25 @@ actor DiaryStore {
 		try update { nextState in
 			guard !nextState.pendingEntryWrites.contains(where: { $0.entry.id == entry.id })
 			else { return }
+			guard
+				!nextState.entries.contains(where: {
+					$0.id == entry.id && $0.version > entry.version
+				})
+			else { return }
 			nextState.entries.removeAll { $0.id == entry.id }
 			nextState.entries.append(StoredEntry(entry))
 		}
 	}
 
-	func removeRemoteEntry(id: String) throws {
+	func removeRemoteEntry(id: String, changedAt: Date) throws {
 		try update { nextState in
 			guard
 				!nextState.pendingEntryWrites.contains(where: { $0.entry.id == id })
+			else { return }
+			guard
+				!nextState.entries.contains(where: {
+					$0.id == id && $0.updatedAt > changedAt
+				})
 			else { return }
 			nextState.entries.removeAll { $0.id == id }
 		}
@@ -288,26 +298,46 @@ actor DiaryStore {
 
 	func applyRemoteTopic(_ topic: ThingsDiaryTopic) throws {
 		try update { nextState in
+			guard
+				!nextState.topics.contains(where: {
+					$0.id == topic.id && $0.version > topic.version
+				})
+			else { return }
 			nextState.topics.removeAll { $0.id == topic.id }
 			nextState.topics.append(StoredTopic(topic))
 		}
 	}
 
-	func removeRemoteTopic(id: String) throws {
+	func removeRemoteTopic(id: String, changedAt: Date) throws {
 		try update { nextState in
+			guard
+				!nextState.topics.contains(where: {
+					$0.id == id && $0.updatedAt > changedAt
+				})
+			else { return }
 			nextState.topics.removeAll { $0.id == id }
 		}
 	}
 
 	func applyRemoteTemplate(_ template: ThingsDiaryTemplate) throws {
 		try update { nextState in
+			guard
+				!nextState.templates.contains(where: {
+					$0.id == template.id && $0.version > template.version
+				})
+			else { return }
 			nextState.templates.removeAll { $0.id == template.id }
 			nextState.templates.append(StoredTemplate(template))
 		}
 	}
 
-	func removeRemoteTemplate(id: String) throws {
+	func removeRemoteTemplate(id: String, changedAt: Date) throws {
 		try update { nextState in
+			guard
+				!nextState.templates.contains(where: {
+					$0.id == id && $0.updatedAt > changedAt
+				})
+			else { return }
 			nextState.templates.removeAll { $0.id == id }
 		}
 	}
