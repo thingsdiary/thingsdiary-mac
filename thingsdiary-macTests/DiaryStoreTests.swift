@@ -62,6 +62,28 @@ func diaryStoreImportsLegacyJSON() async throws {
 	#expect(await otherAccount.entries(diaryID: "diary-1").isEmpty)
 }
 
+@Test("A legacy migration claimed by one account cannot be imported by another")
+func diaryStoreHonorsLegacyMigrationClaim() async throws {
+	let directory = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-legacy-claim-\(UUID().uuidString)")
+	defer { try? FileManager.default.removeItem(at: directory) }
+	try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+	let legacyURL = directory.appending(path: "state.json")
+	try legacyStoreData().write(to: legacyURL)
+	let claimedDatabaseURL = directory.appending(path: "first-account.sqlite")
+	try Data(claimedDatabaseURL.lastPathComponent.utf8).write(
+		to: legacyURL.appendingPathExtension("migration"),
+		options: .atomic
+	)
+
+	let otherAccount = try DiaryStore(
+		fileURL: directory.appending(path: "second-account.sqlite"),
+		legacyJSONURL: legacyURL
+	)
+
+	#expect(await otherAccount.selectedDiary() == nil)
+}
+
 @Test("Malformed legacy JSON leaves the source and database empty")
 func diaryStoreRejectsMalformedLegacyJSONAtomically() async throws {
 	let directory = FileManager.default.temporaryDirectory

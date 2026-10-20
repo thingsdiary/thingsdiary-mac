@@ -132,7 +132,11 @@ actor DiaryStore {
 	init(fileURL: URL, legacyJSONURL: URL? = nil) throws {
 		database = try DiaryDatabase.open(at: fileURL)
 		if let legacyJSONURL {
-			try Self.importLegacyJSON(at: legacyJSONURL, into: database)
+			try Self.importLegacyJSON(
+				at: legacyJSONURL,
+				into: database,
+				destination: fileURL
+			)
 		}
 		state = try Self.load(from: database)
 	}
@@ -571,18 +575,41 @@ actor DiaryStore {
 		)
 	}
 
-	private static func importLegacyJSON(at url: URL, into database: DatabaseQueue) throws {
+	private static func importLegacyJSON(
+		at url: URL,
+		into database: DatabaseQueue,
+		destination: URL
+	) throws {
 		guard FileManager.default.fileExists(atPath: url.path) else { return }
 		let backupURL = url.appendingPathExtension("backup")
 		guard !FileManager.default.fileExists(atPath: backupURL.path) else { return }
-		let imported = try database.write { database in
-			guard try isEmpty(database) else { return false }
-			let state = try decoder.decode(StoredState.self, from: Data(contentsOf: url))
-			try write(state, to: database)
-			return true
+		let claimURL = url.appendingPathExtension("migration")
+		let destinationID = destination.lastPathComponent
+		if FileManager.default.fileExists(atPath: claimURL.path) {
+			let claimedDestination = String(
+				decoding: try Data(contentsOf: claimURL),
+				as: UTF8.self
+			)
+			guard claimedDestination == destinationID else { return }
+		} else {
+			try Data(destinationID.utf8).write(to: claimURL, options: .atomic)
 		}
-		guard imported else { return }
-		try FileManager.default.copyItem(at: url, to: backupURL)
+
+		do {
+			try database.write { database in
+				guard try isEmpty(database) else { return }
+				let state = try decoder.decode(StoredState.self, from: Data(contentsOf: url))
+				try write(state, to: database)
+			}
+			try FileManager.default.copyItem(at: url, to: backupURL)
+			try FileManager.default.removeItem(at: claimURL)
+		} catch {
+			let databaseIsEmpty = (try? database.read(Self.isEmpty)) ?? false
+			if databaseIsEmpty {
+				try? FileManager.default.removeItem(at: claimURL)
+			}
+			throw error
+		}
 	}
 
 	private static func isEmpty(_ database: Database) throws -> Bool {
