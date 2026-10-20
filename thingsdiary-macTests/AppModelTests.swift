@@ -216,6 +216,58 @@ func startupRestoresCacheAndAuthenticationWhileOffline() async throws {
 }
 
 @MainActor
+@Test("A revoked saved session returns to sign in without erasing cached data")
+func startupHandlesRevokedSession() async throws {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let cachedEntry = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Cached note")
+	let store = try DiaryStore.inMemory()
+	try await store.replaceSelectedDiary(selectedDiary, entries: [cachedEntry])
+	let sessionStore = TestAuthSessionStore()
+	try sessionStore.save(
+		SavedAuthSession(login: "person@example.test", authentication: testAuthentication())
+	)
+	let client = StubAppClient(
+		result: .success([]),
+		currentSessionResult: .success(false)
+	)
+	let model = ThingsDiaryAppModel(
+		client: client,
+		store: store,
+		sessionStore: sessionStore
+	)
+
+	await model.start()
+
+	#expect(model.screen == .login)
+	#expect(try sessionStore.load() == nil)
+	#expect(await store.entries(diaryID: selectedDiary.id) == [cachedEntry])
+}
+
+@MainActor
+@Test("Startup synchronizes the cached diary before showing a multi-diary picker")
+func startupSynchronizesCachedDiaryForMultipleDiaries() async throws {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let otherDiary = diary(id: "diary-2", title: "Work")
+	let store = try DiaryStore.inMemory()
+	try await store.replaceSelectedDiary(selectedDiary, entries: [])
+	let sessionStore = TestAuthSessionStore()
+	try sessionStore.save(
+		SavedAuthSession(login: "person@example.test", authentication: testAuthentication())
+	)
+	let client = StubAppClient(result: .success([selectedDiary, otherDiary]))
+	let model = ThingsDiaryAppModel(
+		client: client,
+		store: store,
+		sessionStore: sessionStore
+	)
+
+	await model.start()
+
+	#expect(model.presentation == .diaryPicker)
+	#expect(await client.receivedChangeDiaryIDs == [selectedDiary.id])
+}
+
+@MainActor
 @Test("Startup opens the database that belongs to the saved login")
 func startupOpensSavedLoginDatabase() async throws {
 	let directory = FileManager.default.temporaryDirectory
@@ -1573,6 +1625,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedCreateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var receivedUpdateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var restoredAuthentication: ThingsDiaryAuthState?
+	private(set) var receivedChangeDiaryIDs: [String] = []
 
 	init(
 		result: Result<[ThingsDiaryDiary], Error>,
@@ -1678,6 +1731,16 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	func templates(diaryID: String) async throws -> [ThingsDiaryTemplate] {
 		receivedTemplatesDiaryID = diaryID
 		return try templatesResult.get()
+	}
+
+	func getDiaryChanges(
+		diaryID: String,
+		since: Date?,
+		limit: Int?,
+		nextPageToken: String?
+	) async throws -> ThingsDiaryChangesPage {
+		receivedChangeDiaryIDs.append(diaryID)
+		return ThingsDiaryChangesPage(changes: [], nextPageToken: nil)
 	}
 
 	func createTopic(diaryID: String, params: ThingsDiaryTopicParams) async throws -> ThingsDiaryTopic {

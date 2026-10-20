@@ -698,12 +698,15 @@ final class ThingsDiaryAppModel {
 		do {
 			guard try await client.currentSession() else {
 				try sessionStore.clear()
-				if !hasCachedDiary {
-					screen = .login
-				}
+				screen = .login
+				presentation = .none
 				return
 			}
-			await routeToDiaries(try await client.diaries())
+			let diaries = try await client.diaries()
+			if hasCachedDiary, diaries.count > 1 {
+				try? await synchronizer?.synchronize()
+			}
+			await routeToDiaries(diaries)
 		} catch {
 			if !hasCachedDiary {
 				screen = .login
