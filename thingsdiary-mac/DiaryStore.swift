@@ -225,7 +225,9 @@ actor DiaryStore {
 
 		var changedWrites: [StoredPendingEntryWrite] = []
 		nextState.pendingEntryWrites = nextState.pendingEntryWrites.map { storedWrite in
-			guard let entry = entriesByID[storedWrite.entry.id] else { return storedWrite }
+			guard storedWrite.entry.diaryID == diaryID,
+				let entry = entriesByID[storedWrite.entry.id]
+			else { return storedWrite }
 			let updatedWrite = StoredPendingEntryWrite(
 				PendingEntryWrite(operation: storedWrite.operation, entry: entry)
 			)

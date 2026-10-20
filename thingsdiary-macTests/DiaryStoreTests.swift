@@ -241,8 +241,20 @@ func diaryStoreRemovesTopicWithRowScopedWrites() async throws {
 		updatedAt: affected.updatedAt,
 		version: affected.version
 	)
+	let otherDiaryWrite = PendingEntryWrite(
+		operation: .update,
+		entry: ThingsDiaryEntry(
+			id: affected.id,
+			diaryID: "diary-2",
+			content: "Another diary",
+			createdAt: affected.createdAt,
+			updatedAt: affected.updatedAt,
+			version: affected.version
+		)
+	)
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.replaceSelectedDiary(diary, entries: [affected, unrelated], topics: [topic])
+	try await store.savePendingEntry(otherDiaryWrite)
 	let inspector = try DatabaseQueue(path: fileURL.path)
 	try await inspector.write { database in
 		try database.execute(
@@ -260,6 +272,7 @@ func diaryStoreRemovesTopicWithRowScopedWrites() async throws {
 	try await store.removeTopic(diaryID: diary.id, topicID: topic.id, entries: [updated, unrelated])
 
 	#expect(await store.entries(diaryID: diary.id).contains(unrelated))
+	#expect(await store.pendingEntryWrites() == [otherDiaryWrite])
 }
 
 @Test("Diary store reopens plaintext topics and templates without a network")
