@@ -4,6 +4,32 @@ import ThingsDiaryClient
 
 @testable import thingsdiary
 
+@Test("In-memory diary store uses the production persistence engine")
+func diaryStoreSupportsInMemoryPersistence() async throws {
+	let diary = ThingsDiaryDiary(
+		id: "diary-1",
+		title: "Personal",
+		description: "Daily notes",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 2),
+		version: 3
+	)
+	let entry = ThingsDiaryEntry(
+		id: "entry-1",
+		diaryID: diary.id,
+		content: "Offline note",
+		createdAt: Date(timeIntervalSince1970: 4),
+		updatedAt: Date(timeIntervalSince1970: 5),
+		version: 6
+	)
+	let store = try DiaryStore.inMemory()
+
+	try await store.replaceSelectedDiary(diary, entries: [entry])
+
+	#expect(await store.selectedDiary() == diary)
+	#expect(await store.entries(diaryID: diary.id) == [entry])
+}
+
 @Test("Diary store reopens the selected diary and its entries without a network")
 func diaryStorePersistsDownloadedState() async throws {
 	let fileURL = FileManager.default.temporaryDirectory
@@ -159,7 +185,7 @@ func diaryStoreRetriesCreateIdempotently() async throws {
 	#expect(await store.entries(diaryID: localEntry.diaryID) == [serverEntry])
 }
 
-@Test("Synchronization applies entry changes and deduplicates a repeated final page")
+@Test("Synchronization replays an overlapping entry checkpoint idempotently")
 func diaryStorePullsAndCheckpointsChanges() async throws {
 	let fileURL = FileManager.default.temporaryDirectory
 		.appending(path: "thingsdiary-changes-\(UUID().uuidString).json")
@@ -227,11 +253,12 @@ func diaryStorePullsAndCheckpointsChanges() async throws {
 	let reopenedStore = try DiaryStore(fileURL: fileURL)
 	try await reopenedStore.synchronize(with: remote)
 
-	#expect(await remote.requestedEntryIDs == [serverEntry.id])
+	#expect(await remote.requestedEntryIDs == [serverEntry.id, serverEntry.id])
 	#expect(await remote.requestedSince.last == changedAt)
+	#expect(await reopenedStore.entries(diaryID: diary.id) == [serverEntry])
 }
 
-@Test("Synchronization applies topic and template changes before advancing its checkpoint")
+@Test("Synchronization replays overlapping topic and template checkpoints idempotently")
 func diaryStorePullsTopicAndTemplateChanges() async throws {
 	let fileURL = FileManager.default.temporaryDirectory
 		.appending(path: "thingsdiary-entity-changes-\(UUID().uuidString).json")
@@ -293,8 +320,10 @@ func diaryStorePullsTopicAndTemplateChanges() async throws {
 	#expect(await store.templates(diaryID: diary.id) == [template])
 	let reopened = try DiaryStore(fileURL: fileURL)
 	try await reopened.synchronize(with: remote)
-	#expect(await remote.topicRequests == [topic.id])
-	#expect(await remote.templateRequests == [template.id])
+	#expect(await remote.topicRequests == [topic.id, topic.id])
+	#expect(await remote.templateRequests == [template.id, template.id])
+	#expect(await reopened.topics(diaryID: diary.id) == [topic])
+	#expect(await reopened.templates(diaryID: diary.id) == [template])
 }
 
 @Test("A version conflict preserves both local and server note content")

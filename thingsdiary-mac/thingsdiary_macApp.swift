@@ -93,7 +93,7 @@ struct ThingsDiaryApp: App {
 			fileURL:
 				applicationSupport
 				.appending(path: "ThingsDiary", directoryHint: .isDirectory)
-				.appending(path: "state.json"))
+				.appending(path: "store.sqlite"))
 		_model = State(initialValue: ThingsDiaryAppModel(store: store))
 	}
 

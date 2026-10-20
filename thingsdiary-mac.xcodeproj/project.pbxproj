@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* ThingsDiaryClient in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000003 /* ThingsDiaryClient */; };
+		A20000000000000000000001 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = A20000000000000000000003 /* GRDB */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,6 +57,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A20000000000000000000001 /* GRDB in Frameworks */,
 				A10000000000000000000001 /* ThingsDiaryClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -117,6 +119,7 @@
 			);
 			name = "thingsdiary-mac";
 			packageProductDependencies = (
+				A20000000000000000000003 /* GRDB */,
 				A10000000000000000000003 /* ThingsDiaryClient */,
 			);
 			productName = thingsdiary;
@@ -205,6 +208,7 @@
 			productRefGroup = 2D9E84A5307D31C000885CFA /* Products */;
 			packageReferences = (
 				A10000000000000000000002 /* XCLocalSwiftPackageReference "../client-swift" */,
+				A20000000000000000000002 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -586,10 +590,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A20000000000000000000002 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 7.11.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000003 /* ThingsDiaryClient */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ThingsDiaryClient;
+		};
+		A20000000000000000000003 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000000000000000000002 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

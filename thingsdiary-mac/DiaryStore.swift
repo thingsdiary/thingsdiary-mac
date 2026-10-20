@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import ThingsDiaryClient
 
 nonisolated enum PendingEntryOperation: String, Codable, Sendable, Equatable {
@@ -119,24 +120,22 @@ actor DiaryStore {
 		let task: Task<Void, Error>
 	}
 
-	private let fileURL: URL
+	private let database: DatabaseQueue
 	private var state: StoredState
 	private var activeSynchronization: ActiveSynchronization?
 
 	init(fileURL: URL) throws {
-		self.fileURL = fileURL
-		try FileManager.default.createDirectory(
-			at: fileURL.deletingLastPathComponent(),
-			withIntermediateDirectories: true
-		)
-		if FileManager.default.fileExists(atPath: fileURL.path) {
-			state = try Self.decoder.decode(
-				StoredState.self,
-				from: Data(contentsOf: fileURL)
-			)
-		} else {
-			state = StoredState()
-		}
+		database = try DiaryDatabase.open(at: fileURL)
+		state = try Self.load(from: database)
+	}
+
+	private init(database: DatabaseQueue) throws {
+		self.database = database
+		state = try Self.load(from: database)
+	}
+
+	static func inMemory() throws -> DiaryStore {
+		try DiaryStore(database: DiaryDatabase.inMemory())
 	}
 
 	func replaceSelectedDiary(
@@ -512,7 +511,125 @@ actor DiaryStore {
 	}
 
 	private func persist(_ state: StoredState) throws {
-		try Self.encoder.encode(state).write(to: fileURL, options: .atomic)
+		try database.write { database in
+			try database.execute(sql: "DELETE FROM sync")
+			try database.execute(sql: "DELETE FROM entries")
+			try database.execute(sql: "DELETE FROM topics")
+			try database.execute(sql: "DELETE FROM templates")
+			try database.execute(sql: "DELETE FROM diaries")
+
+			if let diary = state.selectedDiary {
+				try database.execute(
+					sql: """
+						INSERT INTO diaries (id, selected, last_sync_at, payload)
+						VALUES (?, 1, ?, ?)
+						""",
+					arguments: [
+						diary.id,
+						state.checkpoints[diary.id]?.lastChangeAt,
+						try Self.encoder.encode(diary),
+					]
+				)
+			}
+
+			for entry in state.entries {
+				try database.execute(
+					sql: "INSERT INTO entries (diary_id, id, payload) VALUES (?, ?, ?)",
+					arguments: [entry.diaryID, entry.id, try Self.encoder.encode(entry)]
+				)
+			}
+			for topic in state.topics {
+				try database.execute(
+					sql: "INSERT INTO topics (diary_id, id, payload) VALUES (?, ?, ?)",
+					arguments: [topic.diaryID, topic.id, try Self.encoder.encode(topic)]
+				)
+			}
+			for template in state.templates {
+				try database.execute(
+					sql: "INSERT INTO templates (diary_id, id, payload) VALUES (?, ?, ?)",
+					arguments: [
+						template.diaryID,
+						template.id,
+						try Self.encoder.encode(template),
+					]
+				)
+			}
+			for write in state.pendingEntryWrites {
+				try database.execute(
+					sql: """
+						INSERT INTO sync (kind, diary_id, entity_id, operation, payload)
+						VALUES ('pending', ?, ?, ?, ?)
+						""",
+					arguments: [
+						write.entry.diaryID,
+						write.entry.id,
+						write.operation.rawValue,
+						try Self.encoder.encode(write),
+					]
+				)
+			}
+			for conflict in state.entryConflicts {
+				try database.execute(
+					sql: """
+						INSERT INTO sync (kind, diary_id, entity_id, payload)
+						VALUES ('conflict', ?, ?, ?)
+						""",
+					arguments: [
+						conflict.local.diaryID,
+						conflict.local.id,
+						try Self.encoder.encode(conflict),
+					]
+				)
+			}
+		}
+	}
+
+	private static func load(from database: DatabaseQueue) throws -> StoredState {
+		try database.read { database in
+			let diaryRow = try Row.fetchOne(
+				database,
+				sql: "SELECT payload, last_sync_at FROM diaries WHERE selected = 1 LIMIT 1"
+			)
+			let selectedDiary = try diaryRow.map { row in
+				try decoder.decode(StoredDiary.self, from: row["payload"] as Data)
+			}
+			let entries = try Row.fetchAll(database, sql: "SELECT payload FROM entries").map {
+				try decoder.decode(StoredEntry.self, from: $0["payload"] as Data)
+			}
+			let topics = try Row.fetchAll(database, sql: "SELECT payload FROM topics").map {
+				try decoder.decode(StoredTopic.self, from: $0["payload"] as Data)
+			}
+			let templates = try Row.fetchAll(database, sql: "SELECT payload FROM templates").map {
+				try decoder.decode(StoredTemplate.self, from: $0["payload"] as Data)
+			}
+			let pendingWrites = try Row.fetchAll(
+				database,
+				sql: "SELECT payload FROM sync WHERE kind = 'pending'"
+			).map {
+				try decoder.decode(StoredPendingEntryWrite.self, from: $0["payload"] as Data)
+			}
+			let conflicts = try Row.fetchAll(
+				database,
+				sql: "SELECT payload FROM sync WHERE kind = 'conflict'"
+			).map {
+				try decoder.decode(StoredEntryConflict.self, from: $0["payload"] as Data)
+			}
+			var checkpoints: [String: StoredCheckpoint] = [:]
+			if let selectedDiary, let diaryRow,
+				let lastSyncAt = diaryRow["last_sync_at"] as Date?
+			{
+				checkpoints[selectedDiary.id] = StoredCheckpoint(lastChangeAt: lastSyncAt)
+			}
+			return StoredState(
+				selectedDiary: selectedDiary,
+				entries: entries,
+				topics: topics,
+				templates: templates,
+				pendingEntryWrites: pendingWrites,
+				checkpoints: checkpoints,
+				entryConflicts: conflicts
+			)
+		}
 	}
 
 	private static let encoder: JSONEncoder = {
