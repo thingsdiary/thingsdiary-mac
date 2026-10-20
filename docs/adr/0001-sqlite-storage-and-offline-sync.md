@@ -1,6 +1,6 @@
 # ADR 0001: SQLite storage and offline synchronization
 
-Status: proposed
+Status: accepted
 
 Date: 2026-10-21
 
@@ -54,7 +54,9 @@ sandboxed Application Support directory. Its filename is derived from a stable
 hash of the normalized login so the login is not exposed in the filesystem.
 
 `DiaryStore` remains a concrete actor and is the only owner of local database
-queries and transactions. GRDB types do not escape its boundary.
+queries and transactions. GRDB types do not escape its boundary. Ordinary
+mutations use row-scoped upserts and deletes; only an explicit server snapshot
+replacement or one-time legacy import replaces a full domain snapshot.
 
 The initial schema contains:
 
@@ -101,7 +103,8 @@ The following rules are mandatory:
 The existing `state.json` is imported only after the SQLite schema is ready. The
 import is idempotent and runs in one database transaction. The source JSON is
 kept as a recoverable backup after a successful import and remains untouched
-after a failed import.
+after a failed import. Creating that backup is also the durable one-time claim
+that prevents the same legacy data from being imported into another account.
 
 ### Network synchronization
 
@@ -259,11 +262,9 @@ Commit: `refactor: separate diary synchronization`
 1. In `client-swift`, add and test the minimal auth restoration API.
 2. In the macOS app, add `SavedAuthSession` and `AuthSessionStore`.
 3. Implement the Keychain adapter with device-local accessibility.
-4. Save the login and returned auth state after successful login or
-   registration.
+4. Save the login and returned auth state after successful login.
 5. Restore the state after restart.
-6. Clear the Keychain item on explicit logout or confirmed unauthorized
-   session.
+6. Clear the Keychain item on a confirmed unauthorized session.
 
 Commits:
 
@@ -285,9 +286,10 @@ Commit: `feat: start from local diary data`
 ### H. Remove the JSON implementation
 
 1. Remove whole-state JSON persistence and obsolete Codable wrappers.
-2. Remove optional-store and direct-network fallback paths.
-3. Keep only the isolated legacy importer until its supported migration window
-   expires.
+2. Make the account SQLite store mandatory in production while retaining
+   explicit in-memory injection for tests.
+3. Keep only the isolated legacy importer and payload codecs until its supported
+   migration window expires.
 4. Update storage and app-state documentation.
 
 Commit: `refactor: remove legacy storage paths`
