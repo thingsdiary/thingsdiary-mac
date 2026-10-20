@@ -164,6 +164,26 @@ func loginSelectsSingleDiary() async {
 }
 
 @MainActor
+@Test("Successful login persists the reusable authentication state")
+func loginPersistsAuthentication() async {
+	let sessionStore = TestAuthSessionStore()
+	let model = ThingsDiaryAppModel(
+		client: StubAppClient(result: .success([])),
+		sessionStore: sessionStore
+	)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+	await model.submit()
+
+	#expect(sessionStore.session?.login == "person@example.test")
+	#expect(sessionStore.session?.authentication.token == "session-token")
+	#expect(sessionStore.session?.authentication.credentials.encryptionPrivateKey == Data([1]))
+	#expect(sessionStore.session?.authentication.credentials.signingPrivateKey == Data([3]))
+}
+
+@MainActor
 @Test("Login routes multiple diaries to the picker")
 func loginShowsDiaryPickerForMultipleDiaries() async {
 	let diaries = [diary(id: "diary-1", title: "Personal"), diary(id: "diary-2", title: "Work")]
@@ -1411,7 +1431,13 @@ private actor DelayedEntriesAppClient: ThingsDiaryAppClient {
 		ThingsDiaryPublicKeys(signing: "signing", encryption: "encryption")
 	}
 
-	func login(login: String, password: String, secretKey: String) async throws {}
+	func login(
+		login: String,
+		password: String,
+		secretKey: String
+	) async throws -> ThingsDiaryAuthState {
+		testAuthentication()
+	}
 
 	func diaries() async throws -> [ThingsDiaryDiary] {
 		storedDiaries
@@ -1524,13 +1550,18 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		return try registrationResult.get()
 	}
 
-	func login(login: String, password: String, secretKey: String) async throws {
+	func login(
+		login: String,
+		password: String,
+		secretKey: String
+	) async throws -> ThingsDiaryAuthState {
 		receivedLogin = login
 		receivedPassword = password
 		receivedSecretKey = secretKey
 		if case .failure(let error) = result {
 			throw error
 		}
+		return testAuthentication()
 	}
 
 	func diaries() async throws -> [ThingsDiaryDiary] {
@@ -1656,4 +1687,32 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		}
 		return try updateEntryResult.get()
 	}
+}
+
+private final class TestAuthSessionStore: AuthSessionStore, @unchecked Sendable {
+	private(set) var session: SavedAuthSession?
+
+	func load() throws -> SavedAuthSession? {
+		session
+	}
+
+	func save(_ session: SavedAuthSession) throws {
+		self.session = session
+	}
+
+	func clear() throws {
+		session = nil
+	}
+}
+
+private nonisolated func testAuthentication() -> ThingsDiaryAuthState {
+	ThingsDiaryAuthState(
+		token: "session-token",
+		credentials: ThingsDiaryCredentials(
+			encryptionPrivateKey: Data([1]),
+			encryptionPublicKey: Data([2]),
+			signingPrivateKey: Data([3]),
+			signingPublicKey: Data([4])
+		)
+	)
 }

@@ -19,7 +19,11 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 		secretKey: String,
 		kdfSalt: String
 	) async throws -> ThingsDiaryPublicKeys
-	func login(login: String, password: String, secretKey: String) async throws
+	func login(
+		login: String,
+		password: String,
+		secretKey: String
+	) async throws -> ThingsDiaryAuthState
 	func diaries() async throws -> [ThingsDiaryDiary]
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary
 	func updateDiary(
@@ -158,8 +162,12 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 		)
 	}
 
-	func login(login: String, password: String, secretKey: String) async throws {
-		_ = try await client.login(
+	func login(
+		login: String,
+		password: String,
+		secretKey: String
+	) async throws -> ThingsDiaryAuthState {
+		try await client.login(
 			login: login,
 			password: password,
 			secretKey: secretKey
@@ -325,7 +333,21 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 			throw DiaryStoreError.unsupportedRemoteEntry
 		}
 
-		func login(login: String, password: String, secretKey: String) async throws {}
+		func login(
+			login: String,
+			password: String,
+			secretKey: String
+		) async throws -> ThingsDiaryAuthState {
+			ThingsDiaryAuthState(
+				token: "ui-testing",
+				credentials: ThingsDiaryCredentials(
+					encryptionPrivateKey: Data(),
+					encryptionPublicKey: Data(),
+					signingPrivateKey: Data(),
+					signingPublicKey: Data()
+				)
+			)
+		}
 
 		func diaries() async throws -> [ThingsDiaryDiary] { [] }
 
@@ -517,6 +539,7 @@ final class ThingsDiaryAppModel {
 
 	private let client: any ThingsDiaryAppClient
 	private let store: DiaryStore?
+	private let sessionStore: any AuthSessionStore
 	private var diarySelectionID: UUID?
 	private var loadedDiaries: [ThingsDiaryDiary] = []
 
@@ -533,10 +556,12 @@ final class ThingsDiaryAppModel {
 
 	init(
 		client: any ThingsDiaryAppClient = LiveThingsDiaryAppClient(),
-		store: DiaryStore? = nil
+		store: DiaryStore? = nil,
+		sessionStore: any AuthSessionStore = InMemoryAuthSessionStore()
 	) {
 		self.client = client
 		self.store = store
+		self.sessionStore = sessionStore
 	}
 
 	#if DEBUG
@@ -1614,10 +1639,16 @@ final class ThingsDiaryAppModel {
 		}
 
 		do {
-			try await client.login(
+			let authentication = try await client.login(
 				login: login,
 				password: password,
 				secretKey: secretKey
+			)
+			try sessionStore.save(
+				SavedAuthSession(
+					login: login.trimmingCharacters(in: .whitespacesAndNewlines),
+					authentication: authentication
+				)
 			)
 			let diaries = try await client.diaries()
 			await routeToDiaries(diaries)

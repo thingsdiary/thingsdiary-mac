@@ -94,7 +94,12 @@ struct ThingsDiaryApp: App {
 				applicationSupport
 				.appending(path: "ThingsDiary", directoryHint: .isDirectory)
 				.appending(path: "store.sqlite"))
-		_model = State(initialValue: ThingsDiaryAppModel(store: store))
+		_model = State(
+			initialValue: ThingsDiaryAppModel(
+				store: store,
+				sessionStore: KeychainAuthSessionStore()
+			)
+		)
 	}
 
 	var body: some Scene {
