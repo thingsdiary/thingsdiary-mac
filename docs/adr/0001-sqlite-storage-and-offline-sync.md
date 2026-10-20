@@ -66,8 +66,9 @@ The initial schema contains:
 
 The `sync` table stores pending local operations and unresolved local conflict
 payloads. It does not store completed history, retry telemetry, or generic
-background jobs. A generation value prevents an old network response from
-removing a newer local write.
+background jobs. A network response completes an operation only when the stored
+pending write is still the one that produced the request, so a newer local edit
+stays queued.
 
 The current synchronization algorithm uses one checkpoint per diary. The first
 SQLite version stores `last_sync_at` on `diaries`. Pull synchronization records
@@ -110,8 +111,9 @@ Move network orchestration to a concrete `DiarySynchronizer` actor.
 - reads and writes local entities;
 - saves an entity and its sync operation in one transaction;
 - exposes the next pending operation;
-- conditionally completes an operation by generation;
-- applies a resolved remote entity and its checkpoint atomically;
+- conditionally completes only the current pending operation;
+- applies each resolved remote entity atomically;
+- advances the pull checkpoint only after the final page succeeds;
 - stores the local side of a conflict in `sync` while the server entity remains
   in its domain table.
 
@@ -224,7 +226,7 @@ Commit: `feat: persist diary data in SQLite`
 3. Coalesce later operations for the same entity without losing the queued
    payload.
 4. Preserve stable client-generated IDs through restart.
-5. Add generation-based conditional completion.
+5. Complete a request only while its pending write is still current.
 
 Commit: `feat: queue offline entry changes`
 

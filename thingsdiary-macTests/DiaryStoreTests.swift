@@ -293,15 +293,24 @@ func diaryStorePullsAndCheckpointsChanges() async throws {
 	)
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.replaceSelectedDiary(diary, entries: [oldEntry, removedEntry])
+	let firstCheckpoint = changedAt
 
-	try await DiarySynchronizer(store: store, remote: remote).synchronize()
+	try await DiarySynchronizer(
+		store: store,
+		remote: remote,
+		now: { firstCheckpoint }
+	).synchronize()
 
 	#expect(await store.entries(diaryID: diary.id) == [serverEntry])
 	let reopenedStore = try DiaryStore(fileURL: fileURL)
-	try await DiarySynchronizer(store: reopenedStore, remote: remote).synchronize()
+	try await DiarySynchronizer(
+		store: reopenedStore,
+		remote: remote,
+		now: { Date(timeIntervalSince1970: 20) }
+	).synchronize()
 
 	#expect(await remote.requestedEntryIDs == [serverEntry.id, serverEntry.id])
-	#expect(await remote.requestedSince.last == changedAt)
+	#expect(await remote.requestedSince == [nil, firstCheckpoint])
 	#expect(await reopenedStore.entries(diaryID: diary.id) == [serverEntry])
 }
 
@@ -360,13 +369,22 @@ func diaryStorePullsTopicAndTemplateChanges() async throws {
 	)
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.replaceSelectedDiary(diary, entries: [])
+	let firstCheckpoint = changedAt
 
-	try await DiarySynchronizer(store: store, remote: remote).synchronize()
+	try await DiarySynchronizer(
+		store: store,
+		remote: remote,
+		now: { firstCheckpoint }
+	).synchronize()
 
 	#expect(await store.topics(diaryID: diary.id) == [topic])
 	#expect(await store.templates(diaryID: diary.id) == [template])
 	let reopened = try DiaryStore(fileURL: fileURL)
-	try await DiarySynchronizer(store: reopened, remote: remote).synchronize()
+	try await DiarySynchronizer(
+		store: reopened,
+		remote: remote,
+		now: { Date(timeIntervalSince1970: 20) }
+	).synchronize()
 	#expect(await remote.topicRequests == [topic.id, topic.id])
 	#expect(await remote.templateRequests == [template.id, template.id])
 	#expect(await reopened.topics(diaryID: diary.id) == [topic])

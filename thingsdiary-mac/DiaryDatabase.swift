@@ -72,7 +72,6 @@ nonisolated enum DiaryDatabase {
 				table.column("diary_id", .text).notNull()
 				table.column("entity_id", .text).notNull()
 				table.column("operation", .text)
-				table.column("generation", .integer).notNull().defaults(to: 1)
 				table.column("payload", .blob).notNull()
 				table.primaryKey(["kind", "diary_id", "entity_id"])
 			}

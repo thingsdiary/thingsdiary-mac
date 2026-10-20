@@ -264,24 +264,12 @@ actor DiaryStore {
 		state.checkpoints[diaryID]?.lastChangeAt
 	}
 
-	func hasApplied(_ change: ThingsDiaryChange, diaryID: String) -> Bool {
-		(state.checkpoints[diaryID] ?? StoredCheckpoint()).contains(change)
-	}
-
 	func hasPendingEntry(id: String) -> Bool {
 		state.pendingEntryWrites.contains { $0.entry.id == id }
 	}
 
-	func record(_ change: ThingsDiaryChange, diaryID: String) throws {
-		try apply(change, diaryID: diaryID) { _ in }
-	}
-
-	func applyRemoteEntry(
-		_ entry: ThingsDiaryEntry,
-		change: ThingsDiaryChange,
-		diaryID: String
-	) throws {
-		try apply(change, diaryID: diaryID) { nextState in
+	func applyRemoteEntry(_ entry: ThingsDiaryEntry) throws {
+		try update { nextState in
 			guard !nextState.pendingEntryWrites.contains(where: { $0.entry.id == entry.id })
 			else { return }
 			nextState.entries.removeAll { $0.id == entry.id }
@@ -289,60 +277,51 @@ actor DiaryStore {
 		}
 	}
 
-	func removeRemoteEntry(change: ThingsDiaryChange, diaryID: String) throws {
-		try apply(change, diaryID: diaryID) { nextState in
+	func removeRemoteEntry(id: String) throws {
+		try update { nextState in
 			guard
-				!nextState.pendingEntryWrites.contains(where: { $0.entry.id == change.entityID })
+				!nextState.pendingEntryWrites.contains(where: { $0.entry.id == id })
 			else { return }
-			nextState.entries.removeAll { $0.id == change.entityID }
+			nextState.entries.removeAll { $0.id == id }
 		}
 	}
 
-	func applyRemoteTopic(
-		_ topic: ThingsDiaryTopic,
-		change: ThingsDiaryChange,
-		diaryID: String
-	) throws {
-		try apply(change, diaryID: diaryID) { nextState in
+	func applyRemoteTopic(_ topic: ThingsDiaryTopic) throws {
+		try update { nextState in
 			nextState.topics.removeAll { $0.id == topic.id }
 			nextState.topics.append(StoredTopic(topic))
 		}
 	}
 
-	func removeRemoteTopic(change: ThingsDiaryChange, diaryID: String) throws {
-		try apply(change, diaryID: diaryID) { nextState in
-			nextState.topics.removeAll { $0.id == change.entityID }
+	func removeRemoteTopic(id: String) throws {
+		try update { nextState in
+			nextState.topics.removeAll { $0.id == id }
 		}
 	}
 
-	func applyRemoteTemplate(
-		_ template: ThingsDiaryTemplate,
-		change: ThingsDiaryChange,
-		diaryID: String
-	) throws {
-		try apply(change, diaryID: diaryID) { nextState in
+	func applyRemoteTemplate(_ template: ThingsDiaryTemplate) throws {
+		try update { nextState in
 			nextState.templates.removeAll { $0.id == template.id }
 			nextState.templates.append(StoredTemplate(template))
 		}
 	}
 
-	func removeRemoteTemplate(change: ThingsDiaryChange, diaryID: String) throws {
-		try apply(change, diaryID: diaryID) { nextState in
-			nextState.templates.removeAll { $0.id == change.entityID }
+	func removeRemoteTemplate(id: String) throws {
+		try update { nextState in
+			nextState.templates.removeAll { $0.id == id }
 		}
 	}
 
-	private func apply(
-		_ change: ThingsDiaryChange,
-		diaryID: String,
-		mutation: (inout StoredState) -> Void
-	) throws {
+	func finishPull(diaryID: String, at date: Date) throws {
 		var nextState = state
-		var checkpoint = nextState.checkpoints[diaryID] ?? StoredCheckpoint()
-		guard !checkpoint.contains(change) else { return }
+		nextState.checkpoints[diaryID] = StoredCheckpoint(lastChangeAt: date)
+		try persist(nextState)
+		state = nextState
+	}
+
+	private func update(_ mutation: (inout StoredState) -> Void) throws {
+		var nextState = state
 		mutation(&nextState)
-		checkpoint.record(change)
-		nextState.checkpoints[diaryID] = checkpoint
 		try persist(nextState)
 		state = nextState
 	}
@@ -635,39 +614,6 @@ private nonisolated struct StoredState: Codable {
 
 private nonisolated struct StoredCheckpoint: Codable {
 	var lastChangeAt: Date?
-	var changeIDsAtLastDate: [String]
-
-	init(lastChangeAt: Date? = nil, changeIDsAtLastDate: [String] = []) {
-		self.lastChangeAt = lastChangeAt
-		self.changeIDsAtLastDate = changeIDsAtLastDate
-	}
-
-	func contains(_ change: ThingsDiaryChange) -> Bool {
-		guard let lastChangeAt else {
-			return false
-		}
-		if change.createdAt < lastChangeAt {
-			return true
-		}
-		return change.createdAt == lastChangeAt
-			&& changeIDsAtLastDate.contains(change.id)
-	}
-
-	mutating func record(_ change: ThingsDiaryChange) {
-		guard let lastChangeAt else {
-			self.lastChangeAt = change.createdAt
-			changeIDsAtLastDate = [change.id]
-			return
-		}
-		if change.createdAt > lastChangeAt {
-			self.lastChangeAt = change.createdAt
-			changeIDsAtLastDate = [change.id]
-		} else if change.createdAt == lastChangeAt,
-			!changeIDsAtLastDate.contains(change.id)
-		{
-			changeIDsAtLastDate.append(change.id)
-		}
-	}
 }
 
 private nonisolated struct StoredDiary: Codable {

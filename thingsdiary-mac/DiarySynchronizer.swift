@@ -9,11 +9,17 @@ actor DiarySynchronizer {
 
 	private let store: DiaryStore
 	private let remote: any DiaryStoreRemote
+	private let now: @Sendable () -> Date
 	private var activeSynchronization: ActiveSynchronization?
 
-	init(store: DiaryStore, remote: any DiaryStoreRemote) {
+	init(
+		store: DiaryStore,
+		remote: any DiaryStoreRemote,
+		now: @escaping @Sendable () -> Date = Date.init
+	) {
 		self.store = store
 		self.remote = remote
+		self.now = now
 	}
 
 	func synchronize() async throws {
@@ -106,27 +112,31 @@ actor DiarySynchronizer {
 	}
 
 	private func pullChanges(diaryID: String) async throws {
+		let previousCheckpoint = await store.lastChangeAt(diaryID: diaryID)
+		let nextCheckpoint = now()
 		var nextPageToken: String?
 		repeat {
 			let page = try await remote.getDiaryChanges(
 				diaryID: diaryID,
-				since: await store.lastChangeAt(diaryID: diaryID),
+				since: previousCheckpoint,
 				limit: nil,
 				nextPageToken: nextPageToken
 			)
 			for change in page.changes {
-				guard !(await store.hasApplied(change, diaryID: diaryID)) else { continue }
+				if let previousCheckpoint, change.createdAt < previousCheckpoint {
+					continue
+				}
 				try await apply(change, diaryID: diaryID)
 			}
 			nextPageToken = page.nextPageToken
 		} while nextPageToken != nil
+		try await store.finishPull(diaryID: diaryID, at: nextCheckpoint)
 	}
 
 	private func apply(_ change: ThingsDiaryChange, diaryID: String) async throws {
 		switch change.entityType {
 		case .entry:
 			if await store.hasPendingEntry(id: change.entityID) {
-				try await store.record(change, diaryID: diaryID)
 				return
 			}
 			switch change.operation {
@@ -135,9 +145,9 @@ actor DiarySynchronizer {
 					diaryID: diaryID,
 					entryID: change.entityID
 				)
-				try await store.applyRemoteEntry(entry, change: change, diaryID: diaryID)
+				try await store.applyRemoteEntry(entry)
 			case .removed:
-				try await store.removeRemoteEntry(change: change, diaryID: diaryID)
+				try await store.removeRemoteEntry(id: change.entityID)
 			}
 		case .topic:
 			switch change.operation {
@@ -146,9 +156,9 @@ actor DiarySynchronizer {
 					diaryID: diaryID,
 					topicID: change.entityID
 				)
-				try await store.applyRemoteTopic(topic, change: change, diaryID: diaryID)
+				try await store.applyRemoteTopic(topic)
 			case .removed:
-				try await store.removeRemoteTopic(change: change, diaryID: diaryID)
+				try await store.removeRemoteTopic(id: change.entityID)
 			}
 		case .template:
 			switch change.operation {
@@ -157,12 +167,12 @@ actor DiarySynchronizer {
 					diaryID: diaryID,
 					templateID: change.entityID
 				)
-				try await store.applyRemoteTemplate(template, change: change, diaryID: diaryID)
+				try await store.applyRemoteTemplate(template)
 			case .removed:
-				try await store.removeRemoteTemplate(change: change, diaryID: diaryID)
+				try await store.removeRemoteTemplate(id: change.entityID)
 			}
 		case .diary:
-			try await store.record(change, diaryID: diaryID)
+			break
 		}
 	}
 }
