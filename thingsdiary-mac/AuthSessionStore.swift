@@ -1,4 +1,5 @@
 import Foundation
+import LocalAuthentication
 import Security
 import ThingsDiaryClient
 
@@ -82,14 +83,25 @@ nonisolated final class InMemoryAuthSessionStore: AuthSessionStore, @unchecked S
 
 nonisolated enum AuthSessionStoreError: Error {
 	case unexpectedStatus(OSStatus)
+	case accessControlCreationFailed
 }
 
 nonisolated struct KeychainAuthSessionStore: AuthSessionStore {
+	static let accessControlFlags: SecAccessControlCreateFlags = .userPresence
+	static var isAvailable: Bool {
+		guard let task = SecTaskCreateFromSelf(nil) else { return false }
+		return SecTaskCopyValueForEntitlement(
+			task,
+			"application-identifier" as CFString,
+			nil
+		) as? String != nil
+	}
+
 	private let service: String
 	private let account: String
 
 	init(
-		service: String = "io.thingsdiary.thingsdiary-mac",
+		service: String = "io.thingsdiary.thingsdiary-mac.auth-session-v2",
 		account: String = "active-session"
 	) {
 		self.service = service
@@ -99,7 +111,7 @@ nonisolated struct KeychainAuthSessionStore: AuthSessionStore {
 	func load() throws -> SavedAuthSession? {
 		var result: CFTypeRef?
 		let status = SecItemCopyMatching(
-			query(returnData: true) as CFDictionary,
+			query(returnData: true, requiresAuthentication: true) as CFDictionary,
 			&result
 		)
 		if status == errSecItemNotFound {
@@ -114,13 +126,23 @@ nonisolated struct KeychainAuthSessionStore: AuthSessionStore {
 	func save(_ session: SavedAuthSession) throws {
 		let data = try JSONEncoder().encode(session)
 		let status = SecItemUpdate(
-			query() as CFDictionary,
+			query(requiresAuthentication: true) as CFDictionary,
 			[kSecValueData: data] as CFDictionary
 		)
 		if status == errSecItemNotFound {
+			guard
+				let accessControl = SecAccessControlCreateWithFlags(
+					nil,
+					kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+					Self.accessControlFlags,
+					nil
+				)
+			else {
+				throw AuthSessionStoreError.accessControlCreationFailed
+			}
 			var item = query()
 			item[kSecValueData] = data
-			item[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+			item[kSecAttrAccessControl] = accessControl
 			let addStatus = SecItemAdd(item as CFDictionary, nil)
 			guard addStatus == errSecSuccess else {
 				throw AuthSessionStoreError.unexpectedStatus(addStatus)
@@ -133,18 +155,27 @@ nonisolated struct KeychainAuthSessionStore: AuthSessionStore {
 	}
 
 	func clear() throws {
-		let status = SecItemDelete(query() as CFDictionary)
+		let status = SecItemDelete(query(requiresAuthentication: true) as CFDictionary)
 		guard status == errSecSuccess || status == errSecItemNotFound else {
 			throw AuthSessionStoreError.unexpectedStatus(status)
 		}
 	}
 
-	private func query(returnData: Bool = false) -> [CFString: Any] {
+	func query(
+		returnData: Bool = false,
+		requiresAuthentication: Bool = false
+	) -> [CFString: Any] {
 		var query: [CFString: Any] = [
 			kSecClass: kSecClassGenericPassword,
 			kSecAttrService: service,
 			kSecAttrAccount: account,
+			kSecUseDataProtectionKeychain: true,
 		]
+		if requiresAuthentication {
+			let context = LAContext()
+			context.localizedReason = "Unlock your ThingsDiary session"
+			query[kSecUseAuthenticationContext] = context
+		}
 		if returnData {
 			query[kSecReturnData] = true
 			query[kSecMatchLimit] = kSecMatchLimitOne

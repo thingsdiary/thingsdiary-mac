@@ -92,10 +92,16 @@ struct ThingsDiaryApp: App {
 		let storeDirectory =
 			applicationSupport
 			.appending(path: "ThingsDiary", directoryHint: .isDirectory)
+		let sessionStore: any AuthSessionStore
+		if KeychainAuthSessionStore.isAvailable {
+			sessionStore = KeychainAuthSessionStore()
+		} else {
+			sessionStore = InMemoryAuthSessionStore()
+		}
 		_model = State(
 			initialValue: ThingsDiaryAppModel(
 				storeDirectory: storeDirectory,
-				sessionStore: KeychainAuthSessionStore()
+				sessionStore: sessionStore
 			)
 		)
 	}

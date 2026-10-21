@@ -205,9 +205,11 @@ private struct LoginView: View {
 
 			SecureField("Secret key (TDKV1-…)", text: $model.secretKey)
 
-			Text("Your password, secret key, derived keys, and token are kept in memory only.")
-				.font(.caption)
-				.foregroundStyle(.secondary)
+			Text(
+				"Your password and secret key are not saved. Your session is protected by Touch ID or your Mac password."
+			)
+			.font(.caption)
+			.foregroundStyle(.secondary)
 
 			HStack {
 				Button("Sign In") {
