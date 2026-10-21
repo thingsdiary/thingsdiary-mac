@@ -244,8 +244,8 @@ func startupHandlesRevokedSession() async throws {
 }
 
 @MainActor
-@Test("Startup synchronizes the cached diary before showing a multi-diary picker")
-func startupSynchronizesCachedDiaryForMultipleDiaries() async throws {
+@Test("Startup reopens the selected diary when the account has multiple diaries")
+func startupReopensSelectedDiaryForMultipleDiaries() async throws {
 	let selectedDiary = diary(id: "diary-1", title: "Personal")
 	let otherDiary = diary(id: "diary-2", title: "Work")
 	let store = try DiaryStore.inMemory()
@@ -263,7 +263,8 @@ func startupSynchronizesCachedDiaryForMultipleDiaries() async throws {
 
 	await model.start()
 
-	#expect(model.presentation == .diaryPicker)
+	#expect(model.screen == .entries(diary: selectedDiary, entries: []))
+	#expect(model.presentation == .none)
 	#expect(await client.receivedChangeDiaryIDs == [selectedDiary.id])
 }
 

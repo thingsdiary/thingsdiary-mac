@@ -703,9 +703,6 @@ final class ThingsDiaryAppModel {
 				return
 			}
 			let diaries = try await client.diaries()
-			if hasCachedDiary, diaries.count > 1 {
-				try? await synchronizer?.synchronize()
-			}
 			await routeToDiaries(diaries)
 		} catch {
 			if !hasCachedDiary {
@@ -1763,7 +1760,14 @@ final class ThingsDiaryAppModel {
 			presentation = .none
 			await selectDiary(diaries[0])
 		default:
-			presentation = .diaryPicker
+			if let selectedID = await store?.selectedDiaryID(),
+				let selectedDiary = diaries.first(where: { $0.id == selectedID })
+			{
+				presentation = .none
+				await selectDiary(selectedDiary)
+			} else {
+				presentation = .diaryPicker
+			}
 		}
 	}
 
