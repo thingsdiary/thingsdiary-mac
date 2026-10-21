@@ -703,7 +703,7 @@ final class ThingsDiaryAppModel {
 				return
 			}
 			let diaries = try await client.diaries()
-			await routeToDiaries(diaries)
+			await routeToDiaries(diaries, restoreSelection: true)
 		} catch {
 			if !hasCachedDiary {
 				screen = .login
@@ -1750,7 +1750,10 @@ final class ThingsDiaryAppModel {
 		) != nil
 	}
 
-	private func routeToDiaries(_ diaries: [ThingsDiaryDiary]) async {
+	private func routeToDiaries(
+		_ diaries: [ThingsDiaryDiary],
+		restoreSelection: Bool = false
+	) async {
 		loadedDiaries = diaries
 		screen = .diaries(diaries)
 		switch diaries.count {
@@ -1760,7 +1763,8 @@ final class ThingsDiaryAppModel {
 			presentation = .none
 			await selectDiary(diaries[0])
 		default:
-			if let selectedID = await store?.selectedDiaryID(),
+			if restoreSelection,
+				let selectedID = await store?.selectedDiaryID(),
 				let selectedDiary = diaries.first(where: { $0.id == selectedID })
 			{
 				presentation = .none

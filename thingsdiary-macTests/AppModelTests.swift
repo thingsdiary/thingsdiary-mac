@@ -322,6 +322,27 @@ func loginShowsDiaryPickerForMultipleDiaries() async {
 }
 
 @MainActor
+@Test("Login lets the user choose even when a diary was selected before")
+func loginShowsDiaryPickerWhenSelectionWasStored() async throws {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let otherDiary = diary(id: "diary-2", title: "Work")
+	let store = try DiaryStore.inMemory()
+	try await store.replaceSelectedDiary(selectedDiary, entries: [])
+	let model = ThingsDiaryAppModel(
+		client: StubAppClient(result: .success([selectedDiary, otherDiary])),
+		store: store
+	)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+	await model.submit()
+
+	#expect(model.screen == .diaries([selectedDiary, otherDiary]))
+	#expect(model.presentation == .diaryPicker)
+}
+
+@MainActor
 @Test("Cancelling the diary picker preserves the open workspace and its data")
 func cancelDiaryPickerPreservesWorkspace() async {
 	let selectedDiary = diary(id: "diary-1", title: "Personal")
