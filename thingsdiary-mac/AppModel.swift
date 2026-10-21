@@ -13,6 +13,9 @@ struct ThingsDiaryRegistrationResult: Sendable, Equatable {
 }
 
 nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
+	func connect() async throws
+	func disconnect() async
+	func events() async -> AsyncThrowingStream<Io_Thingsdiary_V1_Event, Error>
 	func register(
 		login: String,
 		password: String,
@@ -68,6 +71,14 @@ nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 }
 
 extension ThingsDiaryAppClient {
+	func connect() async throws {}
+
+	func disconnect() async {}
+
+	func events() async -> AsyncThrowingStream<Io_Thingsdiary_V1_Event, Error> {
+		AsyncThrowingStream { $0.finish() }
+	}
+
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
 		throw DiaryStoreError.unsupportedRemoteEntry
 	}
@@ -138,6 +149,18 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 
 	init(client: ThingsDiaryClient = ThingsDiaryClient()) {
 		self.client = client
+	}
+
+	func connect() async throws {
+		try await client.connect()
+	}
+
+	func disconnect() async {
+		await client.disconnect()
+	}
+
+	func events() async -> AsyncThrowingStream<Io_Thingsdiary_V1_Event, Error> {
+		await client.events()
 	}
 
 	func register(
@@ -517,6 +540,7 @@ final class ThingsDiaryAppModel {
 
 	private let client: any ThingsDiaryAppClient
 	private let store: DiaryStore?
+	private var realtimeCoordinator: RealtimeSyncCoordinator?
 	private var diarySelectionID: UUID?
 	private var loadedDiaries: [ThingsDiaryDiary] = []
 
@@ -634,6 +658,7 @@ final class ThingsDiaryAppModel {
 		}
 		screen = .loading
 		do {
+			try await startRealtimeSession()
 			let diaries = try await client.diaries()
 			await routeToDiaries(diaries)
 		} catch {
@@ -1619,6 +1644,7 @@ final class ThingsDiaryAppModel {
 				password: password,
 				secretKey: secretKey
 			)
+			try await startRealtimeSession()
 			let diaries = try await client.diaries()
 			await routeToDiaries(diaries)
 		} catch {
@@ -1628,6 +1654,38 @@ final class ThingsDiaryAppModel {
 
 	func retry() {
 		screen = .login
+	}
+
+	private func startRealtimeSession() async throws {
+		if realtimeCoordinator == nil {
+			realtimeCoordinator = RealtimeSyncCoordinator(
+				client: client,
+				store: store,
+				onSnapshot: { [weak self] snapshot in
+					self?.applyRealtimeSnapshot(snapshot)
+				}
+			)
+		}
+		try await realtimeCoordinator?.start()
+	}
+
+	private func applyRealtimeSnapshot(_ snapshot: DiaryStoreSnapshot) {
+		guard
+			case .entries(let diary, let currentEntries) = screen,
+			diary.id == snapshot.diary.id
+		else { return }
+		loadedDiaries = loadedDiaries.map {
+			$0.id == snapshot.diary.id ? snapshot.diary : $0
+		}
+		topics = snapshot.topics
+		templates = snapshot.templates
+		screen = .entries(
+			diary: snapshot.diary,
+			entries: entriesPreservingTransientEntries(
+				snapshot.entries,
+				from: currentEntries
+			)
+		)
 	}
 
 	private func isValidEmail(_ value: String) -> Bool {

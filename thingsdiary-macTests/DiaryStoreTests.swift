@@ -297,8 +297,14 @@ func diaryStorePullsTopicAndTemplateChanges() async throws {
 	#expect(await remote.templateRequests == [template.id])
 }
 
-@Test("A version conflict preserves both local and server note content")
-func diaryStorePreservesEntryConflict() async throws {
+@Test(
+	"A version conflict preserves both local and server note content",
+	arguments: [
+		ThingsDiaryClientError.httpStatus(409, body: Data()),
+		ThingsDiaryClientError.rpc(code: 1006, message: "version conflict"),
+	]
+)
+func diaryStorePreservesEntryConflict(_ conflictError: ThingsDiaryClientError) async throws {
 	let fileURL = FileManager.default.temporaryDirectory
 		.appending(path: "thingsdiary-conflict-\(UUID().uuidString).json")
 	defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -335,7 +341,9 @@ func diaryStorePreservesEntryConflict() async throws {
 			entry: localEntry
 		))
 
-	try await store.synchronize(with: ConflictRemote(serverEntry: serverEntry))
+	try await store.synchronize(
+		with: ConflictRemote(serverEntry: serverEntry, conflictError: conflictError)
+	)
 
 	#expect(await store.entries(diaryID: diary.id) == [serverEntry])
 	#expect(await store.pendingEntryWrites().isEmpty)
@@ -838,9 +846,14 @@ private actor EntityChangesRemote: DiaryStoreRemote {
 
 private actor ConflictRemote: DiaryStoreRemote {
 	let serverEntry: ThingsDiaryEntry
+	let conflictError: ThingsDiaryClientError
 
-	init(serverEntry: ThingsDiaryEntry) {
+	init(
+		serverEntry: ThingsDiaryEntry,
+		conflictError: ThingsDiaryClientError = .httpStatus(409, body: Data())
+	) {
 		self.serverEntry = serverEntry
+		self.conflictError = conflictError
 	}
 
 	func createEntry(
@@ -855,7 +868,7 @@ private actor ConflictRemote: DiaryStoreRemote {
 		_ entry: ThingsDiaryEntry,
 		params: ThingsDiaryEntryParams
 	) async throws -> ThingsDiaryEntry {
-		throw ThingsDiaryClientError.httpStatus(409, body: Data())
+		throw conflictError
 	}
 
 	func getEntry(

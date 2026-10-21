@@ -33,6 +33,13 @@ nonisolated struct DiaryEntryConflict: Sendable, Equatable, Identifiable {
 	}
 }
 
+nonisolated struct DiaryStoreSnapshot: Sendable, Equatable {
+	let diary: ThingsDiaryDiary
+	let entries: [ThingsDiaryEntry]
+	let topics: [ThingsDiaryTopic]
+	let templates: [ThingsDiaryTemplate]
+}
+
 nonisolated protocol DiaryStoreRemote: Sendable {
 	func createEntry(
 		diaryID: String,
@@ -180,6 +187,16 @@ actor DiaryStore {
 		state.templates.filter { $0.diaryID == diaryID }.map(\.value)
 	}
 
+	func snapshot() -> DiaryStoreSnapshot? {
+		guard let diary = state.selectedDiary?.value else { return nil }
+		return DiaryStoreSnapshot(
+			diary: diary,
+			entries: state.entries.filter { $0.diaryID == diary.id }.map(\.value),
+			topics: state.topics.filter { $0.diaryID == diary.id }.map(\.value),
+			templates: state.templates.filter { $0.diaryID == diary.id }.map(\.value)
+		)
+	}
+
 	func upsertTopic(_ topic: ThingsDiaryTopic) throws {
 		var nextState = state
 		nextState.topics.removeAll { $0.id == topic.id }
@@ -320,7 +337,7 @@ actor DiaryStore {
 					try completeRemoval(write: write)
 					continue
 				}
-			} catch ThingsDiaryClientError.httpStatus(409, _) {
+			} catch let error where Self.isConflict(error) {
 				let currentServerEntry = try await remote.getEntry(
 					diaryID: write.entry.diaryID,
 					entryID: write.entry.id
@@ -335,6 +352,16 @@ actor DiaryStore {
 			return
 		}
 		try await pullChanges(diaryID: diaryID, remote: remote)
+	}
+
+	private static func isConflict(_ error: any Error) -> Bool {
+		switch error {
+		case ThingsDiaryClientError.httpStatus(409, _),
+			ThingsDiaryClientError.rpc(code: 1006, message: _):
+			return true
+		default:
+			return false
+		}
 	}
 
 	private func pullChanges(

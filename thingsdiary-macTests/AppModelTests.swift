@@ -133,6 +133,55 @@ func successfulLoginLoadsDiaries() async throws {
 }
 
 @MainActor
+@Test("Login connects realtime before loading diaries")
+func loginConnectsBeforeLoadingDiaries() async {
+	let client = StubAppClient(result: .success([]))
+	let model = ThingsDiaryAppModel(client: client)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+	await model.submit()
+
+	#expect(await client.callOrder == [.login, .connect, .diaries])
+}
+
+@MainActor
+@Test("A realtime connection failure prevents the first diary query")
+func realtimeConnectionFailurePreventsDiaryQuery() async {
+	let client = StubAppClient(
+		result: .success([]),
+		connectResult: .failure(TestFailure.rejected)
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+	await model.submit()
+
+	#expect(await client.callOrder == [.login, .connect])
+	#expect(
+		model.screen
+			== .error("Could not sign in or load diaries. Check your credentials and try again.")
+	)
+}
+
+@MainActor
+@Test("Continuing registration connects realtime before loading diaries")
+func registrationConnectsBeforeLoadingDiaries() async {
+	let client = StubAppClient(result: .success([]))
+	let model = ThingsDiaryAppModel(client: client)
+	model.login = "new-person@example.test"
+	model.password = "password"
+
+	await model.register()
+	await model.continueAfterRegistration()
+
+	#expect(await client.callOrder == [.register, .connect, .diaries])
+}
+
+@MainActor
 @Test("An empty diary list opens diary creation")
 func emptyDiaryListOpensCreation() async {
 	let model = ThingsDiaryAppModel(client: StubAppClient(result: .success([])))
@@ -1440,7 +1489,15 @@ private actor DelayedEntriesAppClient: ThingsDiaryAppClient {
 }
 
 private actor StubAppClient: ThingsDiaryAppClient {
+	enum Call: Sendable, Equatable {
+		case register
+		case login
+		case connect
+		case diaries
+	}
+
 	let result: Result<[ThingsDiaryDiary], Error>
+	let connectResult: Result<Void, Error>
 	let createDiaryResult: Result<ThingsDiaryDiary, Error>?
 	let updateDiaryResult: Result<ThingsDiaryDiary, Error>?
 	let registrationResult: Result<ThingsDiaryPublicKeys, Error>
@@ -1475,9 +1532,11 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedDeleteTopicSoft: Bool?
 	private(set) var receivedCreateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var receivedUpdateTemplateParams: ThingsDiaryTemplateParams?
+	private(set) var callOrder: [Call] = []
 
 	init(
 		result: Result<[ThingsDiaryDiary], Error>,
+		connectResult: Result<Void, Error> = .success(()),
 		createDiaryResult: Result<ThingsDiaryDiary, Error>? = nil,
 		updateDiaryResult: Result<ThingsDiaryDiary, Error>? = nil,
 		registrationResult: Result<ThingsDiaryPublicKeys, Error> = .success(
@@ -1497,6 +1556,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		updateTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil
 	) {
 		self.result = result
+		self.connectResult = connectResult
 		self.createDiaryResult = createDiaryResult
 		self.updateDiaryResult = updateDiaryResult
 		self.registrationResult = registrationResult
@@ -1514,17 +1574,24 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		self.updateTemplateResult = updateTemplateResult
 	}
 
+	func connect() async throws {
+		callOrder.append(.connect)
+		try connectResult.get()
+	}
+
 	func register(
 		login: String,
 		password: String,
 		secretKey: String,
 		kdfSalt: String
 	) async throws -> ThingsDiaryPublicKeys {
+		callOrder.append(.register)
 		receivedRegistrationSecretKey = secretKey
 		return try registrationResult.get()
 	}
 
 	func login(login: String, password: String, secretKey: String) async throws {
+		callOrder.append(.login)
 		receivedLogin = login
 		receivedPassword = password
 		receivedSecretKey = secretKey
@@ -1534,7 +1601,8 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	}
 
 	func diaries() async throws -> [ThingsDiaryDiary] {
-		try result.get()
+		callOrder.append(.diaries)
+		return try result.get()
 	}
 
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {
