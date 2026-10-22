@@ -215,6 +215,7 @@ private struct LoginView: View {
 					}
 				}
 				.buttonStyle(.borderedProminent)
+				.keyboardShortcut(.defaultAction)
 				.disabled(!model.canSubmit)
 
 				Button("Create Account", action: model.showRegistration)
@@ -255,6 +256,7 @@ private struct RegistrationView: View {
 					}
 				}
 				.buttonStyle(.borderedProminent)
+				.keyboardShortcut(.defaultAction)
 				.disabled(!model.canRegister)
 
 				Button("Back to Sign In", action: model.showLogin)

@@ -90,6 +90,31 @@ func registrationExplainsDuplicateAccount() async {
 }
 
 @MainActor
+@Test("Registration shows the reason from a bad request")
+func registrationShowsBadRequestReason() async {
+	let client = StubAppClient(
+		result: .success([]),
+		registrationResult: .failure(
+			ThingsDiaryClientError.httpStatus(
+				400,
+				body: Data(
+					#"{"error_code":"BAD_REQUEST","error_reason":"password must be at least 8 characters long"}"#.utf8
+				)
+			))
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	model.login = "person@example.test"
+	model.password = "password"
+
+	await model.register()
+
+	#expect(
+		model.screen
+			== .error("Registration failed: password must be at least 8 characters long")
+	)
+}
+
+@MainActor
 @Test("Continuing after registration hides the secret key and loads diaries")
 func registrationContinuesToDiaries() async {
 	let diary = ThingsDiaryDiary(
@@ -149,6 +174,28 @@ func successfulLoginLoadsDiaries() async throws {
 	#expect(await client.receivedLogin == "person@example.test")
 	#expect(await client.receivedPassword == "password")
 	#expect(await client.receivedSecretKey == "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6")
+}
+
+@MainActor
+@Test("Login shows the reason from a bad request")
+func loginShowsBadRequestReason() async {
+	let client = StubAppClient(
+		result: .failure(
+			ThingsDiaryClientError.httpStatus(
+				400,
+				body: Data(
+					#"{"error_code":"BAD_REQUEST","error_reason":"login must be a valid email address"}"#.utf8
+				)
+			))
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+	await model.submit()
+
+	#expect(model.screen == .error("Sign in failed: login must be a valid email address"))
 }
 
 @MainActor

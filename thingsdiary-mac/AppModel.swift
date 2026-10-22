@@ -1635,6 +1635,11 @@ final class ThingsDiaryAppModel {
 				))
 		} catch let ThingsDiaryClientError.httpStatus(status, _) where status == 409 {
 			screen = .error("An account with this email already exists.")
+		} catch let ThingsDiaryClientError.httpStatus(status, body) where status == 400 {
+			let reason = Self.serverErrorReason(from: body)
+			screen = .error(
+				reason.map { "Registration failed: \($0)" }
+					?? "Registration failed. Check the email and password and try again.")
 		} catch let ThingsDiaryClientError.httpStatus(status, body) {
 			let reason = Self.serverErrorReason(from: body)
 			screen = .error(
@@ -1673,6 +1678,11 @@ final class ThingsDiaryAppModel {
 			try await startRealtimeSession()
 			let diaries = try await client.diaries()
 			await routeToDiaries(diaries)
+		} catch let ThingsDiaryClientError.httpStatus(status, body) where status == 400 {
+			let reason = Self.serverErrorReason(from: body)
+			screen = .error(
+				reason.map { "Sign in failed: \($0)" }
+					?? "Sign in failed. Check your credentials and try again.")
 		} catch {
 			screen = .error("Could not sign in or load diaries. Check your credentials and try again.")
 		}
