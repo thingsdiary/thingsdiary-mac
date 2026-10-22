@@ -633,19 +633,14 @@ final class ThingsDiaryAppModel {
 		static func uiTestingAuthentication(scenario rawValue: String) -> ThingsDiaryAppModel {
 			let scenario = UITestingAuthScenario(rawValue: rawValue) ?? .loginSuccess
 			let model = ThingsDiaryAppModel(client: UITestingAppClient(scenario: scenario))
-			model.login = "person@example.test"
-			model.password = "password"
 
 			switch scenario {
 			case .workspace:
 				break
 			case .loginSuccess, .loginBadRequest:
-				model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
-			case .registrationMismatch:
-				model.passwordConfirmation = "different"
-				model.screen = .registration
-			case .registrationSuccess, .registrationDuplicate, .registrationBadRequest:
-				model.passwordConfirmation = "password"
+				break
+			case .registrationSuccess, .registrationMismatch, .registrationDuplicate,
+				.registrationBadRequest:
 				model.screen = .registration
 			}
 
