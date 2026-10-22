@@ -7,6 +7,7 @@ version="${1:-0.0.0}"
 build_dir="${BUILD_DIR:-${project_dir}/.build/release}"
 derived_data="${build_dir}/DerivedData"
 app_path="${derived_data}/Build/Products/Release/thingsdiary.app"
+entitlements_path="${project_dir}/thingsdiary-mac/thingsdiary-mac.entitlements"
 dmg_path="${build_dir}/thingsdiary.dmg"
 staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/thingsdiary-dmg.XXXXXX")"
 
@@ -36,7 +37,13 @@ xcodebuild \
 
 # An ad-hoc signature is not a Developer ID signature. It keeps the bundle
 # internally consistent, but Gatekeeper will still identify the developer as unknown.
-codesign --force --deep --sign - --timestamp=none "${app_path}"
+codesign \
+  --force \
+  --deep \
+  --sign - \
+  --timestamp=none \
+  --entitlements "${entitlements_path}" \
+  "${app_path}"
 
 cp -R "${app_path}" "${staging_dir}/thingsdiary.app"
 ln -s /Applications "${staging_dir}/Applications"
