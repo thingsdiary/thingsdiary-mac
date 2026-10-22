@@ -829,7 +829,6 @@ private struct EntriesView: View {
 				.fixedSize(horizontal: false, vertical: true)
 				.layoutPriority(1)
 				.background(WorkspaceWindowDragArea())
-				.gesture(WindowDragGesture())
 				.overlay(alignment: .trailing) {
 					if sidebarToggleInSidebar {
 						workspaceNavigationControls
@@ -1116,9 +1115,7 @@ private struct EntriesView: View {
 		)
 		.padding(.trailing, workspaceTitlebarHorizontalInset)
 		.background {
-			Color.clear
-				.contentShape(Rectangle())
-				.gesture(WindowDragGesture())
+			WorkspaceWindowDragArea()
 		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.animation(.easeInOut(duration: 0.24), value: currentWorkspaceLayout)
@@ -1175,9 +1172,7 @@ private struct EntriesView: View {
 			)
 
 			ZStack(alignment: .leading) {
-				Color.clear
-					.contentShape(Rectangle())
-					.gesture(WindowDragGesture())
+				WorkspaceWindowDragArea()
 
 				ScrollViewReader { scrollProxy in
 					ScrollView(.horizontal, showsIndicators: false) {

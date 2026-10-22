@@ -65,15 +65,6 @@ private struct EntryCommands: Commands {
 struct ThingsDiaryApp: App {
 	@State private var model: ThingsDiaryAppModel
 
-	private var restorationBehavior: SceneRestorationBehavior {
-		#if DEBUG
-			if ProcessInfo.processInfo.arguments.contains("--ui-testing-auth-scenario") {
-				return .disabled
-			}
-		#endif
-		return .automatic
-	}
-
 	init() {
 		NSWindow.allowsAutomaticWindowTabbing = false
 
@@ -136,7 +127,6 @@ struct ThingsDiaryApp: App {
 			#endif
 		}
 		.windowStyle(.hiddenTitleBar)
-		.restorationBehavior(restorationBehavior)
 		.commands {
 			EntryCommands()
 		}
