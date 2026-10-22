@@ -364,17 +364,54 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 }
 
 #if DEBUG
+	nonisolated private enum UITestingAuthScenario: String {
+		case workspace
+		case loginSuccess = "login-success"
+		case loginBadRequest = "login-bad-request"
+		case registrationSuccess = "registration-success"
+		case registrationDuplicate = "registration-duplicate"
+		case registrationBadRequest = "registration-bad-request"
+	}
+
 	nonisolated private struct UITestingAppClient: ThingsDiaryAppClient {
+		let scenario: UITestingAuthScenario
+
+		init(scenario: UITestingAuthScenario = .workspace) {
+			self.scenario = scenario
+		}
+
 		func register(
 			login: String,
 			password: String,
 			secretKey: String,
 			kdfSalt: String
 		) async throws -> ThingsDiaryPublicKeys {
-			throw DiaryStoreError.unsupportedRemoteEntry
+			switch scenario {
+			case .registrationSuccess:
+				return ThingsDiaryPublicKeys(signing: "signing-public-key", encryption: "encryption-public-key")
+			case .registrationDuplicate:
+				throw ThingsDiaryClientError.httpStatus(409, body: Data())
+			case .registrationBadRequest:
+				throw ThingsDiaryClientError.httpStatus(
+					400,
+					body: Data(
+						#"{"error_code":"BAD_REQUEST","error_reason":"password rejected by server"}"#.utf8
+					)
+				)
+			default:
+				throw DiaryStoreError.unsupportedRemoteEntry
+			}
 		}
 
-		func login(login: String, password: String, secretKey: String) async throws {}
+		func login(login: String, password: String, secretKey: String) async throws {
+			guard scenario == .loginBadRequest else { return }
+			throw ThingsDiaryClientError.httpStatus(
+				400,
+				body: Data(
+					#"{"error_code":"BAD_REQUEST","error_reason":"login rejected by server"}"#.utf8
+				)
+			)
+		}
 
 		func diaries() async throws -> [ThingsDiaryDiary] { [] }
 
@@ -548,6 +585,7 @@ enum ThingsDiaryAppPresentation: Equatable {
 final class ThingsDiaryAppModel {
 	var login = ""
 	var password = ""
+	var passwordConfirmation = ""
 	var secretKey = ""
 	private(set) var screen: ThingsDiaryAppScreen = .login
 	private(set) var topics: [ThingsDiaryTopic] = []
@@ -579,6 +617,7 @@ final class ThingsDiaryAppModel {
 	var canRegister: Bool {
 		isValidEmail(login)
 			&& password.trimmingCharacters(in: .whitespacesAndNewlines).count >= 8
+			&& password == passwordConfirmation
 	}
 
 	init(
@@ -590,6 +629,11 @@ final class ThingsDiaryAppModel {
 	}
 
 	#if DEBUG
+		static func uiTestingAuthentication(scenario rawValue: String) -> ThingsDiaryAppModel {
+			let scenario = UITestingAuthScenario(rawValue: rawValue) ?? .loginSuccess
+			return ThingsDiaryAppModel(client: UITestingAppClient(scenario: scenario))
+		}
+
 		static func uiTestingWorkspace(includesDeletedEntry: Bool = true) -> ThingsDiaryAppModel {
 			let now = Date(timeIntervalSince1970: 1_700_000_000)
 			let diary = ThingsDiaryDiary(
@@ -668,12 +712,14 @@ final class ThingsDiaryAppModel {
 
 	func showRegistration() {
 		password = ""
+		passwordConfirmation = ""
 		secretKey = ""
 		screen = .registration
 	}
 
 	func showLogin() {
 		password = ""
+		passwordConfirmation = ""
 		secretKey = ""
 		screen = .login
 	}
@@ -1605,8 +1651,9 @@ final class ThingsDiaryAppModel {
 	func register() async {
 		guard canRegister else {
 			password = ""
+			passwordConfirmation = ""
 			screen = .error(
-				"Enter a valid email and a password with at least 8 characters."
+				"Enter a valid email and matching passwords with at least 8 characters."
 			)
 			return
 		}
@@ -1619,6 +1666,7 @@ final class ThingsDiaryAppModel {
 
 		defer {
 			self.password = ""
+			self.passwordConfirmation = ""
 		}
 
 		do {

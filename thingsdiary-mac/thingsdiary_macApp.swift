@@ -69,6 +69,17 @@ struct ThingsDiaryApp: App {
 		NSWindow.allowsAutomaticWindowTabbing = false
 
 		#if DEBUG
+			let arguments = ProcessInfo.processInfo.arguments
+			if let scenarioFlag = arguments.firstIndex(of: "--ui-testing-auth-scenario"),
+				arguments.indices.contains(scenarioFlag + 1)
+			{
+				_model = State(
+					initialValue: ThingsDiaryAppModel.uiTestingAuthentication(
+						scenario: arguments[scenarioFlag + 1]
+					)
+				)
+				return
+			}
 			if ProcessInfo.processInfo.arguments.contains("--tab-overlap-lab") {
 				_model = State(initialValue: ThingsDiaryAppModel.uiTestingWorkspace())
 				return
@@ -106,9 +117,8 @@ struct ThingsDiaryApp: App {
 					ContentView(model: model)
 						.background(
 							UITestingWindowActivator(
-								isEnabled: ProcessInfo.processInfo.arguments.contains(
-									"--ui-testing-workspace"
-								)
+								isEnabled: ProcessInfo.processInfo.arguments.contains("--ui-testing-workspace")
+									|| ProcessInfo.processInfo.arguments.contains("--ui-testing-auth-scenario")
 							)
 						)
 				}

@@ -165,6 +165,7 @@ private struct RegistrationCompleteView: View {
 			Section("Save this secret key") {
 				Text(result.secretKey)
 					.textSelection(.enabled)
+					.accessibilityIdentifier("auth.generated-secret-key")
 			}
 
 			Section("Public keys") {
@@ -198,11 +199,14 @@ private struct LoginView: View {
 			TextField("Email", text: $model.login)
 				.textContentType(.emailAddress)
 				.lineLimit(1)
+				.accessibilityIdentifier("auth.email")
 
 			SecureField("Password", text: $model.password)
 				.textContentType(.password)
+				.accessibilityIdentifier("auth.password")
 
 			SecureField("Secret key (TDKV1-…)", text: $model.secretKey)
+				.accessibilityIdentifier("auth.secret-key")
 
 			Text("Your password, secret key, derived keys, and token are kept in memory only.")
 				.font(.caption)
@@ -217,8 +221,10 @@ private struct LoginView: View {
 				.buttonStyle(.borderedProminent)
 				.keyboardShortcut(.defaultAction)
 				.disabled(!model.canSubmit)
+				.accessibilityIdentifier("auth.sign-in")
 
 				Button("Create Account", action: model.showRegistration)
+				.accessibilityIdentifier("auth.show-registration")
 			}
 		}
 		.textFieldStyle(.roundedBorder)
@@ -241,9 +247,21 @@ private struct RegistrationView: View {
 			TextField("Email", text: $model.login)
 				.textContentType(.emailAddress)
 				.lineLimit(1)
+				.accessibilityIdentifier("auth.email")
 
 			SecureField("Password", text: $model.password)
 				.textContentType(.newPassword)
+				.accessibilityIdentifier("auth.password")
+
+			SecureField("Confirm password", text: $model.passwordConfirmation)
+				.textContentType(.newPassword)
+				.accessibilityIdentifier("auth.password-confirmation")
+
+			if !model.passwordConfirmation.isEmpty && model.password != model.passwordConfirmation {
+				Text("Passwords do not match.")
+					.font(.caption)
+					.foregroundStyle(.red)
+			}
 
 			Text("Use a valid email address and at least 8 password characters.")
 				.font(.caption)
@@ -258,8 +276,10 @@ private struct RegistrationView: View {
 				.buttonStyle(.borderedProminent)
 				.keyboardShortcut(.defaultAction)
 				.disabled(!model.canRegister)
+				.accessibilityIdentifier("auth.register")
 
 				Button("Back to Sign In", action: model.showLogin)
+				.accessibilityIdentifier("auth.show-login")
 			}
 		}
 		.textFieldStyle(.roundedBorder)
@@ -3121,6 +3141,7 @@ private struct ErrorView: View {
 			Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
 		} description: {
 			Text(message)
+				.accessibilityIdentifier("auth.error")
 		} actions: {
 			Button("Back to Sign In", action: retry)
 		}

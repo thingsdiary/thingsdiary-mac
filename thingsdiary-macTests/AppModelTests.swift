@@ -37,6 +37,7 @@ func successfulRegistrationShowsKeys() async throws {
 	let model = ThingsDiaryAppModel(client: client)
 	model.login = "new-person@example.test"
 	model.password = "password"
+	model.passwordConfirmation = "password"
 
 	await model.register()
 
@@ -49,6 +50,7 @@ func successfulRegistrationShowsKeys() async throws {
 	#expect(result.publicKeys == publicKeys)
 	#expect(result.secretKey == registeredSecretKey)
 	#expect(model.password.isEmpty)
+	#expect(model.passwordConfirmation.isEmpty)
 }
 
 @MainActor
@@ -58,15 +60,37 @@ func registrationValidatesCredentials() async {
 	let model = ThingsDiaryAppModel(client: client)
 	model.login = "not-an-email"
 	model.password = "short"
+	model.passwordConfirmation = "short"
 
 	await model.register()
 
 	#expect(
 		model.screen
 			== .error(
-				"Enter a valid email and a password with at least 8 characters."
+				"Enter a valid email and matching passwords with at least 8 characters."
 			))
 	#expect(await client.receivedRegistrationSecretKey == nil)
+}
+
+@MainActor
+@Test("Registration is enabled only for a valid email and matching passwords")
+func registrationRequiresMatchingPasswords() {
+	let model = ThingsDiaryAppModel(client: StubAppClient(result: .success([])))
+	model.login = "not-an-email"
+	model.password = "password"
+	model.passwordConfirmation = "password"
+
+	#expect(!model.canRegister)
+
+	model.login = "person@example.test"
+	model.passwordConfirmation = ""
+	#expect(!model.canRegister)
+
+	model.passwordConfirmation = "different"
+	#expect(!model.canRegister)
+
+	model.passwordConfirmation = "password"
+	#expect(model.canRegister)
 }
 
 @MainActor
@@ -83,6 +107,7 @@ func registrationExplainsDuplicateAccount() async {
 	let model = ThingsDiaryAppModel(client: client)
 	model.login = "person@example.test"
 	model.password = "password"
+	model.passwordConfirmation = "password"
 
 	await model.register()
 
@@ -105,6 +130,7 @@ func registrationShowsBadRequestReason() async {
 	let model = ThingsDiaryAppModel(client: client)
 	model.login = "person@example.test"
 	model.password = "password"
+	model.passwordConfirmation = "password"
 
 	await model.register()
 
@@ -129,6 +155,7 @@ func registrationContinuesToDiaries() async {
 	let model = ThingsDiaryAppModel(client: client)
 	model.login = "new-person@example.test"
 	model.password = "password"
+	model.passwordConfirmation = "password"
 	await model.register()
 
 	await model.continueAfterRegistration()
@@ -240,6 +267,7 @@ func registrationConnectsBeforeLoadingDiaries() async {
 	let model = ThingsDiaryAppModel(client: client)
 	model.login = "new-person@example.test"
 	model.password = "password"
+	model.passwordConfirmation = "password"
 
 	await model.register()
 	await model.continueAfterRegistration()
