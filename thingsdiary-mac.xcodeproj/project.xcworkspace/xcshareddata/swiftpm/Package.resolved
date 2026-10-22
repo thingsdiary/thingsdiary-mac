@@ -1,5 +1,5 @@
 {
-  "originHash" : "b003180f5766c719bae91a39ad9ac600a3df2ee54af9a1f59dcc48a489c6cbfc",
+  "originHash" : "c0b37107aab42b713a0b90d58c6236943a7f65e2d6191ffb45944e1ff8ba9e6d",
   "pins" : [
     {
       "identity" : "centrifuge-swift",
@@ -8,6 +8,14 @@
       "state" : {
         "revision" : "072d41b6a8745057116747778e8bd40cc0c8dcab",
         "version" : "0.11.0"
+      }
+    },
+    {
+      "identity" : "client-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/thingsdiary/client-swift.git",
+      "state" : {
+        "revision" : "1f39eda8c2f60117015cf2e943673843fdf98f42"
       }
     },
     {

@@ -204,7 +204,7 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2D9E84A5307D31C000885CFA /* Products */;
 			packageReferences = (
-				A10000000000000000000002 /* XCLocalSwiftPackageReference "../client-swift" */,
+				A10000000000000000000002 /* XCRemoteSwiftPackageReference "client-swift" */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -579,16 +579,21 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		A10000000000000000000002 /* XCLocalSwiftPackageReference "../client-swift" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = "../client-swift";
+/* Begin XCRemoteSwiftPackageReference section */
+		A10000000000000000000002 /* XCRemoteSwiftPackageReference "client-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/thingsdiary/client-swift.git";
+			requirement = {
+				kind = revision;
+				revision = 1f39eda8c2f60117015cf2e943673843fdf98f42;
+			};
 		};
-/* End XCLocalSwiftPackageReference section */
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000003 /* ThingsDiaryClient */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000002 /* XCRemoteSwiftPackageReference "client-swift" */;
 			productName = ThingsDiaryClient;
 		};
 /* End XCSwiftPackageProductDependency section */
