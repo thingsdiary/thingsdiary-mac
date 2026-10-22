@@ -31,6 +31,10 @@ struct SelectPreviousTabActionKey: FocusedValueKey {
 	typealias Value = () -> Void
 }
 
+struct LogoutActionKey: FocusedValueKey {
+	typealias Value = () -> Void
+}
+
 extension FocusedValues {
 	var entrySaveAction: EntrySaveActionKey.Value? {
 		get { self[EntrySaveActionKey.self] }
@@ -60,6 +64,11 @@ extension FocusedValues {
 	var selectPreviousTabAction: SelectPreviousTabActionKey.Value? {
 		get { self[SelectPreviousTabActionKey.self] }
 		set { self[SelectPreviousTabActionKey.self] = newValue }
+	}
+
+	var logoutAction: LogoutActionKey.Value? {
+		get { self[LogoutActionKey.self] }
+		set { self[LogoutActionKey.self] = newValue }
 	}
 }
 
@@ -168,6 +177,18 @@ private struct EntryCommands: Commands {
 	}
 }
 
+private struct AuthenticationCommands: Commands {
+	@FocusedValue(\.logoutAction) private var logout
+
+	var body: some Commands {
+		CommandGroup(after: .appSettings) {
+			if let logout {
+				Button("Logout", action: logout)
+			}
+		}
+	}
+}
+
 @main
 struct ThingsDiaryApp: App {
 	@State private var model: ThingsDiaryAppModel
@@ -235,6 +256,7 @@ struct ThingsDiaryApp: App {
 		}
 		.windowStyle(.hiddenTitleBar)
 		.commands {
+			AuthenticationCommands()
 			EntryCommands()
 		}
 	}

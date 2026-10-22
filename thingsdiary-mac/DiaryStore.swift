@@ -194,6 +194,18 @@ actor DiaryStore {
 		)
 	}
 
+	func clear() throws {
+		activeSynchronization?.task.cancel()
+		activeSynchronization = nil
+		realtimeEventIDs.removeAll()
+		realtimeEventOrder.removeAll()
+		realtimeRemovalVersions.removeAll()
+		deferredRealtimeEvents.removeAll()
+		let emptyState = StoredState()
+		try persist(emptyState)
+		state = emptyState
+	}
+
 	func applyRealtimeEvent(
 		_ event: ThingsDiaryRealtimeEvent
 	) throws -> DiaryStoreSnapshot? {

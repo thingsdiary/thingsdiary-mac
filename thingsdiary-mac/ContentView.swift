@@ -130,6 +130,30 @@ private struct DiarySwitcherAnchorKey: PreferenceKey {
 	}
 }
 
+private struct AuthenticationSessionModifier: ViewModifier {
+	@Bindable var model: ThingsDiaryAppModel
+
+	private var logoutAction: (() -> Void)? {
+		guard model.isAuthenticated else { return nil }
+		return model.requestLogoutConfirmation
+	}
+
+	func body(content: Content) -> some View {
+		content
+			.alert("Log out of thingsdiary?", isPresented: $model.isLogoutConfirmationPresented) {
+				Button("Cancel", role: .cancel) {}
+				Button("Logout", role: .destructive) {
+					Task {
+						await model.logout()
+					}
+				}
+			} message: {
+				Text("Local diary data and the current session will be cleared from this Mac.")
+			}
+			.focusedSceneValue(\.logoutAction, logoutAction)
+	}
+}
+
 struct ContentView: View {
 	@Bindable var model: ThingsDiaryAppModel
 
@@ -178,6 +202,7 @@ struct ContentView: View {
 				EmptyView()
 			}
 		}
+		.modifier(AuthenticationSessionModifier(model: model))
 	}
 }
 

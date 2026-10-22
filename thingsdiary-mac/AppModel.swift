@@ -731,6 +731,8 @@ final class ThingsDiaryAppModel {
 	private(set) var entryDraftIDsHiddenFromList: Set<String> = []
 	private(set) var entryPendingCreationIDs: Set<String> = []
 	private(set) var templateDraftIDs: Set<String> = []
+	private(set) var isAuthenticated = false
+	var isLogoutConfirmationPresented = false
 
 	var isCreatingDiary: Bool { presentation == .diaryCreation }
 	var availableDiaries: [ThingsDiaryDiary] { loadedDiaries }
@@ -847,6 +849,7 @@ final class ThingsDiaryAppModel {
 				version: 1
 			)
 			let model = ThingsDiaryAppModel(client: UITestingAppClient())
+			model.isAuthenticated = true
 			model.loadedDiaries = [diary]
 			model.topics = [topic, secondTopic]
 			model.screen = .entries(
@@ -871,6 +874,41 @@ final class ThingsDiaryAppModel {
 		screen = .login
 	}
 
+	func requestLogoutConfirmation() {
+		guard isAuthenticated else { return }
+		isLogoutConfirmationPresented = true
+	}
+
+	func logout() async {
+		guard isAuthenticated else { return }
+		isAuthenticated = false
+		isLogoutConfirmationPresented = false
+		diarySelectionID = nil
+
+		await realtimeCoordinator?.stop()
+		realtimeCoordinator = nil
+		try? await store?.clear()
+
+		login = ""
+		password = ""
+		passwordConfirmation = ""
+		secretKey = ""
+		topics = []
+		templates = []
+		presentation = .none
+		creationReturnPresentation = nil
+		diaryCreationError = nil
+		diaryEditRequestID = nil
+		entryDraftIDs = []
+		entryDraftIDsHiddenFromList = []
+		entryPendingCreationIDs = []
+		templateDraftIDs = []
+		loadedDiaries = []
+		deferredRealtimeUpdates = []
+		isDrainingRealtimeUpdates = false
+		screen = .login
+	}
+
 	func continueAfterRegistration() async {
 		guard case .registrationComplete = screen else {
 			return
@@ -879,6 +917,7 @@ final class ThingsDiaryAppModel {
 		do {
 			try await startRealtimeSession()
 			let diaries = try await client.diaries()
+			isAuthenticated = true
 			await routeToDiaries(diaries)
 		} catch {
 			screen = .error("Account created, but diaries could not be loaded. Sign in to try again.")
@@ -1875,6 +1914,7 @@ final class ThingsDiaryAppModel {
 			)
 			try await startRealtimeSession()
 			let diaries = try await client.diaries()
+			isAuthenticated = true
 			await routeToDiaries(diaries)
 		} catch let ThingsDiaryClientError.httpStatus(status, body) where status == 400 {
 			let reason = Self.serverErrorReason(from: body)

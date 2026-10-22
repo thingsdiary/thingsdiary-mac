@@ -283,6 +283,35 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(app.windows.count, initialWindowCount + 1)
 	}
 
+	func testLogoutRequiresConfirmationAndReturnsToSignIn() {
+		let app = launchWorkspace()
+
+		app.menuBars.menuBarItems["thingsdiary"].click()
+		let logout = app.menuItems["Logout"]
+		XCTAssertTrue(logout.waitForExistence(timeout: 2))
+		logout.click()
+
+		let alert = app.sheets.firstMatch
+		XCTAssertTrue(alert.waitForExistence(timeout: 2))
+		XCTAssertTrue(alert.staticTexts["Log out of thingsdiary?"].exists)
+		XCTAssertTrue(
+			alert.staticTexts["Local diary data and the current session will be cleared from this Mac."].exists)
+		alert.buttons["Cancel"].click()
+		XCTAssertTrue(alert.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["entry.fixture-entry"].exists)
+
+		app.menuBars.menuBarItems["thingsdiary"].click()
+		app.menuItems["Logout"].click()
+		let confirmation = app.sheets.firstMatch
+		XCTAssertTrue(confirmation.waitForExistence(timeout: 2))
+		XCTAssertTrue(confirmation.staticTexts["Log out of thingsdiary?"].exists)
+		confirmation.buttons["Logout"].click()
+
+		XCTAssertTrue(app.textFields["auth.email"].waitForExistence(timeout: 2))
+		app.menuBars.menuBarItems["thingsdiary"].click()
+		XCTAssertFalse(app.menuItems["Logout"].exists)
+	}
+
 	func testEntryListHeaderAndRowsUseSeparateContainers() {
 		let app = launchWorkspace()
 		let header = app.descendants(matching: .any)["entry-list.header"].firstMatch

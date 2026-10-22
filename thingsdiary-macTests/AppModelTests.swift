@@ -204,6 +204,66 @@ func successfulLoginLoadsDiaries() async throws {
 }
 
 @MainActor
+@Test("Logout disconnects realtime, clears local data, and returns to sign in")
+func logoutClearsSessionAndLocalData() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-logout-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let diary = ThingsDiaryDiary(
+		id: "diary-1",
+		title: "Personal",
+		description: "Daily notes",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 2),
+		version: 3
+	)
+	let entry = ThingsDiaryEntry(
+		id: "entry-1",
+		diaryID: diary.id,
+		content: "Private note",
+		createdAt: Date(timeIntervalSince1970: 3),
+		updatedAt: Date(timeIntervalSince1970: 4),
+		version: 5
+	)
+	let client = StubAppClient(
+		result: .success([diary]),
+		entriesResult: .success([entry])
+	)
+	let store = try DiaryStore(fileURL: fileURL)
+	let model = ThingsDiaryAppModel(client: client, store: store)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+
+	await model.submit()
+	#expect(model.isAuthenticated)
+	#expect(await store.selectedDiary() == diary)
+	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: entry))
+	#expect(await store.pendingEntryWrites().count == 1)
+
+	model.requestLogoutConfirmation()
+	#expect(model.isLogoutConfirmationPresented)
+	await model.logout()
+
+	#expect(!model.isAuthenticated)
+	#expect(!model.isLogoutConfirmationPresented)
+	#expect(model.screen == .login)
+	#expect(model.login.isEmpty)
+	#expect(model.availableDiaries.isEmpty)
+	#expect(model.topics.isEmpty)
+	#expect(model.templates.isEmpty)
+	#expect(model.presentation == .none)
+	#expect(await client.callOrder == [.login, .connect, .diaries, .disconnect])
+	#expect(await store.selectedDiary() == nil)
+	#expect(await store.entries(diaryID: diary.id).isEmpty)
+	#expect(await store.pendingEntryWrites().isEmpty)
+
+	let reopenedStore = try DiaryStore(fileURL: fileURL)
+	#expect(await reopenedStore.selectedDiary() == nil)
+	#expect(await reopenedStore.entries(diaryID: diary.id).isEmpty)
+}
+
+@MainActor
 @Test("Login shows the reason from a bad request")
 func loginShowsBadRequestReason() async {
 	let client = StubAppClient(
@@ -1661,6 +1721,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		case login
 		case connect
 		case diaries
+		case disconnect
 	}
 
 	let result: Result<[ThingsDiaryDiary], Error>
@@ -1750,6 +1811,10 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	func connect() async throws {
 		callOrder.append(.connect)
 		try connectResult.get()
+	}
+
+	func disconnect() async {
+		callOrder.append(.disconnect)
 	}
 
 	func events() async -> AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error> {
