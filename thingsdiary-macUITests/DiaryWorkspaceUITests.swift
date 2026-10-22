@@ -819,6 +819,253 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(secondTab.value as? String, "Saved")
 	}
 
+	func testCloseCommandOnLastTabLeavesDiaryOverviewOpen() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+
+		app.buttons["entry.fixture-entry"].click()
+		let tab = app.buttons["entry-tab.fixture-entry"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+
+		app.menuBars.menuBarItems["File"].click()
+		let closeTab = app.menuItems["Close Tab"]
+		XCTAssertTrue(closeTab.waitForExistence(timeout: 2))
+		closeTab.click()
+
+		XCTAssertTrue(tab.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(window.exists)
+		XCTAssertTrue(app.descendants(matching: .any)["diary.overview"].waitForExistence(timeout: 2))
+	}
+
+	func testCloseCommandWithoutTabsClosesWindow() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+		XCTAssertTrue(app.descendants(matching: .any)["diary.overview"].waitForExistence(timeout: 2))
+
+		app.menuBars.menuBarItems["File"].click()
+		let closeTab = app.menuItems["Close Tab"]
+		XCTAssertTrue(closeTab.waitForExistence(timeout: 2))
+		XCTAssertFalse(closeTab.isEnabled)
+		let closeWindow = app.menuItems["Close Window"]
+		XCTAssertTrue(closeWindow.waitForExistence(timeout: 2))
+		closeWindow.click()
+
+		XCTAssertTrue(window.waitForNonExistence(timeout: 2))
+	}
+
+	func testCloseWindowCommandClosesWindowWithAnOpenTab() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+		app.buttons["entry.fixture-entry"].click()
+		XCTAssertTrue(app.buttons["entry-tab.fixture-entry"].waitForExistence(timeout: 2))
+
+		app.menuBars.menuBarItems["File"].click()
+		let closeWindow = app.menuItems["Close Window"]
+		XCTAssertTrue(closeWindow.waitForExistence(timeout: 2))
+		closeWindow.click()
+
+		XCTAssertTrue(window.waitForNonExistence(timeout: 2))
+	}
+
+	func testControlTabCyclesForwardAndBackward() {
+		let app = launchWorkspace()
+
+		app.buttons["entry.fixture-entry"].click()
+		let firstTab = app.buttons["entry-tab.fixture-entry"]
+		XCTAssertTrue(firstTab.waitForExistence(timeout: 2))
+		showEntryListIfNeeded(in: app)
+		app.buttons["entry.fixture-entry"].click()
+		XCTAssertTrue(firstTab.waitForValue("Saved", timeout: 2))
+		showEntryListIfNeeded(in: app)
+		app.buttons["entry.fixture-entry-2"].click()
+		let secondTab = app.buttons["entry-tab.fixture-entry-2"]
+		XCTAssertTrue(secondTab.waitForExistence(timeout: 2))
+		showEntryListIfNeeded(in: app)
+		app.buttons["entry.fixture-entry-2"].click()
+		XCTAssertTrue(secondTab.waitForValue("Saved", timeout: 2))
+
+		XCTAssertTrue(firstTab.exists)
+		XCTAssertTrue(secondTab.exists)
+
+		let editor = app.textViews["entry.editor"]
+		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))
+
+		app.menuBars.menuBarItems["Tabs"].click()
+		app.menuItems["Next Tab"].click()
+		XCTAssertTrue(
+			editor.waitForValue(
+				"Fixture Entry\nA useful preview for UI testing.",
+				timeout: 2
+			)
+		)
+
+		app.menuBars.menuBarItems["Tabs"].click()
+		app.menuItems["Previous Tab"].click()
+		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))
+	}
+
+	func testTabCycleShortcutsDoNothingWithZeroOrOneTab() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+		let entryTabs = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@",
+				"entry-tab.",
+				"entry-tab.close."
+			)
+		)
+
+		XCTAssertEqual(entryTabs.count, 0)
+		window.typeKey(.tab, modifierFlags: .control)
+		window.typeKey(.tab, modifierFlags: .shift)
+		XCTAssertEqual(entryTabs.count, 0)
+
+		app.buttons["entry.fixture-entry"].doubleClick()
+		let editor = app.textViews["entry.editor"]
+		let content = "Fixture Entry\nA useful preview for UI testing."
+		XCTAssertTrue(editor.waitForValue(content, timeout: 2))
+		XCTAssertEqual(entryTabs.count, 1)
+
+		editor.typeKey(.tab, modifierFlags: .control)
+		editor.typeKey(.tab, modifierFlags: .shift)
+		XCTAssertEqual(editor.value as? String, content)
+		XCTAssertEqual(entryTabs.count, 1)
+	}
+
+	func testKeyboardTabWorkflowCreatesCyclesAndClosesWindow() {
+		let app = launchWorkspace()
+		let window = workspace(in: app)
+		app.buttons["entry.fixture-entry"].click()
+		let firstTab = app.buttons["entry-tab.fixture-entry"]
+		XCTAssertTrue(firstTab.waitForExistence(timeout: 2))
+		showEntryListIfNeeded(in: app)
+		app.buttons["entry.fixture-entry"].click()
+		XCTAssertTrue(firstTab.waitForValue("Saved", timeout: 2))
+		showEntryListIfNeeded(in: app)
+		app.buttons["entry.fixture-entry-2"].click()
+		let secondTab = app.buttons["entry-tab.fixture-entry-2"]
+		XCTAssertTrue(secondTab.waitForExistence(timeout: 2))
+		showEntryListIfNeeded(in: app)
+		app.buttons["entry.fixture-entry-2"].click()
+		XCTAssertTrue(secondTab.waitForValue("Saved", timeout: 2))
+		let editor = app.textViews["entry.editor"]
+		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))
+
+		app.menuBars.menuBarItems["Tabs"].click()
+		app.menuItems["Previous Tab"].click()
+		XCTAssertTrue(
+			editor.waitForValue("Fixture Entry\nA useful preview for UI testing.", timeout: 2)
+		)
+		app.menuBars.menuBarItems["Tabs"].click()
+		app.menuItems["Next Tab"].click()
+		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["Close Tab"].click()
+		XCTAssertTrue(secondTab.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(
+			editor.waitForValue("Fixture Entry\nA useful preview for UI testing.", timeout: 2)
+		)
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["Close Tab"].click()
+		XCTAssertTrue(firstTab.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(app.descendants(matching: .any)["diary.overview"].waitForExistence(timeout: 2))
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["Close Window"].click()
+		XCTAssertTrue(window.waitForNonExistence(timeout: 2))
+	}
+
+	func testSaveAndSaveAllAcrossFourEditedTabs() {
+		let app = launchWorkspace()
+		var tabIDs: [String] = []
+
+		for index in 1...4 {
+			app.menuBars.menuBarItems["File"].click()
+			app.menuItems["New Entry"].click()
+			let untitledTab = app.buttons.matching(
+				NSPredicate(
+					format: "identifier BEGINSWITH %@ AND label == %@",
+					"entry-tab.",
+					"Untitled"
+				)
+			).firstMatch
+			XCTAssertTrue(untitledTab.waitForExistence(timeout: 2))
+			let tabID = untitledTab.identifier
+			XCTAssertFalse(tabIDs.contains(tabID))
+			let currentEditor = app.textViews["entry.editor"].firstMatch
+			XCTAssertTrue(currentEditor.waitForValue("", timeout: 2))
+			typeText("Edited tab \(index)", into: currentEditor)
+			XCTAssertTrue(
+				app.buttons[tabID].firstMatch.waitForValue("Unsaved changes", timeout: 2)
+			)
+			tabIDs.append(tabID)
+		}
+
+		app.buttons[tabIDs[3]].firstMatch.click()
+		app.menuBars.menuBarItems["File"].click()
+		let activeSave = app.menuItems["Save"]
+		XCTAssertTrue(activeSave.isEnabled)
+		activeSave.click()
+		XCTAssertTrue(app.buttons[tabIDs[3]].firstMatch.waitForValue("Saved", timeout: 5))
+		for tabID in tabIDs.prefix(3) {
+			XCTAssertEqual(app.buttons[tabID].firstMatch.value as? String, "Unsaved changes")
+		}
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["Save All"].click()
+		for tabID in tabIDs {
+			XCTAssertTrue(app.buttons[tabID].firstMatch.waitForValue("Saved", timeout: 3))
+		}
+	}
+
+	func testFileMenuCreatesEntryBookmarkAndTemplateInTheirSections() {
+		let app = launchWorkspace()
+		let window = workspace(in: app)
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["New Entry"].click()
+		let entryTab = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(entryTab.waitForExistence(timeout: 2))
+		let entryID = String(entryTab.identifier.dropFirst("entry-tab.".count))
+		XCTAssertEqual(window.title, "Entries")
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["New Bookmark"].click()
+		XCTAssertEqual(window.title, "Bookmarks")
+		let bookmarkTab = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@ AND identifier != %@",
+				"entry-tab.",
+				"Untitled",
+				entryTab.identifier
+			)
+		).firstMatch
+		XCTAssertTrue(bookmarkTab.waitForExistence(timeout: 2))
+		let bookmarkID = String(bookmarkTab.identifier.dropFirst("entry-tab.".count))
+		XCTAssertNotEqual(bookmarkID, entryID)
+
+		app.menuBars.menuBarItems["File"].click()
+		app.menuItems["New Template"].click()
+		let templateTab = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"template-tab.",
+				"Untitled Template"
+			)
+		).firstMatch
+		XCTAssertTrue(templateTab.waitForExistence(timeout: 2))
+		XCTAssertEqual(window.title, "Templates")
+		XCTAssertTrue(app.textViews["template.editor"].waitForExistence(timeout: 2))
+	}
+
 	func testEntryTabActivatesWhenClickingOutsideItsText() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].doubleClick()

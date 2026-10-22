@@ -5,10 +5,61 @@ struct EntrySaveActionKey: FocusedValueKey {
 	typealias Value = () -> Void
 }
 
+struct EntrySaveAllActionKey: FocusedValueKey {
+	typealias Value = () -> Void
+}
+
+struct EntryCloseActionKey: FocusedValueKey {
+	typealias Value = () -> Void
+}
+
+struct EntryCreationActions {
+	let newEntry: () -> Void
+	let newBookmark: () -> Void
+	let newTemplate: () -> Void
+}
+
+struct EntryCreateActionKey: FocusedValueKey {
+	typealias Value = EntryCreationActions
+}
+
+struct SelectNextTabActionKey: FocusedValueKey {
+	typealias Value = () -> Void
+}
+
+struct SelectPreviousTabActionKey: FocusedValueKey {
+	typealias Value = () -> Void
+}
+
 extension FocusedValues {
 	var entrySaveAction: EntrySaveActionKey.Value? {
 		get { self[EntrySaveActionKey.self] }
 		set { self[EntrySaveActionKey.self] = newValue }
+	}
+
+	var entrySaveAllAction: EntrySaveAllActionKey.Value? {
+		get { self[EntrySaveAllActionKey.self] }
+		set { self[EntrySaveAllActionKey.self] = newValue }
+	}
+
+	var entryCloseAction: EntryCloseActionKey.Value? {
+		get { self[EntryCloseActionKey.self] }
+		set { self[EntryCloseActionKey.self] = newValue }
+	}
+
+	var entryCreateAction: EntryCreateActionKey.Value? {
+		get { self[EntryCreateActionKey.self] }
+		set { self[EntryCreateActionKey.self] = newValue }
+	}
+
+	var selectNextTabAction: SelectNextTabActionKey.Value? {
+		get { self[SelectNextTabActionKey.self] }
+		set { self[SelectNextTabActionKey.self] = newValue }
+	}
+
+	var selectPreviousTabAction: SelectPreviousTabActionKey.Value? {
+		get { self[SelectPreviousTabActionKey.self] }
+		set { self[SelectPreviousTabActionKey.self] = newValue }
 	}
 }
 
@@ -49,14 +100,70 @@ private struct UITestingWindowActivator: NSViewRepresentable {
 
 private struct EntryCommands: Commands {
 	@FocusedValue(\.entrySaveAction) private var save
+	@FocusedValue(\.entrySaveAllAction) private var saveAll
+	@FocusedValue(\.entryCloseAction) private var close
+	@FocusedValue(\.entryCreateAction) private var creationActions
+	@FocusedValue(\.selectNextTabAction) private var selectNextTab
+	@FocusedValue(\.selectPreviousTabAction) private var selectPreviousTab
 
 	var body: some Commands {
+		CommandGroup(after: .newItem) {
+			Button("New Entry") {
+				creationActions?.newEntry()
+			}
+			.disabled(creationActions == nil)
+			.keyboardShortcut("n", modifiers: .command)
+
+			Button("New Bookmark") {
+				creationActions?.newBookmark()
+			}
+			.disabled(creationActions == nil)
+
+			Button("New Template") {
+				creationActions?.newTemplate()
+			}
+			.disabled(creationActions == nil)
+		}
+
+		CommandMenu("Tabs") {
+			Button("Next Tab") {
+				selectNextTab?()
+			}
+			.disabled(selectNextTab == nil)
+			.keyboardShortcut(.tab, modifiers: .control)
+
+			Button("Previous Tab") {
+				selectPreviousTab?()
+			}
+			.disabled(selectPreviousTab == nil)
+			.keyboardShortcut(.tab, modifiers: .shift)
+		}
+
 		CommandGroup(replacing: .saveItem) {
 			Button("Save") {
 				save?()
 			}
 			.disabled(save == nil)
 			.keyboardShortcut("s", modifiers: .command)
+
+			Button("Save All") {
+				saveAll?()
+			}
+			.disabled(saveAll == nil)
+			.keyboardShortcut("s", modifiers: [.command, .option])
+		}
+
+		CommandGroup(after: .saveItem) {
+			Button("Close Tab") {
+				close?()
+			}
+			.disabled(close == nil)
+			.keyboardShortcut("w", modifiers: .command)
+
+			Button("Close Window") {
+				NSApp.keyWindow?.performClose(nil)
+			}
+			.keyboardShortcut("w", modifiers: [.command, .shift])
 		}
 	}
 }

@@ -14,8 +14,11 @@ private struct MenuMaterialBackground: NSViewRepresentable {
 	func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
-private struct EntrySaveShortcutMonitor: NSViewRepresentable {
+private struct WorkspaceShortcutMonitor: NSViewRepresentable {
 	let save: () -> Bool
+	let create: () -> Bool
+	let selectNextTab: () -> Bool
+	let selectPreviousTab: () -> Bool
 
 	final class MonitorView: NSView {
 		var windowDidChange: ((NSWindow?) -> Void)?
@@ -29,10 +32,21 @@ private struct EntrySaveShortcutMonitor: NSViewRepresentable {
 	final class Coordinator {
 		weak var window: NSWindow?
 		var save: () -> Bool
+		var create: () -> Bool
+		var selectNextTab: () -> Bool
+		var selectPreviousTab: () -> Bool
 		private var monitor: Any?
 
-		init(save: @escaping () -> Bool) {
+		init(
+			save: @escaping () -> Bool,
+			create: @escaping () -> Bool,
+			selectNextTab: @escaping () -> Bool,
+			selectPreviousTab: @escaping () -> Bool
+		) {
 			self.save = save
+			self.create = create
+			self.selectNextTab = selectNextTab
+			self.selectPreviousTab = selectPreviousTab
 		}
 
 		func install() {
@@ -42,11 +56,14 @@ private struct EntrySaveShortcutMonitor: NSViewRepresentable {
 				let modifiers = event.modifierFlags.intersection([
 					.command, .control, .option, .shift,
 				])
-				guard
-					event.keyCode == 1,
-					modifiers == .command || modifiers == .control
-				else { return event }
-				return save() ? nil : event
+				let handled = switch (event.keyCode, modifiers) {
+				case (1, .command), (1, .control): save()
+				case (45, .command), (17, .command): create()
+				case (48, .control): selectNextTab()
+				case (48, .shift): selectPreviousTab()
+				default: false
+				}
+				return handled ? nil : event
 			}
 		}
 
@@ -62,7 +79,12 @@ private struct EntrySaveShortcutMonitor: NSViewRepresentable {
 	}
 
 	func makeCoordinator() -> Coordinator {
-		Coordinator(save: save)
+		Coordinator(
+			save: save,
+			create: create,
+			selectNextTab: selectNextTab,
+			selectPreviousTab: selectPreviousTab
+		)
 	}
 
 	func makeNSView(context: Context) -> NSView {
@@ -76,6 +98,9 @@ private struct EntrySaveShortcutMonitor: NSViewRepresentable {
 
 	func updateNSView(_ view: NSView, context: Context) {
 		context.coordinator.save = save
+		context.coordinator.create = create
+		context.coordinator.selectNextTab = selectNextTab
+		context.coordinator.selectPreviousTab = selectPreviousTab
 	}
 
 	static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
@@ -761,16 +786,60 @@ private struct EntriesView: View {
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.animation(.easeInOut(duration: 0.24), value: isEntryListCollapsed)
 		.background {
-			EntrySaveShortcutMonitor {
-				guard tabs.activeTabID != nil else { return false }
-				saveActiveTab()
-				return true
-			}
+			WorkspaceShortcutMonitor(
+				save: {
+					guard tabs.activeTabID != nil else { return false }
+					saveActiveTab()
+					return true
+				},
+				create: {
+					createDocumentForActiveSection()
+					return true
+				},
+				selectNextTab: {
+					guard tabs.openTabIDs.count > 1 else { return true }
+					selectBrowserTab(offset: 1)
+					return true
+				},
+				selectPreviousTab: {
+					guard tabs.openTabIDs.count > 1 else { return true }
+					selectBrowserTab(offset: -1)
+					return true
+				}
+			)
 			.frame(width: 0, height: 0)
 		}
 		.focusedSceneValue(
 			\.entrySaveAction,
 			tabs.activeTabID != nil ? { saveActiveTab() } : nil
+		)
+		.focusedSceneValue(
+			\.entrySaveAllAction,
+			tabs.openTabIDs.isEmpty ? nil : { saveAllOpenTabs() }
+		)
+		.focusedSceneValue(
+			\.entryCreateAction,
+			EntryCreationActions(
+				newEntry: createEntryFromMenu,
+				newBookmark: createBookmarkFromMenu,
+				newTemplate: createTemplate
+			)
+		)
+		.focusedSceneValue(
+			\.selectNextTabAction,
+			tabs.openTabIDs.count > 1 ? { selectBrowserTab(offset: 1) } : nil
+		)
+		.focusedSceneValue(
+			\.selectPreviousTabAction,
+			tabs.openTabIDs.count > 1 ? { selectBrowserTab(offset: -1) } : nil
+		)
+		.focusedSceneValue(
+			\.entryCloseAction,
+			tabs.activeTabID != nil
+				? {
+					guard let activeTabID = tabs.activeTabID else { return }
+					closeBrowserTab(activeTabID)
+				} : nil
 		)
 		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
 			GeometryReader { proxy in
@@ -1019,7 +1088,6 @@ private struct EntriesView: View {
 			IconButton(icon: .newEntry, action: beginCreatingEntry)
 				.accessibilityIdentifier("entry.create")
 				.accessibilityLabel("New Entry")
-				.keyboardShortcut("n", modifiers: .command)
 				.help("Create a new entry")
 		}
 	}
@@ -1898,6 +1966,23 @@ private struct EntriesView: View {
 		beginEntryDraft(appearsInList: true)
 	}
 
+	private func createDocumentForActiveSection() {
+		if activeSelection == .templates {
+			createTemplate()
+		} else {
+			beginCreatingEntry()
+		}
+	}
+
+	private func createEntryFromMenu() {
+		beginEntryDraft(appearsInList: true, inheritsSelection: false)
+	}
+
+	private func createBookmarkFromMenu() {
+		selection = .bookmarks
+		beginEntryDraft(appearsInList: true)
+	}
+
 	private func createTemplate() {
 		Task {
 			guard let template = await model.beginTemplateDraft() else { return }
@@ -2010,6 +2095,11 @@ private struct EntriesView: View {
 	private func activateBrowserTab(_ tabID: WorkspaceTabID) {
 		guard tabs.openTabIDs.contains(tabID) else { return }
 		tabs.activeTabID = tabID
+		compactWorkspacePane = .editor
+	}
+
+	private func selectBrowserTab(offset: Int) {
+		tabs.selectTab(offset: offset)
 		compactWorkspacePane = .editor
 	}
 
@@ -2209,6 +2299,17 @@ private struct EntriesView: View {
 		guard canSaveActiveTab, let activeTabID = tabs.activeTabID else { return }
 		Task {
 			_ = await saveTab(activeTabID, submittedContent: tabDraftContent(activeTabID))
+		}
+	}
+
+	private func saveAllOpenTabs() {
+		let submissions = tabs.openTabIDs.map { tabID in
+			(tabID, tabDraftContent(tabID))
+		}
+		Task {
+			for (tabID, submittedContent) in submissions {
+				_ = await saveTab(tabID, submittedContent: submittedContent)
+			}
 		}
 	}
 

@@ -137,6 +137,17 @@ nonisolated struct BrowserTabsState<TabID: Hashable>: Equatable {
 		activeTabID = openTabIDs.indices.contains(index) ? openTabIDs[index] : openTabIDs.last
 	}
 
+	mutating func selectTab(offset: Int) {
+		guard
+			openTabIDs.count > 1,
+			let activeTabID,
+			let activeIndex = openTabIDs.firstIndex(of: activeTabID)
+		else { return }
+		let count = openTabIDs.count
+		let destinationIndex = (activeIndex + offset + count) % count
+		self.activeTabID = openTabIDs[destinationIndex]
+	}
+
 	mutating func togglePin(_ tabID: TabID) {
 		guard openTabIDs.contains(tabID) else { return }
 		promote(tabID)

@@ -336,6 +336,35 @@ func opensEntryTabsOnce() {
 	#expect(tabs.activeTabID == "first")
 }
 
+@Test("Tab selection wraps in both directions")
+func wrapsBrowserTabSelection() {
+	var tabs = BrowserTabsState<String>(
+		openTabIDs: ["first", "second", "third"],
+		activeTabID: "third"
+	)
+
+	tabs.selectTab(offset: 1)
+	#expect(tabs.activeTabID == "first")
+
+	tabs.selectTab(offset: -1)
+	#expect(tabs.activeTabID == "third")
+}
+
+@Test("Tab selection does nothing with fewer than two tabs")
+func ignoresBrowserTabSelectionWithoutAlternatives() {
+	var emptyTabs = BrowserTabsState<String>()
+	emptyTabs.selectTab(offset: 1)
+	#expect(emptyTabs.activeTabID == nil)
+
+	var singleTab = BrowserTabsState<String>(
+		openTabIDs: ["only"],
+		activeTabID: "only"
+	)
+	singleTab.selectTab(offset: 1)
+	singleTab.selectTab(offset: -1)
+	#expect(singleTab.activeTabID == "only")
+}
+
 @Test("Entry previews reuse one tab until the note is opened again")
 func reusesEntryPreviewTab() {
 	var tabs = BrowserTabsState<String>()
