@@ -471,6 +471,26 @@ private struct PendingBrowserTabClose {
 	let title: String
 }
 
+private struct TopicColorOption: Identifiable, Sendable {
+	let id: String
+	let name: String
+	let hex: String
+}
+
+private let topicColorOptions = [
+	TopicColorOption(id: "slate", name: "Slate", hex: "#94A3B8"),
+	TopicColorOption(id: "blue", name: "Blue", hex: "#93C5FD"),
+	TopicColorOption(id: "green", name: "Green", hex: "#86EFAC"),
+	TopicColorOption(id: "lime", name: "Lime", hex: "#A3E635"),
+	TopicColorOption(id: "teal", name: "Teal", hex: "#2DD4BF"),
+	TopicColorOption(id: "yellow", name: "Yellow", hex: "#FCD34D"),
+	TopicColorOption(id: "orange", name: "Orange", hex: "#F4A261"),
+	TopicColorOption(id: "coral", name: "Coral", hex: "#E76F51"),
+	TopicColorOption(id: "gold", name: "Gold", hex: "#E9C46A"),
+	TopicColorOption(id: "mauve", name: "Mauve", hex: "#B5838D"),
+	TopicColorOption(id: "purple", name: "Purple", hex: "#C4B5FD"),
+]
+
 private enum EntryDraftSaveOutcome {
 	case saved
 	case changedWhileSaving
@@ -505,6 +525,7 @@ private struct EntriesView: View {
 	@State private var topicTitle = ""
 	@State private var topicDescription = ""
 	@State private var topicColor = ""
+	@State private var topicColorUpdateInProgressIDs: Set<String> = []
 	@State private var topicEntryPreviewable = true
 	@State private var topicDefaultTemplateID: String?
 	@State private var topicsExpanded = true
@@ -1785,13 +1806,22 @@ private struct EntriesView: View {
 								dropDestination: .topic(topic.id),
 								doubleClick: { beginEditing(topic) }
 							)
-							.contextMenu {
-								Button("Edit", systemImage: "pencil") {
-									beginEditing(topic)
-								}
-								Button("Delete", systemImage: "trash", role: .destructive) {
-									topicPendingDeletion = topic
-								}
+							.overlay {
+								WorkspaceTopicContextMenuArea(
+									colors: topicColorOptions.map { option in
+										WorkspaceTopicColorMenuOption(
+											id: option.id,
+											title: option.name,
+											hex: option.hex,
+											isSelected: topic.color == option.hex
+										)
+									},
+									isColorMenuEnabled: !topicColorUpdateInProgressIDs.contains(topic.id),
+									selectColor: { changeTopicColor(topic, to: $0) },
+									edit: { beginEditing(topic) },
+									delete: { topicPendingDeletion = topic }
+								)
+								.accessibilityHidden(true)
 							}
 						}
 					}
@@ -2915,11 +2945,6 @@ private struct EntriesView: View {
 		return false
 	}
 
-	private let topicColors = [
-		"#94A3B8", "#93C5FD", "#86EFAC", "#A3E635", "#2DD4BF",
-		"#FCD34D", "#F4A261", "#E76F51", "#E9C46A", "#B5838D", "#C4B5FD",
-	]
-
 	private func topicColorValue(_ hex: String) -> Color {
 		Color(topicHex: hex) ?? .secondary
 	}
@@ -2933,7 +2958,7 @@ private struct EntriesView: View {
 	private func beginCreatingTopic() {
 		topicTitle = ""
 		topicDescription = ""
-		topicColor = topicColors[0]
+		topicColor = topicColorOptions[0].hex
 		topicEntryPreviewable = true
 		topicDefaultTemplateID = nil
 		editingTopic = nil
@@ -2952,10 +2977,24 @@ private struct EntriesView: View {
 		editingTopic = topic
 		topicTitle = topic.title
 		topicDescription = topic.description
-		topicColor = topic.color.isEmpty ? topicColors[0] : topic.color
+		topicColor = topic.color.isEmpty ? topicColorOptions[0].hex : topic.color
 		topicEntryPreviewable = topic.entryPreviewable
 		topicDefaultTemplateID = topic.defaultTemplateID
 		showingTopicCreator = true
+	}
+
+	private func changeTopicColor(_ topic: ThingsDiaryTopic, to color: String) {
+		guard topic.color != color, !topicColorUpdateInProgressIDs.contains(topic.id) else { return }
+		topicColorUpdateInProgressIDs.insert(topic.id)
+		Task {
+			await model.updateTopic(
+				topic,
+				title: topic.title,
+				description: topic.description,
+				color: color
+			)
+			topicColorUpdateInProgressIDs.remove(topic.id)
+		}
 	}
 
 	private var topicDeletionMessage: String {
@@ -3012,21 +3051,23 @@ private struct EntriesView: View {
 					.accessibilityIdentifier("topic.entry-previews")
 				LabeledContent("Color") {
 					HStack(spacing: 10) {
-						ForEach(topicColors, id: \.self) { color in
+						ForEach(topicColorOptions) { option in
 							Button {
-								topicColor = color
+								topicColor = option.hex
 							} label: {
 								Circle()
-									.fill(topicColorValue(color))
+									.fill(topicColorValue(option.hex))
 									.frame(width: 20, height: 20)
 									.overlay {
-										if topicColor == color {
+										if topicColor == option.hex {
 											Circle().stroke(.primary, lineWidth: 2)
 										}
 									}
 							}
 							.buttonStyle(.plain)
-							.accessibilityLabel("Topic color \(color)")
+							.accessibilityIdentifier("topic.color.\(option.id)")
+							.accessibilityLabel("Topic color \(option.name)")
+							.accessibilityValue(topicColor == option.hex ? "Selected" : "Not selected")
 						}
 					}
 				}

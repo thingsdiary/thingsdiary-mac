@@ -1582,6 +1582,35 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(title.value as? String, "Work Topic")
 	}
 
+	func testTopicColorCanBeChangedFromContextMenu() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic"]
+
+		topic.rightClick()
+		let colorMenu = app.menuItems["Color"].firstMatch
+		XCTAssertTrue(colorMenu.waitForExistence(timeout: 2))
+		colorMenu.hover()
+		XCTAssertFalse(app.menuItems["None"].exists)
+
+		let green = app.menuItems["Green"].firstMatch
+		XCTAssertTrue(green.waitForExistence(timeout: 2))
+		green.click()
+
+		topic.rightClick()
+		let updatedColorMenu = app.menuItems["Color"].firstMatch
+		XCTAssertTrue(updatedColorMenu.waitForExistence(timeout: 2))
+		let updateFinished = expectation(
+			for: NSPredicate(format: "enabled == true"),
+			evaluatedWith: updatedColorMenu
+		)
+		wait(for: [updateFinished], timeout: 2)
+		updatedColorMenu.hover()
+
+		let selectedGreen = app.menuItems["Green"].firstMatch
+		XCTAssertTrue(selectedGreen.waitForExistence(timeout: 2))
+		XCTAssertFalse(selectedGreen.isEnabled)
+	}
+
 	func testDeletingTopicWithEntriesCanKeepEntries() {
 		let app = launchWorkspace()
 		let topic = app.buttons["sidebar.topic.fixture-topic-2"]

@@ -189,6 +189,131 @@ final class WorkspaceContextMenuAreaView: NSView {
 	}
 }
 
+struct WorkspaceTopicColorMenuOption: Equatable {
+	let id: String
+	let title: String
+	let hex: String
+	let isSelected: Bool
+}
+
+struct WorkspaceTopicContextMenuArea: NSViewRepresentable {
+	let colors: [WorkspaceTopicColorMenuOption]
+	let isColorMenuEnabled: Bool
+	let selectColor: (String) -> Void
+	let edit: () -> Void
+	let delete: () -> Void
+
+	func makeNSView(context: Context) -> WorkspaceTopicContextMenuAreaView {
+		WorkspaceTopicContextMenuAreaView()
+	}
+
+	func updateNSView(_ view: WorkspaceTopicContextMenuAreaView, context: Context) {
+		view.colors = colors
+		view.isColorMenuEnabled = isColorMenuEnabled
+		view.selectColor = selectColor
+		view.edit = edit
+		view.delete = delete
+	}
+}
+
+final class WorkspaceTopicContextMenuAreaView: NSView {
+	var colors: [WorkspaceTopicColorMenuOption] = []
+	var isColorMenuEnabled = true
+	var selectColor: ((String) -> Void)?
+	var edit: (() -> Void)?
+	var delete: (() -> Void)?
+
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		guard let event = NSApplication.shared.currentEvent else { return nil }
+		switch event.type {
+		case .rightMouseDown, .rightMouseUp:
+			return bounds.contains(point) ? self : nil
+		default:
+			return nil
+		}
+	}
+
+	override func rightMouseDown(with event: NSEvent) {
+		let menu = NSMenu()
+		menu.autoenablesItems = false
+
+		let colorItem = NSMenuItem(
+			title: "Color",
+			action: nil,
+			keyEquivalent: ""
+		)
+		colorItem.isEnabled = isColorMenuEnabled
+
+		let colorMenu = NSMenu(title: "Color")
+		colorMenu.autoenablesItems = false
+		for color in colors {
+			let item = NSMenuItem(
+				title: color.title,
+				action: #selector(performColorAction(_:)),
+				keyEquivalent: ""
+			)
+			item.target = self
+			item.representedObject = color.hex
+			item.image = Self.colorCircleImage(hex: color.hex)
+			item.state = color.isSelected ? .on : .off
+			item.isEnabled = isColorMenuEnabled && !color.isSelected
+			colorMenu.addItem(item)
+		}
+		colorItem.submenu = colorMenu
+		menu.addItem(colorItem)
+		menu.addItem(.separator())
+
+		let editItem = NSMenuItem(
+			title: "Edit",
+			action: #selector(performEditAction),
+			keyEquivalent: ""
+		)
+		editItem.target = self
+		menu.addItem(editItem)
+
+		let deleteItem = NSMenuItem(
+			title: "Delete",
+			action: #selector(performDeleteAction),
+			keyEquivalent: ""
+		)
+		deleteItem.target = self
+		menu.addItem(deleteItem)
+
+		NSMenu.popUpContextMenu(menu, with: event, for: self)
+	}
+
+	@objc private func performColorAction(_ sender: NSMenuItem) {
+		guard let hex = sender.representedObject as? String else { return }
+		selectColor?(hex)
+	}
+
+	@objc private func performEditAction() {
+		edit?()
+	}
+
+	@objc private func performDeleteAction() {
+		delete?()
+	}
+
+	private static func colorCircleImage(hex: String) -> NSImage? {
+		let value = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+		guard value.count == 6, let number = UInt64(value, radix: 16) else { return nil }
+		let color = NSColor(
+			srgbRed: CGFloat((number >> 16) & 0xff) / 255,
+			green: CGFloat((number >> 8) & 0xff) / 255,
+			blue: CGFloat(number & 0xff) / 255,
+			alpha: 1
+		)
+		let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
+			color.setFill()
+			NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+			return true
+		}
+		image.isTemplate = false
+		return image
+	}
+}
+
 struct WorkspaceHorizontalResizeHandle: NSViewRepresentable {
 	let accessibilityIdentifier: String
 	let onChanged: (CGFloat) -> Void
