@@ -1177,7 +1177,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.buttons["entry.fixture-entry-19"].waitForExistence(timeout: 2))
 
 		topic.rightClick()
-		let delete = app.menuItems["Delete"].firstMatch
+		let delete = app.menuItems.matching(identifier: "performDeleteAction").firstMatch
 		XCTAssertTrue(delete.waitForExistence(timeout: 2))
 		delete.click()
 
@@ -1594,13 +1594,101 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let topic = app.buttons["sidebar.topic.fixture-topic"]
 
 		topic.rightClick()
-		XCTAssertTrue(app.menuItems["Edit"].firstMatch.waitForExistence(timeout: 2))
-		XCTAssertTrue(app.menuItems["Delete"].firstMatch.exists)
-		app.menuItems["Edit"].firstMatch.click()
+		let edit = app.menuItems.matching(identifier: "performEditAction").firstMatch
+		let delete = app.menuItems.matching(identifier: "performDeleteAction").firstMatch
+		XCTAssertTrue(edit.waitForExistence(timeout: 2))
+		XCTAssertTrue(delete.exists)
+		edit.click()
 
 		let title = app.descendants(matching: .any)["topic.title"]
 		XCTAssertTrue(title.waitForExistence(timeout: 2))
 		XCTAssertEqual(title.value as? String, "Work Topic")
+	}
+
+	func testTemplatesContextMenuCreatesTemplate() {
+		let app = launchWorkspace()
+		let templates = app.buttons["sidebar.templates"]
+
+		templates.rightClick()
+		let newTemplate = app.menuItems["New"]
+		XCTAssertTrue(newTemplate.waitForExistence(timeout: 2))
+		newTemplate.click()
+
+		XCTAssertEqual(app.windows.firstMatch.title, "Templates")
+		XCTAssertTrue(app.textViews["template.editor"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["Untitled Template"].firstMatch.exists)
+	}
+
+	func testTopicContextMenuCreatesEntryInTopic() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic"]
+
+		topic.rightClick()
+		let newEntry = app.menuItems.matching(identifier: "performCreateEntryAction").firstMatch
+		XCTAssertTrue(newEntry.waitForExistence(timeout: 2))
+		newEntry.click()
+
+		XCTAssertEqual(app.windows.firstMatch.title, "Work Topic")
+		XCTAssertTrue(app.textViews["entry.editor"].waitForExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["Untitled"].firstMatch.exists)
+	}
+
+	func testTopicContextMenuSelectsAndResetsDefaultTemplate() {
+		let app = launchWorkspace(additionalArguments: ["--ui-testing-template"])
+		let content = "Context menu template"
+		let topic = app.buttons["sidebar.topic.fixture-topic"]
+
+		topic.rightClick()
+		let defaultTemplate = app.menuItems["Default Template"]
+		XCTAssertTrue(defaultTemplate.waitForExistence(timeout: 2))
+		defaultTemplate.hover()
+		let initialNone = app.menuItems["None"]
+		XCTAssertTrue(initialNone.waitForExistence(timeout: 2))
+		XCTAssertFalse(initialNone.isEnabled)
+		let template = app.menuItems[content]
+		XCTAssertTrue(template.waitForExistence(timeout: 2))
+		template.click()
+
+		topic.rightClick()
+		let updatedDefaultTemplate = app.menuItems["Default Template"]
+		XCTAssertTrue(updatedDefaultTemplate.waitForExistence(timeout: 2))
+		updatedDefaultTemplate.hover()
+		let selectedTemplate = app.menuItems[content]
+		XCTAssertTrue(selectedTemplate.waitForExistence(timeout: 2))
+		XCTAssertFalse(selectedTemplate.isEnabled)
+		let reset = app.menuItems["None"]
+		XCTAssertTrue(reset.isEnabled)
+		reset.click()
+
+		topic.rightClick()
+		let resetDefaultTemplate = app.menuItems["Default Template"]
+		XCTAssertTrue(resetDefaultTemplate.waitForExistence(timeout: 2))
+		resetDefaultTemplate.hover()
+		let resetNone = app.menuItems["None"]
+		XCTAssertTrue(resetNone.waitForExistence(timeout: 2))
+		XCTAssertFalse(resetNone.isEnabled)
+	}
+
+	func testTopicContextMenuHidesAndShowsEntryPreviews() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
+		topic.click()
+		let entry = app.buttons["entry.fixture-entry-19"]
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+		XCTAssertEqual(entry.frame.height, 60, accuracy: 1)
+
+		topic.rightClick()
+		let hidePreviews = app.menuItems["Hide Previews"]
+		XCTAssertTrue(hidePreviews.waitForExistence(timeout: 2))
+		hidePreviews.click()
+
+		XCTAssertEqual(entry.frame.height, 44, accuracy: 1)
+		topic.rightClick()
+		let showPreviews = app.menuItems["Show Previews"]
+		XCTAssertTrue(showPreviews.waitForExistence(timeout: 2))
+		showPreviews.click()
+
+		XCTAssertEqual(entry.frame.height, 60, accuracy: 1)
 	}
 
 	func testTopicColorCanBeChangedFromContextMenu() {
@@ -1611,7 +1699,6 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let colorMenu = app.menuItems["Color"].firstMatch
 		XCTAssertTrue(colorMenu.waitForExistence(timeout: 2))
 		colorMenu.hover()
-		XCTAssertFalse(app.menuItems["None"].exists)
 
 		let green = app.menuItems["Green"].firstMatch
 		XCTAssertTrue(green.waitForExistence(timeout: 2))
@@ -1640,7 +1727,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		topic.click()
 		XCTAssertTrue(linkedEntry.waitForExistence(timeout: 2))
 		topic.rightClick()
-		app.menuItems["Delete"].firstMatch.click()
+		app.menuItems.matching(identifier: "performDeleteAction").firstMatch.click()
 		XCTAssertTrue(app.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
 		XCTAssertTrue(
 			app.staticTexts[
@@ -1662,7 +1749,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		topic.click()
 		XCTAssertTrue(deletedEntry.waitForExistence(timeout: 2))
 		topic.rightClick()
-		app.menuItems["Delete"].firstMatch.click()
+		app.menuItems.matching(identifier: "performDeleteAction").firstMatch.click()
 		XCTAssertTrue(app.staticTexts["Delete Topic?"].waitForExistence(timeout: 2))
 		app.sheets.firstMatch.buttons["Delete Entries"].click()
 
@@ -1676,7 +1763,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let topic = app.buttons["sidebar.topic.fixture-topic"]
 
 		topic.rightClick()
-		app.menuItems["Delete"].firstMatch.click()
+		app.menuItems.matching(identifier: "performDeleteAction").firstMatch.click()
 		XCTAssertTrue(
 			app.staticTexts[
 				"This topic has no entries. Only the topic will be deleted."
@@ -1691,7 +1778,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(topic.waitForExistence(timeout: 2))
 
 		topic.rightClick()
-		app.menuItems["Delete"].firstMatch.click()
+		app.menuItems.matching(identifier: "performDeleteAction").firstMatch.click()
 		app.sheets.firstMatch.buttons["Delete Topic"].click()
 		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
 	}

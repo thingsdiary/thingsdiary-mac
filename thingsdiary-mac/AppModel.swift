@@ -783,7 +783,10 @@ final class ThingsDiaryAppModel {
 			return model
 		}
 
-		static func uiTestingWorkspace(includesDeletedEntry: Bool = true) -> ThingsDiaryAppModel {
+		static func uiTestingWorkspace(
+			includesDeletedEntry: Bool = true,
+			includesTemplate: Bool = false
+		) -> ThingsDiaryAppModel {
 			let now = Date(timeIntervalSince1970: 1_700_000_000)
 			let diary = ThingsDiaryDiary(
 				id: "fixture-diary",
@@ -852,6 +855,18 @@ final class ThingsDiaryAppModel {
 			model.isAuthenticated = true
 			model.loadedDiaries = [diary]
 			model.topics = [topic, secondTopic]
+			if includesTemplate {
+				model.templates = [
+					ThingsDiaryTemplate(
+						id: "fixture-template",
+						diaryID: diary.id,
+						content: "Context menu template",
+						createdAt: now,
+						updatedAt: now,
+						version: 1
+					)
+				]
+			}
 			model.screen = .entries(
 				diary: diary,
 				entries: entries + [archivedEntry] + (includesDeletedEntry ? [deletedEntry] : [])

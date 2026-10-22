@@ -133,7 +133,6 @@ final class WorkspaceWindowDragAreaView: NSView {
 
 struct WorkspaceContextMenuArea: NSViewRepresentable {
 	let title: String
-	let systemImage: String
 	let isEnabled: Bool
 	let primaryAction: () -> Void
 	let menuAction: () -> Void
@@ -144,7 +143,6 @@ struct WorkspaceContextMenuArea: NSViewRepresentable {
 
 	func updateNSView(_ nsView: WorkspaceContextMenuAreaView, context: Context) {
 		nsView.title = title
-		nsView.systemImage = systemImage
 		nsView.isMenuItemEnabled = isEnabled
 		nsView.primaryAction = primaryAction
 		nsView.menuAction = menuAction
@@ -153,7 +151,6 @@ struct WorkspaceContextMenuArea: NSViewRepresentable {
 
 final class WorkspaceContextMenuAreaView: NSView {
 	var title = ""
-	var systemImage = ""
 	var isMenuItemEnabled = false
 	var primaryAction: (() -> Void)?
 	var menuAction: (() -> Void)?
@@ -179,7 +176,6 @@ final class WorkspaceContextMenuAreaView: NSView {
 		)
 		item.target = self
 		item.isEnabled = isMenuItemEnabled
-		item.image = NSImage(systemSymbolName: systemImage, accessibilityDescription: title)
 		menu.addItem(item)
 		NSMenu.popUpContextMenu(menu, with: event, for: self)
 	}
@@ -196,9 +192,21 @@ struct WorkspaceTopicColorMenuOption: Equatable {
 	let isSelected: Bool
 }
 
+struct WorkspaceTopicTemplateMenuOption: Equatable {
+	let id: String
+	let title: String
+	let isSelected: Bool
+}
+
 struct WorkspaceTopicContextMenuArea: NSViewRepresentable {
+	let templates: [WorkspaceTopicTemplateMenuOption]
+	let hasDefaultTemplate: Bool
 	let colors: [WorkspaceTopicColorMenuOption]
-	let isColorMenuEnabled: Bool
+	let showsPreviews: Bool
+	let isUpdateEnabled: Bool
+	let createEntry: () -> Void
+	let selectDefaultTemplate: (String?) -> Void
+	let togglePreviews: () -> Void
 	let selectColor: (String) -> Void
 	let edit: () -> Void
 	let delete: () -> Void
@@ -208,8 +216,14 @@ struct WorkspaceTopicContextMenuArea: NSViewRepresentable {
 	}
 
 	func updateNSView(_ view: WorkspaceTopicContextMenuAreaView, context: Context) {
+		view.templates = templates
+		view.hasDefaultTemplate = hasDefaultTemplate
 		view.colors = colors
-		view.isColorMenuEnabled = isColorMenuEnabled
+		view.showsPreviews = showsPreviews
+		view.isUpdateEnabled = isUpdateEnabled
+		view.createEntry = createEntry
+		view.selectDefaultTemplate = selectDefaultTemplate
+		view.togglePreviews = togglePreviews
 		view.selectColor = selectColor
 		view.edit = edit
 		view.delete = delete
@@ -217,8 +231,14 @@ struct WorkspaceTopicContextMenuArea: NSViewRepresentable {
 }
 
 final class WorkspaceTopicContextMenuAreaView: NSView {
+	var templates: [WorkspaceTopicTemplateMenuOption] = []
+	var hasDefaultTemplate = false
 	var colors: [WorkspaceTopicColorMenuOption] = []
-	var isColorMenuEnabled = true
+	var showsPreviews = true
+	var isUpdateEnabled = true
+	var createEntry: (() -> Void)?
+	var selectDefaultTemplate: ((String?) -> Void)?
+	var togglePreviews: (() -> Void)?
 	var selectColor: ((String) -> Void)?
 	var edit: (() -> Void)?
 	var delete: (() -> Void)?
@@ -237,12 +257,65 @@ final class WorkspaceTopicContextMenuAreaView: NSView {
 		let menu = NSMenu()
 		menu.autoenablesItems = false
 
+		let newEntryItem = NSMenuItem(
+			title: "New Entry",
+			action: #selector(performCreateEntryAction),
+			keyEquivalent: ""
+		)
+		newEntryItem.target = self
+		menu.addItem(newEntryItem)
+		menu.addItem(.separator())
+
+		let defaultTemplateItem = NSMenuItem(
+			title: "Default Template",
+			action: nil,
+			keyEquivalent: ""
+		)
+		defaultTemplateItem.isEnabled = isUpdateEnabled
+		let defaultTemplateMenu = NSMenu(title: "Default Template")
+		defaultTemplateMenu.autoenablesItems = false
+		let noTemplateItem = NSMenuItem(
+			title: "None",
+			action: #selector(performDefaultTemplateAction(_:)),
+			keyEquivalent: ""
+		)
+		noTemplateItem.target = self
+		noTemplateItem.state = hasDefaultTemplate ? .off : .on
+		noTemplateItem.isEnabled = isUpdateEnabled && hasDefaultTemplate
+		defaultTemplateMenu.addItem(noTemplateItem)
+		if !templates.isEmpty {
+			defaultTemplateMenu.addItem(.separator())
+		}
+		for template in templates {
+			let item = NSMenuItem(
+				title: template.title,
+				action: #selector(performDefaultTemplateAction(_:)),
+				keyEquivalent: ""
+			)
+			item.target = self
+			item.representedObject = template.id
+			item.state = template.isSelected ? .on : .off
+			item.isEnabled = isUpdateEnabled && !template.isSelected
+			defaultTemplateMenu.addItem(item)
+		}
+		defaultTemplateItem.submenu = defaultTemplateMenu
+		menu.addItem(defaultTemplateItem)
+
+		let previewsItem = NSMenuItem(
+			title: showsPreviews ? "Hide Previews" : "Show Previews",
+			action: #selector(performTogglePreviewsAction),
+			keyEquivalent: ""
+		)
+		previewsItem.target = self
+		previewsItem.isEnabled = isUpdateEnabled
+		menu.addItem(previewsItem)
+
 		let colorItem = NSMenuItem(
 			title: "Color",
 			action: nil,
 			keyEquivalent: ""
 		)
-		colorItem.isEnabled = isColorMenuEnabled
+		colorItem.isEnabled = isUpdateEnabled
 
 		let colorMenu = NSMenu(title: "Color")
 		colorMenu.autoenablesItems = false
@@ -254,9 +327,8 @@ final class WorkspaceTopicContextMenuAreaView: NSView {
 			)
 			item.target = self
 			item.representedObject = color.hex
-			item.image = Self.colorCircleImage(hex: color.hex)
 			item.state = color.isSelected ? .on : .off
-			item.isEnabled = isColorMenuEnabled && !color.isSelected
+			item.isEnabled = isUpdateEnabled && !color.isSelected
 			colorMenu.addItem(item)
 		}
 		colorItem.submenu = colorMenu
@@ -282,6 +354,18 @@ final class WorkspaceTopicContextMenuAreaView: NSView {
 		NSMenu.popUpContextMenu(menu, with: event, for: self)
 	}
 
+	@objc private func performCreateEntryAction() {
+		createEntry?()
+	}
+
+	@objc private func performDefaultTemplateAction(_ sender: NSMenuItem) {
+		selectDefaultTemplate?(sender.representedObject as? String)
+	}
+
+	@objc private func performTogglePreviewsAction() {
+		togglePreviews?()
+	}
+
 	@objc private func performColorAction(_ sender: NSMenuItem) {
 		guard let hex = sender.representedObject as? String else { return }
 		selectColor?(hex)
@@ -295,23 +379,6 @@ final class WorkspaceTopicContextMenuAreaView: NSView {
 		delete?()
 	}
 
-	private static func colorCircleImage(hex: String) -> NSImage? {
-		let value = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-		guard value.count == 6, let number = UInt64(value, radix: 16) else { return nil }
-		let color = NSColor(
-			srgbRed: CGFloat((number >> 16) & 0xff) / 255,
-			green: CGFloat((number >> 8) & 0xff) / 255,
-			blue: CGFloat(number & 0xff) / 255,
-			alpha: 1
-		)
-		let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-			color.setFill()
-			NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
-			return true
-		}
-		image.isTemplate = false
-		return image
-	}
 }
 
 struct WorkspaceHorizontalResizeHandle: NSViewRepresentable {

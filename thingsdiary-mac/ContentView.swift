@@ -275,7 +275,7 @@ private struct LoginView: View {
 				.accessibilityIdentifier("auth.sign-in")
 
 				Button("Create Account", action: model.showRegistration)
-				.accessibilityIdentifier("auth.show-registration")
+					.accessibilityIdentifier("auth.show-registration")
 			}
 		}
 		.textFieldStyle(.roundedBorder)
@@ -332,7 +332,7 @@ private struct RegistrationView: View {
 				.accessibilityIdentifier("auth.register")
 
 				Button("Back to Sign In", action: model.showLogin)
-				.accessibilityIdentifier("auth.show-login")
+					.accessibilityIdentifier("auth.show-login")
 			}
 		}
 		.textFieldStyle(.roundedBorder)
@@ -525,7 +525,7 @@ private struct EntriesView: View {
 	@State private var topicTitle = ""
 	@State private var topicDescription = ""
 	@State private var topicColor = ""
-	@State private var topicColorUpdateInProgressIDs: Set<String> = []
+	@State private var topicUpdateInProgressIDs: Set<String> = []
 	@State private var topicEntryPreviewable = true
 	@State private var topicDefaultTemplateID: String?
 	@State private var topicsExpanded = true
@@ -1015,9 +1015,9 @@ private struct EntriesView: View {
 						)
 					}
 				}
-					.frame(maxWidth: .infinity, alignment: .leading)
-					.allowsHitTesting(currentWorkspaceLayout != .editorOnly)
-					.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.allowsHitTesting(currentWorkspaceLayout != .editorOnly)
+				.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
 
 				HStack(spacing: 0) {
 					browserTabsBar
@@ -1580,9 +1580,9 @@ private struct EntriesView: View {
 					)
 				}
 			}
-				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-				.allowsHitTesting(layout != .editorOnly)
-				.accessibilityHidden(layout == .editorOnly)
+			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+			.allowsHitTesting(layout != .editorOnly)
+			.accessibilityHidden(layout == .editorOnly)
 
 			HStack(spacing: 0) {
 				entryDetailPane(layout: layout)
@@ -1808,6 +1808,16 @@ private struct EntriesView: View {
 							)
 							.overlay {
 								WorkspaceTopicContextMenuArea(
+									templates: model.templates.map { template in
+										WorkspaceTopicTemplateMenuOption(
+											id: template.id,
+											title: template.content.isEmpty
+												? "Empty Template"
+												: String(template.content.prefix(40)),
+											isSelected: topic.defaultTemplateID == template.id
+										)
+									},
+									hasDefaultTemplate: topic.defaultTemplateID != nil,
 									colors: topicColorOptions.map { option in
 										WorkspaceTopicColorMenuOption(
 											id: option.id,
@@ -1816,7 +1826,13 @@ private struct EntriesView: View {
 											isSelected: topic.color == option.hex
 										)
 									},
-									isColorMenuEnabled: !topicColorUpdateInProgressIDs.contains(topic.id),
+									showsPreviews: topic.entryPreviewable,
+									isUpdateEnabled: !topicUpdateInProgressIDs.contains(topic.id),
+									createEntry: { beginCreatingEntry(in: topic) },
+									selectDefaultTemplate: {
+										changeTopicDefaultTemplate(topic, to: $0)
+									},
+									togglePreviews: { toggleTopicPreviews(topic) },
 									selectColor: { changeTopicColor(topic, to: $0) },
 									edit: { beginEditing(topic) },
 									delete: { topicPendingDeletion = topic }
@@ -1833,6 +1849,9 @@ private struct EntriesView: View {
 						identifier: "sidebar.templates",
 						showsCount: false
 					)
+					.contextMenu {
+						Button("New", action: createTemplate)
+					}
 
 					sidebarRow(
 						"Archive",
@@ -1853,7 +1872,6 @@ private struct EntriesView: View {
 					.overlay {
 						WorkspaceContextMenuArea(
 							title: "Empty Trash",
-							systemImage: "trash",
 							isEnabled: count(for: .trash) > 0,
 							primaryAction: { selection = .trash },
 							menuAction: { confirmingEmptyTrash = true }
@@ -2022,6 +2040,11 @@ private struct EntriesView: View {
 		beginEntryDraft(appearsInList: true)
 	}
 
+	private func beginCreatingEntry(in topic: ThingsDiaryTopic) {
+		selection = .topic(topic.id)
+		beginEntryDraft(appearsInList: true, topicID: topic.id)
+	}
+
 	private func createDocumentForActiveSection() {
 		if activeSelection == .templates {
 			createTemplate()
@@ -2066,13 +2089,17 @@ private struct EntriesView: View {
 
 	private func beginEntryDraft(
 		appearsInList: Bool,
-		inheritsSelection: Bool = true
+		inheritsSelection: Bool = true,
+		topicID explicitTopicID: String? = nil
 	) {
 		let topicID: String? =
-			switch inheritsSelection ? activeSelection : .entries {
-			case .topic(let topicID): topicID
-			default: nil
-			}
+			explicitTopicID
+			?? {
+				switch inheritsSelection ? activeSelection : .entries {
+				case .topic(let topicID): topicID
+				default: nil
+				}
+			}()
 		let bookmarked = inheritsSelection && activeSelection == .bookmarks
 		guard
 			let draft = model.beginEntryDraft(
@@ -2984,8 +3011,8 @@ private struct EntriesView: View {
 	}
 
 	private func changeTopicColor(_ topic: ThingsDiaryTopic, to color: String) {
-		guard topic.color != color, !topicColorUpdateInProgressIDs.contains(topic.id) else { return }
-		topicColorUpdateInProgressIDs.insert(topic.id)
+		guard topic.color != color, !topicUpdateInProgressIDs.contains(topic.id) else { return }
+		topicUpdateInProgressIDs.insert(topic.id)
 		Task {
 			await model.updateTopic(
 				topic,
@@ -2993,7 +3020,43 @@ private struct EntriesView: View {
 				description: topic.description,
 				color: color
 			)
-			topicColorUpdateInProgressIDs.remove(topic.id)
+			topicUpdateInProgressIDs.remove(topic.id)
+		}
+	}
+
+	private func changeTopicDefaultTemplate(
+		_ topic: ThingsDiaryTopic,
+		to defaultTemplateID: String?
+	) {
+		guard
+			topic.defaultTemplateID != defaultTemplateID,
+			!topicUpdateInProgressIDs.contains(topic.id)
+		else { return }
+		topicUpdateInProgressIDs.insert(topic.id)
+		Task {
+			await model.updateTopic(
+				topic,
+				title: topic.title,
+				description: topic.description,
+				color: topic.color,
+				defaultTemplateID: .some(defaultTemplateID)
+			)
+			topicUpdateInProgressIDs.remove(topic.id)
+		}
+	}
+
+	private func toggleTopicPreviews(_ topic: ThingsDiaryTopic) {
+		guard !topicUpdateInProgressIDs.contains(topic.id) else { return }
+		topicUpdateInProgressIDs.insert(topic.id)
+		Task {
+			await model.updateTopic(
+				topic,
+				title: topic.title,
+				description: topic.description,
+				color: topic.color,
+				entryPreviewable: !topic.entryPreviewable
+			)
+			topicUpdateInProgressIDs.remove(topic.id)
 		}
 	}
 

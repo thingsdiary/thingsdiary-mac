@@ -223,6 +223,9 @@ struct ThingsDiaryApp: App {
 					initialValue: ThingsDiaryAppModel.uiTestingWorkspace(
 						includesDeletedEntry: !ProcessInfo.processInfo.arguments.contains(
 							"--ui-testing-empty-trash"
+						),
+						includesTemplate: ProcessInfo.processInfo.arguments.contains(
+							"--ui-testing-template"
 						)
 					)
 				)
