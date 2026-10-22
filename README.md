@@ -4,12 +4,13 @@ Native macOS client for ThingsDiary.
 
 ## Install with Homebrew
 
-Add the [ThingsDiary tap](https://github.com/thingsdiary/homebrew-tap), then
-install the cask:
+Add and trust the [ThingsDiary tap](https://github.com/thingsdiary/homebrew-tap),
+then install the app:
 
 ```sh
 brew tap thingsdiary/tap
-brew install --cask thingsdiary/tap/thingsdiary
+brew trust thingsdiary/tap
+brew install thingsdiary
 ```
 
 The current build does not have an Apple Developer ID signature. On first
