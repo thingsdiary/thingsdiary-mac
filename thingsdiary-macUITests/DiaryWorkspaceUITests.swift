@@ -352,6 +352,24 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		}
 	}
 
+	func testWindowControlsAreCenteredInWorkspaceTitlebar() {
+		let app = launchWorkspace()
+		let window = workspace(in: app)
+		let titlebar = window.descendants(matching: .any)["entry-list.titlebar"].firstMatch
+		XCTAssertTrue(titlebar.waitForExistence(timeout: 2))
+
+		for identifier in ["window.close", "window.minimize", "window.zoom"] {
+			let button = window.buttons[identifier]
+			XCTAssertTrue(button.waitForExistence(timeout: 2))
+			XCTAssertEqual(button.frame.midY, titlebar.frame.midY, accuracy: 1)
+		}
+		XCTAssertEqual(
+			window.buttons["window.close"].frame.minX - window.frame.minX,
+			20,
+			accuracy: 1
+		)
+	}
+
 	func testSearchScopeChangesWhenSectionChanges() {
 		let app = launchWorkspace()
 		let workspace = app.dialogs.firstMatch.exists ? app.dialogs.firstMatch : app.windows.firstMatch
