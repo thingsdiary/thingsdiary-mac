@@ -4,13 +4,12 @@ Native macOS client for ThingsDiary.
 
 ## Install with Homebrew
 
-The cask lives in this repository. Because the repository is named
-`thingsdiary-mac`, not `homebrew-thingsdiary-mac`, the first command includes
-the repository URL explicitly.
+Add the [ThingsDiary tap](https://github.com/thingsdiary/homebrew-tap), then
+install the cask:
 
 ```sh
-brew tap thingsdiary/thingsdiary-mac https://github.com/thingsdiary/thingsdiary-mac.git
-brew install --cask thingsdiary/thingsdiary-mac/thingsdiary
+brew tap thingsdiary/tap
+brew install --cask thingsdiary/tap/thingsdiary
 ```
 
 The current build does not have an Apple Developer ID signature. On first
@@ -52,10 +51,9 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-The Homebrew cask downloads `thingsdiary.dmg` from the latest GitHub release.
-It uses `version :latest`, so publishing a new release does not require editing
-the cask. Homebrew cannot compare these releases automatically; reinstall the
-cask to fetch a newer build:
+The Homebrew tap downloads `thingsdiary.dmg` from the latest GitHub release.
+It uses `version :latest`, so Homebrew cannot compare releases automatically.
+Reinstall the cask to fetch a newer build:
 
 ```sh
 brew reinstall --cask thingsdiary
