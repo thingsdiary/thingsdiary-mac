@@ -26,6 +26,8 @@ final class AuthenticationUITests: XCTestCase {
 	private let email = "person@example.test"
 	private let password = "password"
 	private let secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+	private let titlebarHeight: CGFloat = 46
+	private let trafficLightsLeadingInset: CGFloat = 20
 
 	private enum Scenario: String {
 		case loginSuccess = "login-success"
@@ -71,6 +73,15 @@ final class AuthenticationUITests: XCTestCase {
 
 		XCTAssertTrue(app.textFields["diary.title"].firstMatch.waitForExistence(timeout: 3))
 		XCTAssertFalse(app.staticTexts["Something Went Wrong"].firstMatch.exists)
+	}
+
+	func testWindowControlsArePositionedOnAuthenticationForms() {
+		let app = launchAuthentication(scenario: .loginSuccess)
+		assertWindowControlsArePositioned(in: app)
+
+		app.buttons["auth.show-registration"].click()
+		XCTAssertTrue(app.buttons["auth.register"].waitForExistence(timeout: 2))
+		assertWindowControlsArePositioned(in: app)
 	}
 
 	func testRegistrationExplainsThatLoginIsOccupied() {
@@ -158,6 +169,22 @@ final class AuthenticationUITests: XCTestCase {
 
 	private func authenticationSurface(in app: XCUIApplication) -> XCUIElement {
 		app.windows.firstMatch
+	}
+
+	private func assertWindowControlsArePositioned(in app: XCUIApplication) {
+		let window = app.windows.firstMatch
+		let expectedCenterY = window.frame.minY + titlebarHeight / 2
+
+		for identifier in ["window.close", "window.minimize", "window.zoom"] {
+			let button = window.buttons[identifier]
+			XCTAssertTrue(button.waitForExistence(timeout: 2))
+			XCTAssertEqual(button.frame.midY, expectedCenterY, accuracy: 1)
+		}
+		XCTAssertEqual(
+			window.buttons["window.close"].frame.minX - window.frame.minX,
+			trafficLightsLeadingInset,
+			accuracy: 1
+		)
 	}
 
 	private func assertError(_ message: String, in app: XCUIApplication) {

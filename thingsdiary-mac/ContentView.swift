@@ -230,6 +230,7 @@ private struct LoginView: View {
 		.textFieldStyle(.roundedBorder)
 		.frame(maxWidth: 360)
 		.padding(40)
+		.background(AuthenticationWindowChrome())
 	}
 }
 
@@ -286,6 +287,7 @@ private struct RegistrationView: View {
 		.textFieldStyle(.roundedBorder)
 		.frame(maxWidth: 420)
 		.padding(40)
+		.background(AuthenticationWindowChrome())
 	}
 }
 

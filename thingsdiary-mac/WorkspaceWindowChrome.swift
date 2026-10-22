@@ -13,6 +13,86 @@ nonisolated func workspaceTrafficLightsHorizontalOffset(closeButtonMinX: CGFloat
 	workspaceTrafficLightsLeadingInset - closeButtonMinX
 }
 
+private func positionWindowTrafficLights(in window: NSWindow) {
+	guard
+		let contentView = window.contentView,
+		let closeButton = window.standardWindowButton(.closeButton),
+		let closeButtonContainer = closeButton.superview
+	else { return }
+
+	let closeButtonFrame = contentView.convert(closeButton.frame, from: closeButtonContainer)
+	let horizontalOffset = workspaceTrafficLightsHorizontalOffset(
+		closeButtonMinX: closeButtonFrame.minX
+	)
+	let titlebarCenterY = workspaceTitlebarCenterY(
+		in: contentView.bounds,
+		isFlipped: contentView.isFlipped
+	)
+
+	for (buttonType, identifier) in [
+		(NSWindow.ButtonType.closeButton, "window.close"),
+		(.miniaturizeButton, "window.minimize"),
+		(.zoomButton, "window.zoom"),
+	] {
+		guard
+			let button = window.standardWindowButton(buttonType),
+			let buttonContainer = button.superview
+		else { continue }
+
+		button.isHidden = false
+		button.setAccessibilityIdentifier(identifier)
+		let frameInContent = contentView.convert(button.frame, from: buttonContainer)
+		let targetCenter = NSPoint(
+			x: frameInContent.midX + horizontalOffset,
+			y: titlebarCenterY
+		)
+		let centerInContainer = buttonContainer.convert(targetCenter, from: contentView)
+		let targetOrigin = NSPoint(
+			x: centerInContainer.x - button.frame.width / 2,
+			y: centerInContainer.y - button.frame.height / 2
+		)
+		guard
+			abs(button.frame.origin.x - targetOrigin.x) > 0.5
+				|| abs(button.frame.origin.y - targetOrigin.y) > 0.5
+		else { continue }
+		button.setFrameOrigin(targetOrigin)
+	}
+}
+
+struct AuthenticationWindowChrome: NSViewRepresentable {
+	func makeNSView(context: Context) -> AuthenticationWindowChromeView {
+		AuthenticationWindowChromeView()
+	}
+
+	func updateNSView(_ view: AuthenticationWindowChromeView, context: Context) {
+		view.positionTrafficLights()
+	}
+}
+
+final class AuthenticationWindowChromeView: NSView {
+	override func viewDidMoveToWindow() {
+		super.viewDidMoveToWindow()
+		positionTrafficLights()
+		DispatchQueue.main.async { [weak self] in
+			self?.positionTrafficLights()
+		}
+	}
+
+	override func layout() {
+		super.layout()
+		positionTrafficLights()
+	}
+
+	func positionTrafficLights() {
+		guard let window else { return }
+		positionWindowTrafficLights(in: window)
+	}
+
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		nil
+	}
+}
+
 struct TitlebarMaterialBackground: NSViewRepresentable {
 	func makeNSView(context: Context) -> NSVisualEffectView {
 		let view = TitlebarMaterialView()
@@ -348,15 +428,7 @@ final class WorkspaceWindowChromeView: NSView {
 		window.isMovableByWindowBackground = false
 		window.titlebarSeparatorStyle = .none
 		window.tabbingMode = .disallowed
-		for (buttonType, identifier) in [
-			(NSWindow.ButtonType.closeButton, "window.close"),
-			(.miniaturizeButton, "window.minimize"),
-			(.zoomButton, "window.zoom"),
-		] {
-			let button = window.standardWindowButton(buttonType)
-			button?.isHidden = false
-			button?.setAccessibilityIdentifier(identifier)
-		}
+		positionWindowTrafficLights(in: window)
 
 		DispatchQueue.main.async { [weak self] in
 			self?.updateTrafficLightsInset()
@@ -371,52 +443,13 @@ final class WorkspaceWindowChromeView: NSView {
 			let buttonContainer = zoomButton.superview
 		else { return }
 
-		positionTrafficLights(in: window, contentView: contentView)
+		positionWindowTrafficLights(in: window)
 
 		let buttonFrame = contentView.convert(zoomButton.frame, from: buttonContainer)
 		let inset = max(buttonFrame.maxX + 12, 76)
 		guard lastTrafficLightsInset.map({ abs($0 - inset) > 0.5 }) ?? true else { return }
 		lastTrafficLightsInset = inset
 		trafficLightsInsetDidChange?(inset)
-	}
-
-	private func positionTrafficLights(in window: NSWindow, contentView: NSView) {
-		guard
-			let closeButton = window.standardWindowButton(.closeButton),
-			let closeButtonContainer = closeButton.superview
-		else { return }
-
-		let closeButtonFrame = contentView.convert(closeButton.frame, from: closeButtonContainer)
-		let horizontalOffset = workspaceTrafficLightsHorizontalOffset(
-			closeButtonMinX: closeButtonFrame.minX
-		)
-		let titlebarCenterY = workspaceTitlebarCenterY(
-			in: contentView.bounds,
-			isFlipped: contentView.isFlipped
-		)
-
-		for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-			guard
-				let button = window.standardWindowButton(buttonType),
-				let buttonContainer = button.superview
-			else { continue }
-
-			let frameInContent = contentView.convert(button.frame, from: buttonContainer)
-			let targetCenter = NSPoint(
-				x: frameInContent.midX + horizontalOffset,
-				y: titlebarCenterY
-			)
-			let centerInContainer = buttonContainer.convert(targetCenter, from: contentView)
-			let targetOrigin = NSPoint(
-				x: centerInContainer.x - button.frame.width / 2,
-				y: centerInContainer.y - button.frame.height / 2
-			)
-			guard
-				abs(button.frame.origin.x - targetOrigin.x) > 0.5
-					|| abs(button.frame.origin.y - targetOrigin.y) > 0.5
-			else { continue }
-			button.setFrameOrigin(targetOrigin)
-		}
 	}
 
 	func restoreConfiguration() {
