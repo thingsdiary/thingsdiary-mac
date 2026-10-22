@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 import ThingsDiaryClient
 
@@ -144,15 +145,35 @@ extension ThingsDiaryAppClient {
 	}
 }
 
-nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
-	private let client: ThingsDiaryClient
+nonisolated struct ThingsDiaryServerConfiguration: Equatable, Sendable {
+	static let baseURLEnvironmentKey = "THINGSDIARY_BASE_URL"
 
-	init(client: ThingsDiaryClient = ThingsDiaryClient()) {
-		self.client = client
+	let baseURL: URL
+
+	init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+		let configuredURL = environment[Self.baseURLEnvironmentKey].flatMap(URL.init(string:))
+		baseURL = configuredURL ?? ThingsDiaryClient.productionURL
+	}
+}
+
+nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
+	private static let logger = Logger(
+		subsystem: "io.thingsdiary.thingsdiary-mac",
+		category: "network"
+	)
+
+	private let client: ThingsDiaryClient
+	private let baseURL: URL
+
+	init(configuration: ThingsDiaryServerConfiguration = ThingsDiaryServerConfiguration()) {
+		baseURL = configuration.baseURL
+		client = ThingsDiaryClient(baseURL: configuration.baseURL)
 	}
 
 	func connect() async throws {
+		Self.logger.notice("Connecting realtime for \(baseURL.absoluteString, privacy: .public)")
 		try await client.connect()
+		Self.logger.notice("Realtime connected")
 	}
 
 	func disconnect() async {
@@ -182,15 +203,20 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 	}
 
 	func login(login: String, password: String, secretKey: String) async throws {
+		Self.logger.notice("Signing in through \(baseURL.absoluteString, privacy: .public)")
 		_ = try await client.login(
 			login: login,
 			password: password,
 			secretKey: secretKey
 		)
+		Self.logger.notice("Sign-in completed")
 	}
 
 	func diaries() async throws -> [ThingsDiaryDiary] {
-		try await client.allDiaries()
+		Self.logger.notice("Loading diaries")
+		let diaries = try await client.allDiaries()
+		Self.logger.notice("Loaded \(diaries.count) diaries")
+		return diaries
 	}
 
 	func createDiary(_ params: ThingsDiaryCreateParams) async throws -> ThingsDiaryDiary {

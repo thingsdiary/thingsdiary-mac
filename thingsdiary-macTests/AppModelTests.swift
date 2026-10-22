@@ -4,6 +4,25 @@ import ThingsDiaryClient
 
 @testable import thingsdiary
 
+@Test("Server configuration defaults to production")
+func serverConfigurationDefaultsToProduction() {
+	let configuration = ThingsDiaryServerConfiguration(environment: [:])
+
+	#expect(configuration.baseURL == ThingsDiaryClient.productionURL)
+}
+
+@Test("Server configuration accepts the local API URL from the environment")
+func serverConfigurationAcceptsLocalURL() throws {
+	let configuration = ThingsDiaryServerConfiguration(
+		environment: [
+			ThingsDiaryServerConfiguration.baseURLEnvironmentKey:
+				"http://127.0.0.1:8081/api"
+		]
+	)
+
+	#expect(configuration.baseURL == URL(string: "http://127.0.0.1:8081/api"))
+}
+
 @MainActor
 @Test("Registration generates a secret key and exposes public keys")
 func successfulRegistrationShowsKeys() async throws {
