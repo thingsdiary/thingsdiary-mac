@@ -50,12 +50,6 @@ nonisolated protocol DiaryStoreRemote: Sendable {
 		_ entry: ThingsDiaryEntry,
 		params: ThingsDiaryEntryParams
 	) async throws -> ThingsDiaryEntry
-	func getDiaryChanges(
-		diaryID: String,
-		since: Date?,
-		limit: Int?,
-		nextPageToken: String?
-	) async throws -> ThingsDiaryChangesPage
 	func getEntry(
 		diaryID: String,
 		entryID: String
@@ -74,15 +68,6 @@ nonisolated protocol DiaryStoreRemote: Sendable {
 }
 
 extension DiaryStoreRemote {
-	func getDiaryChanges(
-		diaryID: String,
-		since: Date?,
-		limit: Int?,
-		nextPageToken: String?
-	) async throws -> ThingsDiaryChangesPage {
-		ThingsDiaryChangesPage(changes: [], nextPageToken: nil)
-	}
-
 	func getEntry(
 		diaryID: String,
 		entryID: String
@@ -129,6 +114,10 @@ actor DiaryStore {
 	private let fileURL: URL
 	private var state: StoredState
 	private var activeSynchronization: ActiveSynchronization?
+	private var realtimeEventIDs: Set<String> = []
+	private var realtimeEventOrder: [String] = []
+	private var realtimeRemovalVersions: [String: UInt64] = [:]
+	private var deferredRealtimeEvents: [ThingsDiaryRealtimeEvent] = []
 
 	init(fileURL: URL) throws {
 		self.fileURL = fileURL
@@ -162,11 +151,15 @@ actor DiaryStore {
 			topics: topics.map(StoredTopic.init),
 			templates: templates.map(StoredTemplate.init),
 			pendingEntryWrites: state.pendingEntryWrites,
-			checkpoints: state.checkpoints,
 			entryConflicts: state.entryConflicts
 		)
 		try persist(nextState)
 		state = nextState
+		let deferredEvents = deferredRealtimeEvents.filter { $0.update.diaryID == diary.id }
+		deferredRealtimeEvents.removeAll { $0.update.diaryID == diary.id }
+		for event in deferredEvents {
+			_ = try applyRealtimeEvent(event)
+		}
 	}
 
 	func selectedDiary() -> ThingsDiaryDiary? {
@@ -195,6 +188,168 @@ actor DiaryStore {
 			topics: state.topics.filter { $0.diaryID == diary.id }.map(\.value),
 			templates: state.templates.filter { $0.diaryID == diary.id }.map(\.value)
 		)
+	}
+
+	func applyRealtimeEvent(
+		_ event: ThingsDiaryRealtimeEvent
+	) throws -> DiaryStoreSnapshot? {
+		if !event.eventID.isEmpty, realtimeEventIDs.contains(event.eventID) {
+			return snapshot()
+		}
+
+		var nextState = state
+		switch event.update {
+		case .upsertDiary(let diary):
+			guard realtimeAccepts(
+				key: realtimeKey("diary", diary.id),
+				version: diary.version,
+				currentVersion: nextState.selectedDiary?.id == diary.id
+					? nextState.selectedDiary?.version : nil
+			) else { return snapshot() }
+			if nextState.selectedDiary?.id == diary.id {
+				nextState.selectedDiary = StoredDiary(diary)
+			}
+		case .removeDiary(let id, let version):
+			guard realtimeAccepts(
+				key: realtimeKey("diary", id),
+				version: version,
+				currentVersion: nextState.selectedDiary?.id == id
+					? nextState.selectedDiary?.version : nil
+			) else { return snapshot() }
+			realtimeRemovalVersions[realtimeKey("diary", id)] = version
+			if nextState.selectedDiary?.id == id {
+				nextState.selectedDiary = nil
+				nextState.entries.removeAll { $0.diaryID == id }
+				nextState.topics.removeAll { $0.diaryID == id }
+				nextState.templates.removeAll { $0.diaryID == id }
+				nextState.pendingEntryWrites.removeAll { $0.entry.diaryID == id }
+			}
+		case .upsertEntry(let entry):
+			guard nextState.selectedDiary?.id == entry.diaryID else {
+				deferRealtimeEvent(event)
+				return snapshot()
+			}
+			guard !nextState.pendingEntryWrites.contains(where: { $0.entry.id == entry.id }) else {
+				recordRealtimeEvent(event.eventID)
+				return snapshot()
+			}
+			let currentVersion = nextState.entries.first { $0.id == entry.id }?.version
+			guard realtimeAccepts(
+				key: realtimeKey("entry", entry.id),
+				version: entry.version,
+				currentVersion: currentVersion
+			) else { return snapshot() }
+			nextState.entries.removeAll { $0.id == entry.id }
+			nextState.entries.append(StoredEntry(entry))
+		case .removeEntry(let diaryID, let id, let version):
+			guard nextState.selectedDiary?.id == diaryID else {
+				deferRealtimeEvent(event)
+				return snapshot()
+			}
+			guard !nextState.pendingEntryWrites.contains(where: { $0.entry.id == id }) else {
+				recordRealtimeEvent(event.eventID)
+				return snapshot()
+			}
+			let key = realtimeKey("entry", id)
+			guard realtimeAccepts(
+				key: key,
+				version: version,
+				currentVersion: nextState.entries.first { $0.id == id }?.version
+			) else { return snapshot() }
+			realtimeRemovalVersions[key] = version
+			nextState.entries.removeAll { $0.id == id }
+		case .upsertTopic(let topic):
+			guard nextState.selectedDiary?.id == topic.diaryID else {
+				deferRealtimeEvent(event)
+				return snapshot()
+			}
+			guard realtimeAccepts(
+				key: realtimeKey("topic", topic.id),
+				version: topic.version,
+				currentVersion: nextState.topics.first { $0.id == topic.id }?.version
+			) else { return snapshot() }
+			nextState.topics.removeAll { $0.id == topic.id }
+			nextState.topics.append(StoredTopic(topic))
+		case .removeTopic(let diaryID, let id, let version):
+			guard nextState.selectedDiary?.id == diaryID else {
+				deferRealtimeEvent(event)
+				return snapshot()
+			}
+			let key = realtimeKey("topic", id)
+			guard realtimeAccepts(
+				key: key,
+				version: version,
+				currentVersion: nextState.topics.first { $0.id == id }?.version
+			) else { return snapshot() }
+			realtimeRemovalVersions[key] = version
+			nextState.topics.removeAll { $0.id == id }
+		case .upsertTemplate(let template):
+			guard nextState.selectedDiary?.id == template.diaryID else {
+				deferRealtimeEvent(event)
+				return snapshot()
+			}
+			guard realtimeAccepts(
+				key: realtimeKey("template", template.id),
+				version: template.version,
+				currentVersion: nextState.templates.first { $0.id == template.id }?.version
+			) else { return snapshot() }
+			nextState.templates.removeAll { $0.id == template.id }
+			nextState.templates.append(StoredTemplate(template))
+		case .removeTemplate(let diaryID, let id, let version):
+			guard nextState.selectedDiary?.id == diaryID else {
+				deferRealtimeEvent(event)
+				return snapshot()
+			}
+			let key = realtimeKey("template", id)
+			guard realtimeAccepts(
+				key: key,
+				version: version,
+				currentVersion: nextState.templates.first { $0.id == id }?.version
+			) else { return snapshot() }
+			realtimeRemovalVersions[key] = version
+			nextState.templates.removeAll { $0.id == id }
+		}
+
+		try persist(nextState)
+		state = nextState
+		recordRealtimeEvent(event.eventID)
+		return snapshot()
+	}
+
+	private func realtimeKey(_ entity: String, _ id: String) -> String {
+		"\(entity):\(id)"
+	}
+
+	private func realtimeAccepts(
+		key: String,
+		version: UInt64,
+		currentVersion: UInt64?
+	) -> Bool {
+		if let removalVersion = realtimeRemovalVersions[key], version <= removalVersion {
+			return false
+		}
+		return currentVersion.map { version >= $0 } ?? true
+	}
+
+	private func recordRealtimeEvent(_ eventID: String) {
+		guard !eventID.isEmpty, realtimeEventIDs.insert(eventID).inserted else { return }
+		realtimeEventOrder.append(eventID)
+		if realtimeEventOrder.count > 1_024 {
+			let removed = realtimeEventOrder.removeFirst()
+			realtimeEventIDs.remove(removed)
+		}
+	}
+
+	private func deferRealtimeEvent(_ event: ThingsDiaryRealtimeEvent) {
+		guard event.eventID.isEmpty
+			|| !deferredRealtimeEvents.contains(where: { $0.eventID == event.eventID })
+		else {
+			return
+		}
+		deferredRealtimeEvents.append(event)
+		if deferredRealtimeEvents.count > 256 {
+			deferredRealtimeEvents.removeFirst()
+		}
 	}
 
 	func upsertTopic(_ topic: ThingsDiaryTopic) throws {
@@ -347,11 +502,6 @@ actor DiaryStore {
 			}
 			try complete(write: write, serverEntry: serverEntry)
 		}
-
-		guard let diaryID = state.selectedDiary?.id else {
-			return
-		}
-		try await pullChanges(diaryID: diaryID, remote: remote)
 	}
 
 	private static func isConflict(_ error: any Error) -> Bool {
@@ -362,110 +512,6 @@ actor DiaryStore {
 		default:
 			return false
 		}
-	}
-
-	private func pullChanges(
-		diaryID: String,
-		remote: any DiaryStoreRemote
-	) async throws {
-		var nextPageToken: String?
-		repeat {
-			let checkpoint = state.checkpoints[diaryID] ?? StoredCheckpoint()
-			let page = try await remote.getDiaryChanges(
-				diaryID: diaryID,
-				since: checkpoint.lastChangeAt,
-				limit: nil,
-				nextPageToken: nextPageToken
-			)
-			for change in page.changes {
-				let currentCheckpoint = state.checkpoints[diaryID] ?? StoredCheckpoint()
-				guard !currentCheckpoint.contains(change) else { continue }
-				switch change.entityType {
-				case .entry:
-					if state.pendingEntryWrites.contains(where: {
-						$0.entry.id == change.entityID
-					}) {
-						try apply(change, diaryID: diaryID) { _ in }
-						continue
-					}
-					switch change.operation {
-					case .created, .updated, .softDeleted:
-						let serverEntry = try await remote.getEntry(
-							diaryID: diaryID,
-							entryID: change.entityID
-						)
-						try apply(change, diaryID: diaryID) { nextState in
-							guard
-								!nextState.pendingEntryWrites.contains(where: {
-									$0.entry.id == change.entityID
-								})
-							else { return }
-							nextState.entries.removeAll { $0.id == serverEntry.id }
-							nextState.entries.append(StoredEntry(serverEntry))
-						}
-					case .removed:
-						try apply(change, diaryID: diaryID) { nextState in
-							guard
-								!nextState.pendingEntryWrites.contains(where: {
-									$0.entry.id == change.entityID
-								})
-							else { return }
-							nextState.entries.removeAll { $0.id == change.entityID }
-						}
-					}
-				case .topic:
-					switch change.operation {
-					case .created, .updated, .softDeleted:
-						let topic = try await remote.getTopic(
-							diaryID: diaryID,
-							topicID: change.entityID
-						)
-						try apply(change, diaryID: diaryID) { nextState in
-							nextState.topics.removeAll { $0.id == topic.id }
-							nextState.topics.append(StoredTopic(topic))
-						}
-					case .removed:
-						try apply(change, diaryID: diaryID) { nextState in
-							nextState.topics.removeAll { $0.id == change.entityID }
-						}
-					}
-				case .template:
-					switch change.operation {
-					case .created, .updated, .softDeleted:
-						let template = try await remote.getTemplate(
-							diaryID: diaryID,
-							templateID: change.entityID
-						)
-						try apply(change, diaryID: diaryID) { nextState in
-							nextState.templates.removeAll { $0.id == template.id }
-							nextState.templates.append(StoredTemplate(template))
-						}
-					case .removed:
-						try apply(change, diaryID: diaryID) { nextState in
-							nextState.templates.removeAll { $0.id == change.entityID }
-						}
-					}
-				case .diary:
-					try apply(change, diaryID: diaryID) { _ in }
-				}
-			}
-			nextPageToken = page.nextPageToken
-		} while nextPageToken != nil
-	}
-
-	private func apply(
-		_ change: ThingsDiaryChange,
-		diaryID: String,
-		mutation: (inout StoredState) -> Void
-	) throws {
-		var nextState = state
-		var checkpoint = nextState.checkpoints[diaryID] ?? StoredCheckpoint()
-		guard !checkpoint.contains(change) else { return }
-		mutation(&nextState)
-		checkpoint.record(change)
-		nextState.checkpoints[diaryID] = checkpoint
-		try persist(nextState)
-		state = nextState
 	}
 
 	private func complete(write: PendingEntryWrite, serverEntry: ThingsDiaryEntry) throws {
@@ -562,7 +608,6 @@ private nonisolated struct StoredState: Codable {
 	var topics: [StoredTopic]
 	var templates: [StoredTemplate]
 	var pendingEntryWrites: [StoredPendingEntryWrite]
-	var checkpoints: [String: StoredCheckpoint]
 	var entryConflicts: [StoredEntryConflict]
 
 	init(
@@ -571,7 +616,6 @@ private nonisolated struct StoredState: Codable {
 		topics: [StoredTopic] = [],
 		templates: [StoredTemplate] = [],
 		pendingEntryWrites: [StoredPendingEntryWrite] = [],
-		checkpoints: [String: StoredCheckpoint] = [:],
 		entryConflicts: [StoredEntryConflict] = []
 	) {
 		self.selectedDiary = selectedDiary
@@ -579,13 +623,12 @@ private nonisolated struct StoredState: Codable {
 		self.topics = topics
 		self.templates = templates
 		self.pendingEntryWrites = pendingEntryWrites
-		self.checkpoints = checkpoints
 		self.entryConflicts = entryConflicts
 	}
 
 	private enum CodingKeys: String, CodingKey {
 		case selectedDiary, entries, topics, templates
-		case pendingEntryWrites, checkpoints, entryConflicts
+		case pendingEntryWrites, entryConflicts
 	}
 
 	init(from decoder: Decoder) throws {
@@ -599,53 +642,11 @@ private nonisolated struct StoredState: Codable {
 				[StoredPendingEntryWrite].self,
 				forKey: .pendingEntryWrites
 			) ?? []
-		checkpoints =
-			try container.decodeIfPresent(
-				[String: StoredCheckpoint].self,
-				forKey: .checkpoints
-			) ?? [:]
 		entryConflicts =
 			try container.decodeIfPresent(
 				[StoredEntryConflict].self,
 				forKey: .entryConflicts
 			) ?? []
-	}
-}
-
-private nonisolated struct StoredCheckpoint: Codable {
-	var lastChangeAt: Date?
-	var changeIDsAtLastDate: [String]
-
-	init(lastChangeAt: Date? = nil, changeIDsAtLastDate: [String] = []) {
-		self.lastChangeAt = lastChangeAt
-		self.changeIDsAtLastDate = changeIDsAtLastDate
-	}
-
-	func contains(_ change: ThingsDiaryChange) -> Bool {
-		guard let lastChangeAt else {
-			return false
-		}
-		if change.createdAt < lastChangeAt {
-			return true
-		}
-		return change.createdAt == lastChangeAt
-			&& changeIDsAtLastDate.contains(change.id)
-	}
-
-	mutating func record(_ change: ThingsDiaryChange) {
-		guard let lastChangeAt else {
-			self.lastChangeAt = change.createdAt
-			changeIDsAtLastDate = [change.id]
-			return
-		}
-		if change.createdAt > lastChangeAt {
-			self.lastChangeAt = change.createdAt
-			changeIDsAtLastDate = [change.id]
-		} else if change.createdAt == lastChangeAt,
-			!changeIDsAtLastDate.contains(change.id)
-		{
-			changeIDsAtLastDate.append(change.id)
-		}
 	}
 }
 

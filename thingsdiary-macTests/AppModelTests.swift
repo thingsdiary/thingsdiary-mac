@@ -1445,6 +1445,52 @@ func failedLoginAllowsRetry() async {
 }
 
 @MainActor
+@Test("A realtime entry event updates the visible diary")
+func realtimeEntryEventUpdatesVisibleDiary() async throws {
+	let fileURL = FileManager.default.temporaryDirectory
+		.appending(path: "thingsdiary-app-realtime-\(UUID().uuidString).json")
+	defer { try? FileManager.default.removeItem(at: fileURL) }
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let original = entry(id: "entry-1", diaryID: selectedDiary.id, content: "Before")
+	let updated = ThingsDiaryEntry(
+		id: original.id,
+		diaryID: original.diaryID,
+		content: "After",
+		createdAt: original.createdAt,
+		updatedAt: original.updatedAt.addingTimeInterval(1),
+		version: original.version + 1
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		entriesResult: .success([original])
+	)
+	let model = ThingsDiaryAppModel(
+		client: client,
+		store: try DiaryStore(fileURL: fileURL)
+	)
+	model.login = "person@example.test"
+	model.password = "password"
+	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+	await model.submit()
+
+	#expect(
+		await client.sendRealtimeEvent(
+			ThingsDiaryRealtimeEvent(
+				eventID: "event-1",
+				operationID: "operation-1",
+				update: .upsertEntry(updated)
+			)
+		)
+	)
+	for _ in 0..<100 {
+		if model.screen == .entries(diary: selectedDiary, entries: [updated]) { break }
+		await Task.yield()
+	}
+
+	#expect(model.screen == .entries(diary: selectedDiary, entries: [updated]))
+}
+
+@MainActor
 @Test("Login requires all credentials before calling the client")
 func loginRequiresAllCredentials() async {
 	let client = StubAppClient(result: .success([]))
@@ -1627,6 +1673,9 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedCreateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var receivedUpdateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var callOrder: [Call] = []
+	private let realtimeStream: AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error>
+	private let realtimeContinuation:
+		AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error>.Continuation
 
 	init(
 		result: Result<[ThingsDiaryDiary], Error>,
@@ -1649,6 +1698,9 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		createTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil,
 		updateTemplateResult: Result<ThingsDiaryTemplate, Error>? = nil
 	) {
+		let realtime = AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error>.makeStream()
+		realtimeStream = realtime.stream
+		realtimeContinuation = realtime.continuation
 		self.result = result
 		self.connectResult = connectResult
 		self.createDiaryResult = createDiaryResult
@@ -1671,6 +1723,18 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	func connect() async throws {
 		callOrder.append(.connect)
 		try connectResult.get()
+	}
+
+	func events() async -> AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error> {
+		realtimeStream
+	}
+
+	func sendRealtimeEvent(_ event: ThingsDiaryRealtimeEvent) -> Bool {
+		switch realtimeContinuation.yield(event) {
+		case .enqueued, .dropped: true
+		case .terminated: false
+		@unknown default: false
+		}
 	}
 
 	func register(

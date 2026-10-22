@@ -16,7 +16,7 @@ struct ThingsDiaryRegistrationResult: Sendable, Equatable {
 nonisolated protocol ThingsDiaryAppClient: DiaryStoreRemote {
 	func connect() async throws
 	func disconnect() async
-	func events() async -> AsyncThrowingStream<Io_Thingsdiary_V1_Event, Error>
+	func events() async -> AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error>
 	func register(
 		login: String,
 		password: String,
@@ -76,7 +76,7 @@ extension ThingsDiaryAppClient {
 
 	func disconnect() async {}
 
-	func events() async -> AsyncThrowingStream<Io_Thingsdiary_V1_Event, Error> {
+	func events() async -> AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error> {
 		AsyncThrowingStream { $0.finish() }
 	}
 
@@ -180,8 +180,149 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 		await client.disconnect()
 	}
 
-	func events() async -> AsyncThrowingStream<Io_Thingsdiary_V1_Event, Error> {
-		await client.events()
+	func events() async -> AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error> {
+		let source = await client.events()
+		return AsyncThrowingStream { continuation in
+			let task = Task {
+				do {
+					for try await event in source {
+						do {
+							if let event = try await resolve(event) {
+								continuation.yield(event)
+							}
+						} catch is CancellationError {
+							throw CancellationError()
+						} catch {
+							// One failed point read must not terminate the realtime subscription.
+							continue
+						}
+					}
+					continuation.finish()
+				} catch {
+					continuation.finish(throwing: error)
+				}
+			}
+			continuation.onTermination = { _ in task.cancel() }
+		}
+	}
+
+	private func resolve(
+		_ event: Io_Thingsdiary_V1_Event
+	) async throws -> ThingsDiaryRealtimeEvent? {
+		guard let payload = event.payload else { return nil }
+		switch payload {
+		case .diaryCreated(let value):
+			return ThingsDiaryRealtimeEvent(
+				eventID: value.eventID,
+				operationID: event.operationID,
+				update: .upsertDiary(try await client.getDiary(id: value.diary.id))
+			)
+		case .diaryChanged(let value):
+			return ThingsDiaryRealtimeEvent(
+				eventID: value.eventID,
+				operationID: event.operationID,
+				update: .upsertDiary(try await client.getDiary(id: value.diary.id))
+			)
+		case .diaryDeleted(let value):
+			return ThingsDiaryRealtimeEvent(
+				eventID: value.eventID,
+				operationID: event.operationID,
+				update: .removeDiary(id: value.diaryID, version: value.version)
+			)
+		case .entryChanged(let value):
+			return try await entryEvent(event, value: value.entry, eventID: value.eventID)
+		case .entryRestored(let value):
+			return try await entryEvent(event, value: value.entry, eventID: value.eventID)
+		case .entryDeleted(let value):
+			if value.entry.hasRemovedAt {
+				return ThingsDiaryRealtimeEvent(
+					eventID: value.eventID,
+					operationID: event.operationID,
+					update: .removeEntry(
+						diaryID: value.entry.diaryID,
+						id: value.entry.id,
+						version: value.entry.version
+					)
+				)
+			}
+			return try await entryEvent(event, value: value.entry, eventID: value.eventID)
+		case .topicChanged(let value):
+			return try await topicEvent(event, value: value.topic, eventID: value.eventID)
+		case .topicRestored(let value):
+			return try await topicEvent(event, value: value.topic, eventID: value.eventID)
+		case .topicDeleted(let value):
+			if value.topic.hasRemovedAt {
+				return ThingsDiaryRealtimeEvent(
+					eventID: value.eventID,
+					operationID: event.operationID,
+					update: .removeTopic(
+						diaryID: value.topic.diaryID,
+						id: value.topic.id,
+						version: value.topic.version
+					)
+				)
+			}
+			return try await topicEvent(event, value: value.topic, eventID: value.eventID)
+		case .templateChanged(let value):
+			return try await templateEvent(event, value: value.template, eventID: value.eventID)
+		case .templateRestored(let value):
+			return try await templateEvent(event, value: value.template, eventID: value.eventID)
+		case .templateDeleted(let value):
+			if value.template.hasRemovedAt {
+				return ThingsDiaryRealtimeEvent(
+					eventID: value.eventID,
+					operationID: event.operationID,
+					update: .removeTemplate(
+						diaryID: value.template.diaryID,
+						id: value.template.id,
+						version: value.template.version
+					)
+				)
+			}
+			return try await templateEvent(event, value: value.template, eventID: value.eventID)
+		}
+	}
+
+	private func entryEvent(
+		_ event: Io_Thingsdiary_V1_Event,
+		value: Io_Thingsdiary_V1_Entry,
+		eventID: String
+	) async throws -> ThingsDiaryRealtimeEvent {
+		ThingsDiaryRealtimeEvent(
+			eventID: eventID,
+			operationID: event.operationID,
+			update: .upsertEntry(
+				try await client.getEntry(diaryID: value.diaryID, entryID: value.id)
+			)
+		)
+	}
+
+	private func topicEvent(
+		_ event: Io_Thingsdiary_V1_Event,
+		value: Io_Thingsdiary_V1_Topic,
+		eventID: String
+	) async throws -> ThingsDiaryRealtimeEvent {
+		ThingsDiaryRealtimeEvent(
+			eventID: eventID,
+			operationID: event.operationID,
+			update: .upsertTopic(
+				try await client.getTopic(diaryID: value.diaryID, topicID: value.id)
+			)
+		)
+	}
+
+	private func templateEvent(
+		_ event: Io_Thingsdiary_V1_Event,
+		value: Io_Thingsdiary_V1_Template,
+		eventID: String
+	) async throws -> ThingsDiaryRealtimeEvent {
+		ThingsDiaryRealtimeEvent(
+			eventID: eventID,
+			operationID: event.operationID,
+			update: .upsertTemplate(
+				try await client.getTemplate(diaryID: value.diaryID, templateID: value.id)
+			)
+		)
 	}
 
 	func register(
@@ -312,20 +453,6 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 
 	func deleteTemplate(diaryID: String, templateID: String, soft: Bool?) async throws {
 		try await client.deleteTemplate(diaryID: diaryID, templateID: templateID, soft: soft)
-	}
-
-	func getDiaryChanges(
-		diaryID: String,
-		since: Date?,
-		limit: Int?,
-		nextPageToken: String?
-	) async throws -> ThingsDiaryChangesPage {
-		try await client.getDiaryChanges(
-			diaryID: diaryID,
-			since: since,
-			limit: limit,
-			nextPageToken: nextPageToken
-		)
 	}
 
 	func getEntry(
@@ -588,7 +715,12 @@ final class ThingsDiaryAppModel {
 	var password = ""
 	var passwordConfirmation = ""
 	var secretKey = ""
-	private(set) var screen: ThingsDiaryAppScreen = .login
+	private(set) var screen: ThingsDiaryAppScreen = .login {
+		didSet {
+			guard screen != .loading else { return }
+			drainDeferredRealtimeUpdates()
+		}
+	}
 	private(set) var topics: [ThingsDiaryTopic] = []
 	private(set) var templates: [ThingsDiaryTemplate] = []
 	private(set) var presentation: ThingsDiaryAppPresentation = .none
@@ -608,6 +740,8 @@ final class ThingsDiaryAppModel {
 	private var realtimeCoordinator: RealtimeSyncCoordinator?
 	private var diarySelectionID: UUID?
 	private var loadedDiaries: [ThingsDiaryDiary] = []
+	private var deferredRealtimeUpdates: [(ThingsDiaryRealtimeEvent, DiaryStoreSnapshot?)] = []
+	private var isDrainingRealtimeUpdates = false
 
 	var canSubmit: Bool {
 		!login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -891,6 +1025,8 @@ final class ThingsDiaryAppModel {
 					templates: templates
 				)
 				try await store.synchronize(with: client)
+				self.topics = await store.topics(diaryID: diary.id)
+				self.templates = await store.templates(diaryID: diary.id)
 			}
 			let displayedEntries: [ThingsDiaryEntry]
 			if let store {
@@ -1758,12 +1894,152 @@ final class ThingsDiaryAppModel {
 			realtimeCoordinator = RealtimeSyncCoordinator(
 				client: client,
 				store: store,
-				onSnapshot: { [weak self] snapshot in
-					self?.applyRealtimeSnapshot(snapshot)
+				onSnapshot: { [weak self] event, snapshot in
+					self?.applyRealtimeEvent(event, snapshot: snapshot)
 				}
 			)
 		}
 		try await realtimeCoordinator?.start()
+	}
+
+	private func applyRealtimeEvent(
+		_ event: ThingsDiaryRealtimeEvent,
+		snapshot: DiaryStoreSnapshot?
+	) {
+		if screen == .loading {
+			deferredRealtimeUpdates.append((event, snapshot))
+			if deferredRealtimeUpdates.count > 256 {
+				deferredRealtimeUpdates.removeFirst()
+			}
+			return
+		}
+
+		switch event.update {
+		case .upsertDiary(let updated):
+			if let index = loadedDiaries.firstIndex(where: { $0.id == updated.id }) {
+				guard updated.version >= loadedDiaries[index].version else { return }
+				loadedDiaries[index] = updated
+			} else {
+				loadedDiaries.append(updated)
+			}
+		case .removeDiary(let id, let version):
+			if let diary = loadedDiaries.first(where: { $0.id == id }),
+				version < diary.version
+			{
+				return
+			}
+			loadedDiaries.removeAll { $0.id == id }
+			if case .entries(let diary, _) = screen, diary.id == id {
+				topics = []
+				templates = []
+				entryDraftIDs = []
+				entryDraftIDsHiddenFromList = []
+				entryPendingCreationIDs = []
+				templateDraftIDs = []
+				screen = .diaries(loadedDiaries)
+			}
+			return
+		case .upsertEntry(let entry):
+			applyRealtimeEntry(entry)
+		case .removeEntry(let diaryID, let id, let version):
+			removeRealtimeEntry(diaryID: diaryID, id: id, version: version)
+		case .upsertTopic(let topic):
+			guard currentDiaryID == topic.diaryID else { break }
+			upsertVersioned(topic, in: &topics, id: \ThingsDiaryTopic.id, version: \ThingsDiaryTopic.version)
+		case .removeTopic(let diaryID, let id, let version):
+			guard currentDiaryID == diaryID else { break }
+			if let topic = topics.first(where: { $0.id == id }), topic.version > version { break }
+			topics.removeAll { $0.id == id }
+		case .upsertTemplate(let template):
+			guard currentDiaryID == template.diaryID else { break }
+			upsertVersioned(
+				template,
+				in: &templates,
+				id: \ThingsDiaryTemplate.id,
+				version: \ThingsDiaryTemplate.version
+			)
+		case .removeTemplate(let diaryID, let id, let version):
+			guard currentDiaryID == diaryID else { break }
+			if let template = templates.first(where: { $0.id == id }),
+				template.version > version
+			{
+				break
+			}
+			templates.removeAll { $0.id == id }
+		}
+
+		if let snapshot {
+			applyRealtimeSnapshot(snapshot)
+		}
+	}
+
+	private func drainDeferredRealtimeUpdates() {
+		guard !isDrainingRealtimeUpdates, !deferredRealtimeUpdates.isEmpty else { return }
+		isDrainingRealtimeUpdates = true
+		defer { isDrainingRealtimeUpdates = false }
+
+		let updates = deferredRealtimeUpdates
+		deferredRealtimeUpdates.removeAll(keepingCapacity: true)
+		for update in updates {
+			switch update.0.update {
+			case .upsertDiary, .removeDiary:
+				applyRealtimeEvent(update.0, snapshot: update.1)
+			default:
+				if currentDiaryID == update.0.update.diaryID {
+					applyRealtimeEvent(update.0, snapshot: update.1)
+				} else {
+					deferredRealtimeUpdates.append(update)
+				}
+			}
+		}
+	}
+
+	private var currentDiaryID: String? {
+		guard case .entries(let diary, _) = screen else { return nil }
+		return diary.id
+	}
+
+	private func applyRealtimeEntry(_ entry: ThingsDiaryEntry) {
+		guard case .entries(let diary, let entries) = screen,
+			diary.id == entry.diaryID,
+			!entryDraftIDs.contains(entry.id)
+		else { return }
+		if let current = entries.first(where: { $0.id == entry.id }),
+			current.version > entry.version
+		{
+			return
+		}
+		screen = .entries(
+			diary: diary,
+			entries: entries.filter { $0.id != entry.id } + [entry]
+		)
+	}
+
+	private func removeRealtimeEntry(diaryID: String, id: String, version: UInt64) {
+		guard case .entries(let diary, let entries) = screen,
+			diary.id == diaryID,
+			!entryDraftIDs.contains(id)
+		else { return }
+		if let current = entries.first(where: { $0.id == id }), current.version > version {
+			return
+		}
+		screen = .entries(diary: diary, entries: entries.filter { $0.id != id })
+	}
+
+	private func upsertVersioned<Value>(
+		_ value: Value,
+		in values: inout [Value],
+		id: KeyPath<Value, String>,
+		version: KeyPath<Value, UInt64>
+	) {
+		let valueID = value[keyPath: id]
+		if let current = values.first(where: { $0[keyPath: id] == valueID }),
+			current[keyPath: version] > value[keyPath: version]
+		{
+			return
+		}
+		values.removeAll { $0[keyPath: id] == valueID }
+		values.append(value)
 	}
 
 	private func applyRealtimeSnapshot(_ snapshot: DiaryStoreSnapshot) {

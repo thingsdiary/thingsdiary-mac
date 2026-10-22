@@ -159,144 +159,6 @@ func diaryStoreRetriesCreateIdempotently() async throws {
 	#expect(await store.entries(diaryID: localEntry.diaryID) == [serverEntry])
 }
 
-@Test("Synchronization applies entry changes and deduplicates a repeated final page")
-func diaryStorePullsAndCheckpointsChanges() async throws {
-	let fileURL = FileManager.default.temporaryDirectory
-		.appending(path: "thingsdiary-changes-\(UUID().uuidString).json")
-	defer { try? FileManager.default.removeItem(at: fileURL) }
-
-	let diary = ThingsDiaryDiary(
-		id: "diary-1",
-		title: "Personal",
-		description: "",
-		createdAt: Date(timeIntervalSince1970: 1),
-		updatedAt: Date(timeIntervalSince1970: 2),
-		version: 3
-	)
-	let oldEntry = ThingsDiaryEntry(
-		id: "entry-1",
-		diaryID: diary.id,
-		content: "Before",
-		createdAt: Date(timeIntervalSince1970: 3),
-		updatedAt: Date(timeIntervalSince1970: 3),
-		version: 3_000
-	)
-	let removedEntry = ThingsDiaryEntry(
-		id: "entry-removed",
-		diaryID: diary.id,
-		content: "Remove me",
-		createdAt: Date(timeIntervalSince1970: 3),
-		updatedAt: Date(timeIntervalSince1970: 3),
-		version: 3_000
-	)
-	let serverEntry = ThingsDiaryEntry(
-		id: oldEntry.id,
-		diaryID: diary.id,
-		content: "After",
-		createdAt: oldEntry.createdAt,
-		updatedAt: Date(timeIntervalSince1970: 5),
-		version: 5_000
-	)
-	let changedAt = Date(timeIntervalSince1970: 6)
-	let changes = [
-		ThingsDiaryChange(
-			id: "change-update",
-			createdAt: changedAt,
-			operation: .updated,
-			entityType: .entry,
-			entityID: oldEntry.id
-		),
-		ThingsDiaryChange(
-			id: "change-remove",
-			createdAt: changedAt,
-			operation: .removed,
-			entityType: .entry,
-			entityID: removedEntry.id
-		),
-	]
-	let remote = RepeatingChangesRemote(
-		page: ThingsDiaryChangesPage(changes: changes, nextPageToken: nil),
-		entries: [serverEntry.id: serverEntry]
-	)
-	let store = try DiaryStore(fileURL: fileURL)
-	try await store.replaceSelectedDiary(diary, entries: [oldEntry, removedEntry])
-
-	try await store.synchronize(with: remote)
-
-	#expect(await store.entries(diaryID: diary.id) == [serverEntry])
-	let reopenedStore = try DiaryStore(fileURL: fileURL)
-	try await reopenedStore.synchronize(with: remote)
-
-	#expect(await remote.requestedEntryIDs == [serverEntry.id])
-	#expect(await remote.requestedSince.last == changedAt)
-}
-
-@Test("Synchronization applies topic and template changes before advancing its checkpoint")
-func diaryStorePullsTopicAndTemplateChanges() async throws {
-	let fileURL = FileManager.default.temporaryDirectory
-		.appending(path: "thingsdiary-entity-changes-\(UUID().uuidString).json")
-	defer { try? FileManager.default.removeItem(at: fileURL) }
-	let diary = ThingsDiaryDiary(
-		id: "diary-1",
-		title: "Personal",
-		description: "",
-		createdAt: Date(timeIntervalSince1970: 1),
-		updatedAt: Date(timeIntervalSince1970: 2),
-		version: 3
-	)
-	let topic = ThingsDiaryTopic(
-		id: "topic-1",
-		diaryID: diary.id,
-		title: "Synced topic",
-		description: "",
-		color: "blue",
-		createdAt: Date(timeIntervalSince1970: 3),
-		updatedAt: Date(timeIntervalSince1970: 5),
-		version: 5_000
-	)
-	let template = ThingsDiaryTemplate(
-		id: "template-1",
-		diaryID: diary.id,
-		content: "# Synced template",
-		createdAt: Date(timeIntervalSince1970: 3),
-		updatedAt: Date(timeIntervalSince1970: 5),
-		version: 5_000
-	)
-	let changedAt = Date(timeIntervalSince1970: 6)
-	let remote = EntityChangesRemote(
-		page: ThingsDiaryChangesPage(
-			changes: [
-				ThingsDiaryChange(
-					id: "topic-change",
-					createdAt: changedAt,
-					operation: .updated,
-					entityType: .topic,
-					entityID: topic.id
-				),
-				ThingsDiaryChange(
-					id: "template-change",
-					createdAt: changedAt,
-					operation: .created,
-					entityType: .template,
-					entityID: template.id
-				),
-			], nextPageToken: nil),
-		topic: topic,
-		template: template
-	)
-	let store = try DiaryStore(fileURL: fileURL)
-	try await store.replaceSelectedDiary(diary, entries: [])
-
-	try await store.synchronize(with: remote)
-
-	#expect(await store.topics(diaryID: diary.id) == [topic])
-	#expect(await store.templates(diaryID: diary.id) == [template])
-	let reopened = try DiaryStore(fileURL: fileURL)
-	try await reopened.synchronize(with: remote)
-	#expect(await remote.topicRequests == [topic.id])
-	#expect(await remote.templateRequests == [template.id])
-}
-
 @Test(
 	"A version conflict preserves both local and server note content",
 	arguments: [
@@ -428,8 +290,8 @@ func diaryStoreSynchronizesPermanentDelete() async throws {
 	#expect(await store.pendingEntryWrites().isEmpty)
 }
 
-@Test("A save queued during change pulling is synchronized before its caller returns")
-func diaryStoreDrainsWritesQueuedDuringPull() async throws {
+@Test("A save queued during synchronization is sent before its caller returns")
+func diaryStoreDrainsWritesQueuedDuringSynchronization() async throws {
 	let fileURL = FileManager.default.temporaryDirectory
 		.appending(path: "thingsdiary-pull-race-\(UUID().uuidString).json")
 	defer { try? FileManager.default.removeItem(at: fileURL) }
@@ -460,13 +322,13 @@ func diaryStoreDrainsWritesQueuedDuringPull() async throws {
 	let store = try DiaryStore(fileURL: fileURL)
 	try await store.replaceSelectedDiary(diary, entries: [])
 	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: first))
-	let remote = DelayedPullRemote()
+	let remote = DelayedUpdateRemote()
 	let firstSynchronization = Task { try await store.synchronize(with: remote) }
 	for _ in 0..<100 {
-		if await remote.pullStarted { break }
+		if await remote.firstUpdateStarted { break }
 		try await Task.sleep(for: .milliseconds(1))
 	}
-	#expect(await remote.pullStarted)
+	#expect(await remote.firstUpdateStarted)
 
 	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: second))
 	let secondSynchronization = Task { try await store.synchronize(with: remote) }
@@ -476,68 +338,6 @@ func diaryStoreDrainsWritesQueuedDuringPull() async throws {
 	#expect(await remote.receivedContents == ["First", "Second"])
 	#expect(await store.pendingEntryWrites().isEmpty)
 	#expect(await store.entries(diaryID: diary.id) == [second])
-}
-
-@Test("A pulled entry cannot overwrite a local save made while it is loading")
-func diaryStorePreservesSaveDuringEntryPull() async throws {
-	let fileURL = FileManager.default.temporaryDirectory
-		.appending(path: "thingsdiary-entry-pull-race-\(UUID().uuidString).json")
-	defer { try? FileManager.default.removeItem(at: fileURL) }
-	let diary = ThingsDiaryDiary(
-		id: "diary-1",
-		title: "Personal",
-		description: "",
-		createdAt: Date(timeIntervalSince1970: 1),
-		updatedAt: Date(timeIntervalSince1970: 1),
-		version: 1
-	)
-	let original = ThingsDiaryEntry(
-		id: "entry-1",
-		diaryID: diary.id,
-		content: "Original",
-		createdAt: Date(timeIntervalSince1970: 1),
-		updatedAt: Date(timeIntervalSince1970: 1),
-		version: 1
-	)
-	let serverEntry = ThingsDiaryEntry(
-		id: original.id,
-		diaryID: diary.id,
-		content: "Server",
-		createdAt: original.createdAt,
-		updatedAt: Date(timeIntervalSince1970: 2),
-		version: 2
-	)
-	let localEntry = ThingsDiaryEntry(
-		id: original.id,
-		diaryID: diary.id,
-		content: "Local while pulling",
-		createdAt: original.createdAt,
-		updatedAt: Date(timeIntervalSince1970: 3),
-		version: 3
-	)
-	let change = ThingsDiaryChange(
-		id: "change-1",
-		createdAt: Date(timeIntervalSince1970: 2),
-		operation: .updated,
-		entityType: .entry,
-		entityID: original.id
-	)
-	let store = try DiaryStore(fileURL: fileURL)
-	try await store.replaceSelectedDiary(diary, entries: [original])
-	let remote = DelayedEntryPullRemote(change: change, serverEntry: serverEntry)
-	let synchronization = Task { try await store.synchronize(with: remote) }
-	for _ in 0..<100 {
-		if await remote.getEntryStarted { break }
-		try await Task.sleep(for: .milliseconds(1))
-	}
-	#expect(await remote.getEntryStarted)
-
-	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: localEntry))
-	try await synchronization.value
-
-	#expect(await remote.receivedUpdateContents == [localEntry.content])
-	#expect(await store.pendingEntryWrites().isEmpty)
-	#expect(await store.entries(diaryID: diary.id) == [localEntry])
 }
 
 @Test("A stale conflict cannot remove a newer write for the same note")
@@ -592,8 +392,8 @@ private enum SyncTestFailure: Error {
 	case lostResponse
 }
 
-private actor DelayedPullRemote: DiaryStoreRemote {
-	private(set) var pullStarted = false
+private actor DelayedUpdateRemote: DiaryStoreRemote {
+	private(set) var firstUpdateStarted = false
 	private(set) var receivedContents: [String] = []
 
 	func createEntry(
@@ -609,20 +409,11 @@ private actor DelayedPullRemote: DiaryStoreRemote {
 		params: ThingsDiaryEntryParams
 	) async throws -> ThingsDiaryEntry {
 		receivedContents.append(params.content)
-		return entry
-	}
-
-	func getDiaryChanges(
-		diaryID: String,
-		since: Date?,
-		limit: Int?,
-		nextPageToken: String?
-	) async throws -> ThingsDiaryChangesPage {
-		if !pullStarted {
-			pullStarted = true
+		if !firstUpdateStarted {
+			firstUpdateStarted = true
 			try await Task.sleep(for: .milliseconds(100))
 		}
-		return ThingsDiaryChangesPage(changes: [], nextPageToken: nil)
+		return entry
 	}
 }
 
@@ -664,52 +455,6 @@ private actor DelayedConflictThenSuccessRemote: DiaryStoreRemote {
 	}
 }
 
-private actor DelayedEntryPullRemote: DiaryStoreRemote {
-	let change: ThingsDiaryChange
-	let serverEntry: ThingsDiaryEntry
-	private(set) var getEntryStarted = false
-	private(set) var receivedUpdateContents: [String] = []
-
-	init(change: ThingsDiaryChange, serverEntry: ThingsDiaryEntry) {
-		self.change = change
-		self.serverEntry = serverEntry
-	}
-
-	func createEntry(
-		diaryID: String,
-		entryID: String,
-		params: ThingsDiaryEntryParams
-	) async throws -> ThingsDiaryEntry {
-		throw SyncTestFailure.lostResponse
-	}
-
-	func updateEntry(
-		_ entry: ThingsDiaryEntry,
-		params: ThingsDiaryEntryParams
-	) async throws -> ThingsDiaryEntry {
-		receivedUpdateContents.append(params.content)
-		return entry
-	}
-
-	func getDiaryChanges(
-		diaryID: String,
-		since: Date?,
-		limit: Int?,
-		nextPageToken: String?
-	) async throws -> ThingsDiaryChangesPage {
-		ThingsDiaryChangesPage(changes: [change], nextPageToken: nil)
-	}
-
-	func getEntry(
-		diaryID: String,
-		entryID: String
-	) async throws -> ThingsDiaryEntry {
-		getEntryStarted = true
-		try await Task.sleep(for: .milliseconds(100))
-		return serverEntry
-	}
-}
-
 private actor LostCreateResponseRemote: DiaryStoreRemote {
 	let serverEntry: ThingsDiaryEntry
 	private(set) var receivedEntryIDs: [String] = []
@@ -735,112 +480,6 @@ private actor LostCreateResponseRemote: DiaryStoreRemote {
 		params: ThingsDiaryEntryParams
 	) async throws -> ThingsDiaryEntry {
 		throw SyncTestFailure.lostResponse
-	}
-}
-
-private actor RepeatingChangesRemote: DiaryStoreRemote {
-	let page: ThingsDiaryChangesPage
-	let storedEntries: [String: ThingsDiaryEntry]
-	private(set) var requestedEntryIDs: [String] = []
-	private(set) var requestedSince: [Date?] = []
-
-	init(
-		page: ThingsDiaryChangesPage,
-		entries: [String: ThingsDiaryEntry]
-	) {
-		self.page = page
-		storedEntries = entries
-	}
-
-	func createEntry(
-		diaryID: String,
-		entryID: String,
-		params: ThingsDiaryEntryParams
-	) async throws -> ThingsDiaryEntry {
-		throw SyncTestFailure.lostResponse
-	}
-
-	func updateEntry(
-		_ entry: ThingsDiaryEntry,
-		params: ThingsDiaryEntryParams
-	) async throws -> ThingsDiaryEntry {
-		throw SyncTestFailure.lostResponse
-	}
-
-	func getDiaryChanges(
-		diaryID: String,
-		since: Date?,
-		limit: Int?,
-		nextPageToken: String?
-	) async throws -> ThingsDiaryChangesPage {
-		requestedSince.append(since)
-		return page
-	}
-
-	func getEntry(
-		diaryID: String,
-		entryID: String
-	) async throws -> ThingsDiaryEntry {
-		requestedEntryIDs.append(entryID)
-		guard let entry = storedEntries[entryID] else {
-			throw SyncTestFailure.lostResponse
-		}
-		return entry
-	}
-}
-
-private actor EntityChangesRemote: DiaryStoreRemote {
-	let page: ThingsDiaryChangesPage
-	let topic: ThingsDiaryTopic
-	let template: ThingsDiaryTemplate
-	private(set) var topicRequests: [String] = []
-	private(set) var templateRequests: [String] = []
-
-	init(
-		page: ThingsDiaryChangesPage,
-		topic: ThingsDiaryTopic,
-		template: ThingsDiaryTemplate
-	) {
-		self.page = page
-		self.topic = topic
-		self.template = template
-	}
-
-	func createEntry(
-		diaryID: String,
-		entryID: String,
-		params: ThingsDiaryEntryParams
-	) async throws -> ThingsDiaryEntry {
-		throw SyncTestFailure.lostResponse
-	}
-
-	func updateEntry(
-		_ entry: ThingsDiaryEntry,
-		params: ThingsDiaryEntryParams
-	) async throws -> ThingsDiaryEntry {
-		throw SyncTestFailure.lostResponse
-	}
-
-	func getDiaryChanges(
-		diaryID: String,
-		since: Date?,
-		limit: Int?,
-		nextPageToken: String?
-	) async throws -> ThingsDiaryChangesPage {
-		page
-	}
-
-	func getTopic(diaryID: String, topicID: String) async throws -> ThingsDiaryTopic {
-		topicRequests.append(topicID)
-		return topic
-	}
-
-	func getTemplate(
-		diaryID: String,
-		templateID: String
-	) async throws -> ThingsDiaryTemplate {
-		templateRequests.append(templateID)
-		return template
 	}
 }
 

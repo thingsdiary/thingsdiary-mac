@@ -353,6 +353,14 @@ nonisolated func reconciledEntryDraftAfterSave(
 	return persistedContent
 }
 
+nonisolated func reconciledDraftAfterRemoteUpdate(
+	currentDraft: String,
+	previousPersistedContent: String,
+	updatedPersistedContent: String
+) -> String {
+	currentDraft == previousPersistedContent ? updatedPersistedContent : currentDraft
+}
+
 nonisolated func browserTabReorderDestination(
 	startIndex: Int,
 	translation: CGFloat,

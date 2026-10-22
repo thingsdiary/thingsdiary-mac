@@ -629,6 +629,24 @@ func reconcilesSavedEntryDraft() {
 	)
 }
 
+@Test("A remote update replaces only an unchanged editor draft")
+func reconcilesRemoteEntryUpdate() {
+	#expect(
+		reconciledDraftAfterRemoteUpdate(
+			currentDraft: "Before",
+			previousPersistedContent: "Before",
+			updatedPersistedContent: "From another window"
+		) == "From another window"
+	)
+	#expect(
+		reconciledDraftAfterRemoteUpdate(
+			currentDraft: "Unsaved local edit",
+			previousPersistedContent: "Before",
+			updatedPersistedContent: "From another window"
+		) == "Unsaved local edit"
+	)
+}
+
 @Test("Entry tab drag crosses neighboring tab centers")
 func resolvesEntryTabDragDestination() {
 	#expect(browserTabReorderDestination(startIndex: 1, translation: -100, tabWidth: 170, tabCount: 4) == 0)

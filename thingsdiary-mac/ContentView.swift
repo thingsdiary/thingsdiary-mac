@@ -643,12 +643,44 @@ private struct EntriesView: View {
 				)
 				tabs.reconcile(validTabIDs: validTabIDs)
 			}
+			.onChange(of: entries) { previousEntries, updatedEntries in
+				for updatedEntry in updatedEntries {
+					guard
+						let previousEntry = previousEntries.first(where: {
+							$0.id == updatedEntry.id
+						}),
+						previousEntry.content != updatedEntry.content,
+						let currentDraft = draftsByEntryID[updatedEntry.id]
+					else { continue }
+					draftsByEntryID[updatedEntry.id] = reconciledDraftAfterRemoteUpdate(
+						currentDraft: currentDraft,
+						previousPersistedContent: previousEntry.content,
+						updatedPersistedContent: updatedEntry.content
+					)
+				}
+			}
 			.onChange(of: model.templates.map(\.id)) { templateIDs in
 				let validTabIDs = Set(
 					entries.map { WorkspaceTabID.entry($0.id) }
 						+ templateIDs.map(WorkspaceTabID.template)
 				)
 				tabs.reconcile(validTabIDs: validTabIDs)
+			}
+			.onChange(of: model.templates) { previousTemplates, updatedTemplates in
+				for updatedTemplate in updatedTemplates {
+					guard
+						let previousTemplate = previousTemplates.first(where: {
+							$0.id == updatedTemplate.id
+						}),
+						previousTemplate.content != updatedTemplate.content,
+						let currentDraft = templateDraftsByID[updatedTemplate.id]
+					else { continue }
+					templateDraftsByID[updatedTemplate.id] = reconciledDraftAfterRemoteUpdate(
+						currentDraft: currentDraft,
+						previousPersistedContent: previousTemplate.content,
+						updatedPersistedContent: updatedTemplate.content
+					)
+				}
 			}
 			.onChange(of: model.diaryEditRequestID) {
 				presentRequestedDiaryEditor()
