@@ -15,7 +15,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/thingsdiary/client-swift.git",
       "state" : {
-        "revision" : "1f39eda8c2f60117015cf2e943673843fdf98f42"
+        "revision" : "eecb5ddd4282803405d8ba3459ec0adb516edc6a"
       }
     },
     {
