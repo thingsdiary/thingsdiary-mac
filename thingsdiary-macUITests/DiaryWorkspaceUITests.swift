@@ -283,6 +283,27 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(app.windows.count, initialWindowCount + 1)
 	}
 
+	func testNewEntryAndNewWindowShortcutsDoNotConflict() {
+		let app = launchWorkspace()
+		let window = workspace(in: app)
+
+		window.typeKey("n", modifierFlags: .command)
+		let entryTab = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(entryTab.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.windows.count, 1)
+
+		window.typeKey("n", modifierFlags: [.command, .shift])
+		let newWindow = app.windows.element(boundBy: 1)
+		XCTAssertTrue(newWindow.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.windows.count, 2)
+	}
+
 	func testLogoutRequiresConfirmationAndReturnsToSignIn() {
 		let app = launchWorkspace()
 

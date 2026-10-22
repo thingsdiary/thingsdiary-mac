@@ -108,6 +108,7 @@ private struct UITestingWindowActivator: NSViewRepresentable {
 }
 
 private struct EntryCommands: Commands {
+	@Environment(\.openWindow) private var openWindow
 	@FocusedValue(\.entrySaveAction) private var save
 	@FocusedValue(\.entrySaveAllAction) private var saveAll
 	@FocusedValue(\.entryCloseAction) private var close
@@ -116,7 +117,12 @@ private struct EntryCommands: Commands {
 	@FocusedValue(\.selectPreviousTabAction) private var selectPreviousTab
 
 	var body: some Commands {
-		CommandGroup(after: .newItem) {
+		CommandGroup(replacing: .newItem) {
+			Button("New Window") {
+				openWindow(id: "main")
+			}
+			.keyboardShortcut("n", modifiers: [.command, .shift])
+
 			Button("New Entry") {
 				creationActions?.newEntry()
 			}
@@ -237,7 +243,7 @@ struct ThingsDiaryApp: App {
 	}
 
 	var body: some Scene {
-		WindowGroup {
+		WindowGroup(id: "main") {
 			#if DEBUG
 				if ProcessInfo.processInfo.arguments.contains("--tab-overlap-lab") {
 					TabOverlapLab()
