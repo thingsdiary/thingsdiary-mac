@@ -1795,7 +1795,7 @@ private struct EntriesView: View {
 					.onHover { topicsHeaderHovered = $0 }
 
 					if topicsExpanded {
-						ForEach(model.topics) { topic in
+						ForEach(topicsSortedByCreation(model.topics)) { topic in
 							sidebarRow(
 								topic.title,
 								systemImage: "tag",

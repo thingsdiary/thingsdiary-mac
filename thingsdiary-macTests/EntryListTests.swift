@@ -184,6 +184,18 @@ func normalizesTopicTitles() {
 	#expect(normalizedTopicTitle("abcdefghijklmnop") == "abcdefghijkl")
 }
 
+@Test("Topic list sorts by creation time ascending instead of update time")
+func sortsTopicsByCreationTime() {
+	let oldest = listTopic(id: "oldest", createdAt: 1, updatedAt: 30)
+	let middle = listTopic(id: "middle", createdAt: 2, updatedAt: 20)
+	let newest = listTopic(id: "newest", createdAt: 3, updatedAt: 10)
+
+	#expect(
+		topicsSortedByCreation([newest, oldest, middle])
+			== [oldest, middle, newest]
+	)
+}
+
 @Test("Editor workspace uses hysteresis around its minimum width")
 func adaptsEditorWorkspaceWidthWithoutLayoutChurn() {
 	#expect(
@@ -724,6 +736,23 @@ private func listEntry(
 		createdAt: Date(timeIntervalSince1970: 1),
 		updatedAt: Date(timeIntervalSince1970: updatedAt),
 		deletedAt: deletedAt.map(Date.init(timeIntervalSince1970:)),
+		version: UInt64(updatedAt * 1_000)
+	)
+}
+
+private func listTopic(
+	id: String,
+	createdAt: TimeInterval,
+	updatedAt: TimeInterval
+) -> ThingsDiaryTopic {
+	ThingsDiaryTopic(
+		id: id,
+		diaryID: "diary-1",
+		title: id,
+		description: "",
+		color: "blue",
+		createdAt: Date(timeIntervalSince1970: createdAt),
+		updatedAt: Date(timeIntervalSince1970: updatedAt),
 		version: UInt64(updatedAt * 1_000)
 	)
 }

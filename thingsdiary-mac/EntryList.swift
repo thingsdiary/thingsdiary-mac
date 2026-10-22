@@ -648,3 +648,13 @@ nonisolated let maximumTopicTitleLength = 12
 nonisolated func normalizedTopicTitle(_ title: String) -> String {
 	String(title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maximumTopicTitleLength))
 }
+
+nonisolated func topicsSortedByCreation(
+	_ topics: [ThingsDiaryTopic]
+) -> [ThingsDiaryTopic] {
+	topics.sorted { left, right in
+		left.createdAt == right.createdAt
+			? left.id < right.id
+			: left.createdAt < right.createdAt
+	}
+}
