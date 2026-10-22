@@ -369,6 +369,7 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 		case loginSuccess = "login-success"
 		case loginBadRequest = "login-bad-request"
 		case registrationSuccess = "registration-success"
+		case registrationMismatch = "registration-mismatch"
 		case registrationDuplicate = "registration-duplicate"
 		case registrationBadRequest = "registration-bad-request"
 	}
@@ -631,7 +632,24 @@ final class ThingsDiaryAppModel {
 	#if DEBUG
 		static func uiTestingAuthentication(scenario rawValue: String) -> ThingsDiaryAppModel {
 			let scenario = UITestingAuthScenario(rawValue: rawValue) ?? .loginSuccess
-			return ThingsDiaryAppModel(client: UITestingAppClient(scenario: scenario))
+			let model = ThingsDiaryAppModel(client: UITestingAppClient(scenario: scenario))
+			model.login = "person@example.test"
+			model.password = "password"
+
+			switch scenario {
+			case .workspace:
+				break
+			case .loginSuccess, .loginBadRequest:
+				model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
+			case .registrationMismatch:
+				model.passwordConfirmation = "different"
+				model.screen = .registration
+			case .registrationSuccess, .registrationDuplicate, .registrationBadRequest:
+				model.passwordConfirmation = "password"
+				model.screen = .registration
+			}
+
+			return model
 		}
 
 		static func uiTestingWorkspace(includesDeletedEntry: Bool = true) -> ThingsDiaryAppModel {

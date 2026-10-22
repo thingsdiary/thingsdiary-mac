@@ -261,6 +261,7 @@ private struct RegistrationView: View {
 				Text("Passwords do not match.")
 					.font(.caption)
 					.foregroundStyle(.red)
+					.accessibilityIdentifier("auth.password-mismatch")
 			}
 
 			Text("Use a valid email address and at least 8 password characters.")
