@@ -896,7 +896,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(window.waitForNonExistence(timeout: 2))
 	}
 
-	func testControlTabCyclesForwardAndBackward() {
+	func testControlTabAndControlShiftTabCycleForwardAndBackward() {
 		let app = launchWorkspace()
 
 		app.buttons["entry.fixture-entry"].click()
@@ -919,8 +919,10 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let editor = app.textViews["entry.editor"]
 		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))
 
-		app.menuBars.menuBarItems["Tabs"].click()
-		app.menuItems["Next Tab"].click()
+		editor.typeKey(.tab, modifierFlags: .shift)
+		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))
+
+		editor.typeKey(.tab, modifierFlags: .control)
 		XCTAssertTrue(
 			editor.waitForValue(
 				"Fixture Entry\nA useful preview for UI testing.",
@@ -928,8 +930,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 			)
 		)
 
-		app.menuBars.menuBarItems["Tabs"].click()
-		app.menuItems["Previous Tab"].click()
+		editor.typeKey(.tab, modifierFlags: [.control, .shift])
 		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))
 	}
 
@@ -946,7 +947,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		XCTAssertEqual(entryTabs.count, 0)
 		window.typeKey(.tab, modifierFlags: .control)
-		window.typeKey(.tab, modifierFlags: .shift)
+		window.typeKey(.tab, modifierFlags: [.control, .shift])
 		XCTAssertEqual(entryTabs.count, 0)
 
 		app.buttons["entry.fixture-entry"].doubleClick()
@@ -956,7 +957,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(entryTabs.count, 1)
 
 		editor.typeKey(.tab, modifierFlags: .control)
-		editor.typeKey(.tab, modifierFlags: .shift)
+		editor.typeKey(.tab, modifierFlags: [.control, .shift])
 		XCTAssertEqual(editor.value as? String, content)
 		XCTAssertEqual(entryTabs.count, 1)
 	}

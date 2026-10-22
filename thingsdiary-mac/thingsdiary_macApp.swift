@@ -145,7 +145,7 @@ private struct EntryCommands: Commands {
 				selectPreviousTab?()
 			}
 			.disabled(selectPreviousTab == nil)
-			.keyboardShortcut(.tab, modifiers: .shift)
+			.keyboardShortcut(.tab, modifiers: [.control, .shift])
 		}
 
 		CommandGroup(replacing: .saveItem) {

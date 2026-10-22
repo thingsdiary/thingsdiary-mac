@@ -56,13 +56,14 @@ private struct WorkspaceShortcutMonitor: NSViewRepresentable {
 				let modifiers = event.modifierFlags.intersection([
 					.command, .control, .option, .shift,
 				])
-				let handled = switch (event.keyCode, modifiers) {
-				case (1, .command), (1, .control): save()
-				case (45, .command), (17, .command): create()
-				case (48, .control): selectNextTab()
-				case (48, .shift): selectPreviousTab()
-				default: false
-				}
+				let handled =
+					switch (event.keyCode, modifiers) {
+					case (1, .command), (1, .control): save()
+					case (45, .command), (17, .command): create()
+					case (48, .control): selectNextTab()
+					case (48, [.control, .shift]): selectPreviousTab()
+					default: false
+					}
 				return handled ? nil : event
 			}
 		}
