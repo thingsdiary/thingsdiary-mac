@@ -482,6 +482,33 @@ func selectingDiaryLoadsTopicsAndTemplates() async {
 }
 
 @MainActor
+@Test("Selecting a diary hides deleted topics")
+func selectingDiaryHidesDeletedTopics() async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let activeTopic = topic(id: "topic-1", diaryID: selectedDiary.id, title: "Work")
+	let deletedTopic = ThingsDiaryTopic(
+		id: "topic-2",
+		diaryID: selectedDiary.id,
+		title: "Deleted",
+		description: "",
+		color: "gray",
+		createdAt: Date(timeIntervalSince1970: 1),
+		updatedAt: Date(timeIntervalSince1970: 2),
+		deletedAt: Date(timeIntervalSince1970: 3),
+		version: 4
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]),
+		topicsResult: .success([activeTopic, deletedTopic])
+	)
+	let model = ThingsDiaryAppModel(client: client)
+
+	await model.selectDiary(selectedDiary)
+
+	#expect(model.topics == [activeTopic])
+}
+
+@MainActor
 @Test("Creating and updating a topic sends its parameters to the client")
 func createsAndUpdatesTopic() async {
 	let selectedDiary = diary(id: "diary-1", title: "Personal")

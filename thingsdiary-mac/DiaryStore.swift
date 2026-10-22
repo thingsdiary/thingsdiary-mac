@@ -173,7 +173,9 @@ actor DiaryStore {
 	}
 
 	func topics(diaryID: String) -> [ThingsDiaryTopic] {
-		state.topics.filter { $0.diaryID == diaryID }.map(\.value)
+		state.topics
+			.filter { $0.diaryID == diaryID && $0.deletedAt == nil }
+			.map(\.value)
 	}
 
 	func templates(diaryID: String) -> [ThingsDiaryTemplate] {
@@ -185,7 +187,9 @@ actor DiaryStore {
 		return DiaryStoreSnapshot(
 			diary: diary,
 			entries: state.entries.filter { $0.diaryID == diary.id }.map(\.value),
-			topics: state.topics.filter { $0.diaryID == diary.id }.map(\.value),
+			topics: state.topics
+				.filter { $0.diaryID == diary.id && $0.deletedAt == nil }
+				.map(\.value),
 			templates: state.templates.filter { $0.diaryID == diary.id }.map(\.value)
 		)
 	}

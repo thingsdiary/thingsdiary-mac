@@ -1015,13 +1015,14 @@ final class ThingsDiaryAppModel {
 			guard diarySelectionID == selectionID else {
 				return
 			}
-			self.topics = topics
+			let activeTopics = topics.filter { $0.deletedAt == nil }
+			self.topics = activeTopics
 			self.templates = templates
 			if let store {
 				try await store.replaceSelectedDiary(
 					diary,
 					entries: entries,
-					topics: topics,
+					topics: activeTopics,
 					templates: templates
 				)
 				try await store.synchronize(with: client)
@@ -1945,7 +1946,16 @@ final class ThingsDiaryAppModel {
 			removeRealtimeEntry(diaryID: diaryID, id: id, version: version)
 		case .upsertTopic(let topic):
 			guard currentDiaryID == topic.diaryID else { break }
-			upsertVersioned(topic, in: &topics, id: \ThingsDiaryTopic.id, version: \ThingsDiaryTopic.version)
+			if topic.deletedAt != nil {
+				topics.removeAll { $0.id == topic.id }
+			} else {
+				upsertVersioned(
+					topic,
+					in: &topics,
+					id: \ThingsDiaryTopic.id,
+					version: \ThingsDiaryTopic.version
+				)
+			}
 		case .removeTopic(let diaryID, let id, let version):
 			guard currentDiaryID == diaryID else { break }
 			if let topic = topics.first(where: { $0.id == id }), topic.version > version { break }
@@ -2050,7 +2060,7 @@ final class ThingsDiaryAppModel {
 		loadedDiaries = loadedDiaries.map {
 			$0.id == snapshot.diary.id ? snapshot.diary : $0
 		}
-		topics = snapshot.topics
+		topics = snapshot.topics.filter { $0.deletedAt == nil }
 		templates = snapshot.templates
 		screen = .entries(
 			diary: snapshot.diary,

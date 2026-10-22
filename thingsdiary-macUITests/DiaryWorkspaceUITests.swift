@@ -852,6 +852,27 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(header.value as? String, "Expanded")
 	}
 
+	func testDeletingSelectedTopicRemovesItAndShowsAllEntries() {
+		let app = launchWorkspace()
+		let topic = app.buttons["sidebar.topic.fixture-topic-2"]
+
+		XCTAssertTrue(topic.waitForExistence(timeout: 2))
+		topic.click()
+		XCTAssertTrue(app.buttons["entry.fixture-entry-19"].waitForExistence(timeout: 2))
+
+		topic.rightClick()
+		let delete = app.menuItems["Delete"].firstMatch
+		XCTAssertTrue(delete.waitForExistence(timeout: 2))
+		delete.click()
+
+		let deleteEntries = app.sheets.firstMatch.buttons["Delete Entries"]
+		XCTAssertTrue(deleteEntries.waitForExistence(timeout: 2))
+		deleteEntries.click()
+
+		XCTAssertTrue(topic.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["entry.fixture-entry"].waitForExistence(timeout: 2))
+	}
+
 	func testEntryActionsStayInRowContextMenuAndAreHiddenFromEditorToolbar() {
 		let app = launchWorkspace()
 		let entries = app.descendants(matching: .any)

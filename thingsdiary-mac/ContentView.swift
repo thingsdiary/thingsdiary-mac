@@ -2853,7 +2853,7 @@ private struct EntriesView: View {
 			if await model.deleteTopic(topic, deleteEntries: deleteEntries),
 				activeSelection == .topic(topic.id)
 			{
-				selection = deleteEntries ? .trash : .entries
+				selection = .entries
 			}
 		}
 	}
