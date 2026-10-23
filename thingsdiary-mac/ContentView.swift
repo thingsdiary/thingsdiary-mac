@@ -1208,7 +1208,7 @@ private struct EntriesView: View {
 	}
 
 	private var workspaceNavigationControls: some View {
-		HStack(spacing: 4) {
+		HStack(spacing: workspaceNavigationControlSpacing) {
 			animatedSidebarToggleButton
 			animatedEntryListToggleButton
 		}
@@ -1239,11 +1239,14 @@ private struct EntriesView: View {
 	}
 
 	private var workspaceHeaderNavigationChromeWidth: CGFloat {
-		10 + trafficLightsTrailingInset + 8 + 64 + 8 + 1
+		10 + trafficLightsTrailingInset + 8
+			+ workspaceNavigationControlWidth * 2
+			+ workspaceNavigationControlSpacing
+			+ workspaceTitlebarHorizontalInset + 1
 	}
 
 	private var workspaceHeaderNavigationControlsReservedWidth: CGFloat {
-		workspaceHeaderNavigationChromeWidth + 8
+		workspaceHeaderNavigationChromeWidth + workspaceTitlebarHorizontalInset
 	}
 
 	private var browserTabsBar: some View {

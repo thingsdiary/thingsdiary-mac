@@ -608,7 +608,7 @@ func clampsEntryListWidth() {
 func adaptsEntryTabWidth() {
 	#expect(adaptiveBrowserTabWidth(availableWidth: 600, tabCount: 0) == maximumBrowserTabWidth)
 	#expect(adaptiveBrowserTabWidth(availableWidth: 600, tabCount: 2) == maximumBrowserTabWidth)
-	#expect(adaptiveBrowserTabWidth(availableWidth: 420, tabCount: 3) == 138)
+	#expect(adaptiveBrowserTabWidth(availableWidth: 420, tabCount: 3) == 132)
 	#expect(adaptiveBrowserTabWidth(availableWidth: 300, tabCount: 8) == minimumBrowserTabWidth)
 }
 
@@ -617,14 +617,16 @@ func newTabButtonFollowsLastTab() {
 	let tabsWidth = browserTabsContentWidth(tabWidth: 170, tabCount: 2)
 
 	#expect(browserTabLeadingPadding == 12)
-	#expect(tabsWidth == 355)
+	#expect(browserTabSpacing == workspaceTitlebarHorizontalInset)
+	#expect(browserTabCreateButtonSpacing == workspaceTitlebarHorizontalInset)
+	#expect(tabsWidth == 364)
 	#expect(
 		browserTabCreateButtonOffset(
 			availableWidth: 500,
 			tabsContentWidth: tabsWidth
-		) == 363
+		) == 376
 	)
-	#expect(browserTabsViewportWidth(createButtonOffset: 363) == tabsWidth)
+	#expect(browserTabsViewportWidth(createButtonOffset: 376) == tabsWidth)
 	#expect(
 		!browserTabCreateButtonIsPinned(
 			availableWidth: 500,
@@ -644,7 +646,7 @@ func newTabButtonStaysPinned() {
 			tabsContentWidth: tabsWidth
 		) == 370
 	)
-	#expect(browserTabsViewportWidth(createButtonOffset: 370) == 362)
+	#expect(browserTabsViewportWidth(createButtonOffset: 370) == 358)
 	#expect(
 		browserTabCreateButtonIsPinned(
 			availableWidth: 400,
@@ -737,7 +739,7 @@ func previewsEntryTabMoveBeforeCommit() {
 	#expect(tabs.openTabIDs == ["first", "second", "third"])
 	#expect(drag.placeholderIndex == 0)
 	#expect(drag.previewOrder(in: tabs.openTabIDs) == ["second", "first", "third"])
-	#expect(drag.offset(forTabAt: 0, tabWidth: 170) == 173)
+	#expect(drag.offset(forTabAt: 0, tabWidth: 170) == 182)
 	#expect(drag.offset(forTabAt: 1, tabWidth: 170) == -100)
 	#expect(drag.offset(forTabAt: 2, tabWidth: 170) == 0)
 
