@@ -1012,42 +1012,56 @@ private struct EntriesView: View {
 				preferredWidth: CGFloat(preferredEntryListWidth),
 				availableWidth: availableWidth
 			)
-			let browserWidth: CGFloat =
-				switch currentWorkspaceLayout {
-				case .listOnly: 0
-				case .split: max(availableWidth - listWidth - entryListDividerWidth, 0)
-				case .editorOnly: availableWidth
-				}
+			let layout = entryWorkspaceLayout(
+				hasSelectedEntry: tabs.activeTabID != nil,
+				availableWidth: availableWidth,
+				isEntryListCollapsed: isEntryListCollapsed,
+				isCompact: isEditorWorkspaceCompact,
+				compactPane: compactWorkspacePane
+			)
+			let browserLeadingInset =
+				!sidebarToggleInSidebar && layout == .editorOnly
+				? workspaceHeaderNavigationChromeWidth : 0
+			let browserWidth = workspaceHeaderBrowserWidth(
+				availableWidth: availableWidth,
+				listWidth: listWidth,
+				layout: layout,
+				navigationChromeWidth: browserLeadingInset
+			)
+			let leadingColumnWidth = max(availableWidth - browserWidth, 0)
 
-			ZStack(alignment: .trailing) {
-				if !isEntryListCollapsed && currentWorkspaceLayout != .editorOnly {
-					HStack(spacing: 0) {
-						entryListTitlebar
-							.frame(
-								width: currentWorkspaceLayout == .listOnly ? availableWidth : listWidth
-							)
-						if currentWorkspaceLayout == .split {
-							entryListDivider(
-								isInteractive: true,
-								height: workspaceTitlebarHeight,
-								accessibilityIdentifier: "workspace.entry-list-divider.header"
-							)
+			HStack(spacing: 0) {
+				Color.clear
+					.frame(width: leadingColumnWidth)
+					.overlay(alignment: .leading) {
+						if !isEntryListCollapsed && layout != .editorOnly {
+							HStack(spacing: 0) {
+								entryListTitlebar
+									.frame(
+										width: layout == .listOnly ? availableWidth : listWidth
+									)
+								if layout == .split {
+									entryListDivider(
+										isInteractive: true,
+										height: workspaceTitlebarHeight,
+										accessibilityIdentifier: "workspace.entry-list-divider.header"
+									)
+								}
+							}
+							.accessibilityElement(children: .contain)
 						}
 					}
-					.frame(maxWidth: .infinity, alignment: .leading)
-					.accessibilityElement(children: .contain)
-				}
+					.clipped()
 
-				HStack(spacing: 0) {
-					browserTabsBar
-				}
-				.frame(width: browserWidth, alignment: .trailing)
-				.background(TitlebarMaterialBackground())
-				.clipped()
-				.allowsHitTesting(currentWorkspaceLayout != .listOnly)
-				.accessibilityHidden(currentWorkspaceLayout == .listOnly)
-				.zIndex(1)
+				browserTabsBar
+					.frame(width: browserWidth, alignment: .leading)
+					.background(TitlebarMaterialBackground())
+					.clipped()
+					.allowsHitTesting(layout != .listOnly)
+					.accessibilityHidden(layout == .listOnly)
+					.zIndex(1)
 			}
+			.animation(.easeInOut(duration: 0.24), value: layout)
 		}
 		.frame(height: workspaceTitlebarHeight)
 		.fixedSize(horizontal: false, vertical: true)
@@ -1064,7 +1078,6 @@ private struct EntriesView: View {
 				}
 			}
 		}
-		.animation(.easeInOut(duration: 0.24), value: currentWorkspaceLayout)
 	}
 
 	private var entryListTitlebar: some View {
@@ -1239,24 +1252,22 @@ private struct EntriesView: View {
 			tabCount: tabs.openTabIDs.count
 		)
 
-		return HStack(spacing: 8) {
-			browserTabsStrip(tabWidth: tabWidth)
-				.frame(maxWidth: .infinity)
+		return HStack(spacing: 0) {
+			if tabs.openTabIDs.isEmpty {
+				browserTabCreateButton
+					.padding(.leading, browserTabLeadingPadding)
+				Spacer(minLength: 0)
+			} else {
+				browserTabsStrip(tabWidth: tabWidth)
+			}
 		}
-		.frame(maxWidth: .infinity)
+		.frame(maxWidth: .infinity, alignment: .leading)
 		.frame(height: workspaceTitlebarHeight)
-		.padding(
-			.leading,
-			!sidebarToggleInSidebar && currentWorkspaceLayout == .editorOnly
-				? workspaceHeaderNavigationChromeWidth
-				: 0
-		)
 		.padding(.trailing, workspaceTitlebarHorizontalInset)
 		.background {
 			WorkspaceWindowDragArea()
 		}
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
-		.animation(.easeInOut(duration: 0.24), value: currentWorkspaceLayout)
 		.accessibilityElement(children: .contain)
 		.accessibilityIdentifier("browser-tabs.titlebar")
 		.alert(
@@ -1353,20 +1364,12 @@ private struct EntriesView: View {
 					alignment: .leading
 				)
 
-				IconButton(
-					icon: .plus,
-					usesTitlebarBackground: true,
-					action: beginCreatingBrowserTab
-				)
-				.frame(width: browserTabCreateButtonWidth)
-				.accessibilityIdentifier("browser-tab.create")
-				.accessibilityLabel("New Entry")
-				.help("New Entry")
-				.offset(x: createButtonOffset)
-				.opacity(hidesCreateButton ? 0 : 1)
-				.allowsHitTesting(!hidesCreateButton)
-				.accessibilityHidden(hidesCreateButton)
-				.zIndex(4)
+				browserTabCreateButton
+					.offset(x: createButtonOffset)
+					.opacity(hidesCreateButton ? 0 : 1)
+					.allowsHitTesting(!hidesCreateButton)
+					.accessibilityHidden(hidesCreateButton)
+					.zIndex(4)
 			}
 			.frame(
 				maxWidth: .infinity,
@@ -1378,6 +1381,18 @@ private struct EntriesView: View {
 				availableBrowserTabsWidth = proxy.size.width
 			}
 		}
+	}
+
+	private var browserTabCreateButton: some View {
+		IconButton(
+			icon: .plus,
+			usesTitlebarBackground: true,
+			action: beginCreatingBrowserTab
+		)
+		.frame(width: browserTabCreateButtonWidth)
+		.accessibilityIdentifier("browser-tab.create")
+		.accessibilityLabel("New Entry")
+		.help("New Entry")
 	}
 
 	private func browserTabView(

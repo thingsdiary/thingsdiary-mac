@@ -599,6 +599,24 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.buttons["browser-tab.create"].waitForExistence(timeout: 2))
 	}
 
+	func testCollapsingListKeepsEmptyBrowserAfterNavigationControls() {
+		let app = launchWorkspace()
+		let window = app.windows.firstMatch
+		app.buttons["Hide Sidebar"].firstMatch.click()
+
+		let createTab = app.buttons["browser-tab.create"]
+		XCTAssertTrue(createTab.waitForExistence(timeout: 2))
+
+		app.buttons["workspace.hide-entry-list"].firstMatch.click()
+
+		XCTAssertTrue(app.staticTexts["entry-list.section-title"].waitForNonExistence(timeout: 2))
+		XCTAssertTrue(createTab.exists)
+		XCTAssertTrue(createTab.isHittable)
+		XCTAssertGreaterThanOrEqual(createTab.frame.minX, window.frame.minX + 150)
+		XCTAssertLessThanOrEqual(createTab.frame.maxX, window.frame.maxX)
+		XCTAssertTrue(app.buttons["workspace.show-entry-list"].firstMatch.exists)
+	}
+
 	func testDraggingEntryListDividerPastCollapseThresholdHidesEntryList() {
 		let app = launchWorkspace()
 		app.buttons["Hide Sidebar"].firstMatch.click()

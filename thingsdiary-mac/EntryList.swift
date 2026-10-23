@@ -426,6 +426,22 @@ nonisolated func entryWorkspaceLayout(
 	return availableWidth >= minimumDiaryOverviewWidth ? .split : .listOnly
 }
 
+nonisolated func workspaceHeaderBrowserWidth(
+	availableWidth: CGFloat,
+	listWidth: CGFloat,
+	layout: EntryWorkspaceLayout,
+	navigationChromeWidth: CGFloat
+) -> CGFloat {
+	switch layout {
+	case .listOnly:
+		return 0
+	case .split:
+		return max(availableWidth - listWidth - entryListDividerWidth, 0)
+	case .editorOnly:
+		return max(availableWidth - navigationChromeWidth, 0)
+	}
+}
+
 nonisolated func showsDiaryOverview(
 	for selection: DiaryNavigationSelection,
 	selectionIsEmpty: Bool

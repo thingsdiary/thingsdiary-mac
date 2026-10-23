@@ -312,6 +312,34 @@ func choosesEntryWorkspaceLayout() {
 	)
 }
 
+@Test("Editor-only header keeps browser content beyond hidden-sidebar controls")
+func sizesWorkspaceHeaderBrowserColumn() {
+	#expect(
+		workspaceHeaderBrowserWidth(
+			availableWidth: 1_000,
+			listWidth: 320,
+			layout: .split,
+			navigationChromeWidth: 180
+		) == 679
+	)
+	#expect(
+		workspaceHeaderBrowserWidth(
+			availableWidth: 1_000,
+			listWidth: 320,
+			layout: .editorOnly,
+			navigationChromeWidth: 180
+		) == 820
+	)
+	#expect(
+		workspaceHeaderBrowserWidth(
+			availableWidth: 1_000,
+			listWidth: 320,
+			layout: .editorOnly,
+			navigationChromeWidth: 0
+		) == 1_000
+	)
+}
+
 @Test("Empty contextual sections hide the diary overview")
 func hidesDiaryOverviewInEmptyContextualSections() {
 	#expect(!showsDiaryOverview(for: .topic("topic-1"), selectionIsEmpty: true))
