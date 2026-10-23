@@ -167,6 +167,11 @@ final class WorkspaceContextMenuAreaView: NSView {
 	}
 
 	override func rightMouseDown(with event: NSEvent) {
+		let menu = makeMenu()
+		NSMenu.popUpContextMenu(menu, with: event, for: self)
+	}
+
+	func makeMenu() -> NSMenu {
 		let menu = NSMenu()
 		menu.autoenablesItems = false
 		let item = NSMenuItem(
@@ -176,8 +181,12 @@ final class WorkspaceContextMenuAreaView: NSView {
 		)
 		item.target = self
 		item.isEnabled = isMenuItemEnabled
+		item.attributedTitle = NSAttributedString(
+			string: title,
+			attributes: [.foregroundColor: NSColor.systemRed]
+		)
 		menu.addItem(item)
-		NSMenu.popUpContextMenu(menu, with: event, for: self)
+		return menu
 	}
 
 	@objc private func performMenuAction() {
@@ -254,6 +263,11 @@ final class WorkspaceTopicContextMenuAreaView: NSView {
 	}
 
 	override func rightMouseDown(with event: NSEvent) {
+		let menu = makeMenu()
+		NSMenu.popUpContextMenu(menu, with: event, for: self)
+	}
+
+	func makeMenu() -> NSMenu {
 		let menu = NSMenu()
 		menu.autoenablesItems = false
 
@@ -349,9 +363,13 @@ final class WorkspaceTopicContextMenuAreaView: NSView {
 			keyEquivalent: ""
 		)
 		deleteItem.target = self
+		deleteItem.attributedTitle = NSAttributedString(
+			string: "Delete",
+			attributes: [.foregroundColor: NSColor.systemRed]
+		)
 		menu.addItem(deleteItem)
 
-		NSMenu.popUpContextMenu(menu, with: event, for: self)
+		return menu
 	}
 
 	@objc private func performCreateEntryAction() {

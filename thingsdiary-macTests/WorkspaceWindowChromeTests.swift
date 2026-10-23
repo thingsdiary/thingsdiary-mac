@@ -1,6 +1,8 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
+import XCTest
 
 @testable import thingsdiary
 
@@ -21,4 +23,39 @@ func windowControlsUseWorkspaceTitlebarCenter() {
 @Test("Window controls keep a small inset from the leading edge")
 func windowControlsKeepLeadingInset() {
 	#expect(workspaceTrafficLightsHorizontalOffset(closeButtonMinX: 16) == 4)
+}
+
+@MainActor
+final class WorkspaceWindowChromeMenuTests: XCTestCase {
+	func testTrashContextMenuMarksEmptyTrashAsDestructive() {
+		let view = WorkspaceContextMenuAreaView()
+		view.title = "Empty Trash"
+		view.isMenuItemEnabled = true
+
+		let item = view.makeMenu().items.first {
+			$0.title == "Empty Trash" && $0.action == NSSelectorFromString("performMenuAction")
+		}
+
+		XCTAssertEqual(item?.title, "Empty Trash")
+		XCTAssertEqual(item?.isEnabled, true)
+		XCTAssertEqual(
+			item?.attributedTitle?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+			NSColor.systemRed
+		)
+	}
+
+	func testTopicContextMenuMarksDeleteAsDestructive() {
+		let view = WorkspaceTopicContextMenuAreaView()
+
+		let item = view.makeMenu().items.first {
+			$0.title == "Delete" && $0.action == NSSelectorFromString("performDeleteAction")
+		}
+
+		XCTAssertEqual(item?.title, "Delete")
+		XCTAssertEqual(item?.isEnabled, true)
+		XCTAssertEqual(
+			item?.attributedTitle?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+			NSColor.systemRed
+		)
+	}
 }

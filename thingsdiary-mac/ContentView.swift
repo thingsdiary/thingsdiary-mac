@@ -873,6 +873,18 @@ private struct EntriesView: View {
 			)
 		)
 		.focusedSceneValue(
+			\.diaryMenuActions,
+			model.isAuthenticated
+				? DiaryMenuActions(
+					currentDiaryID: diary.id,
+					availableDiaries: model.availableDiaries,
+					createDiary: model.showDiaryCreation,
+					selectDiary: { selectedDiary in
+						Task { await model.selectDiary(selectedDiary) }
+					}
+				) : nil
+		)
+		.focusedSceneValue(
 			\.selectNextTabAction,
 			tabs.openTabIDs.count > 1 ? { selectBrowserTab(offset: 1) } : nil
 		)
@@ -1547,7 +1559,7 @@ private struct EntriesView: View {
 		.buttonStyle(.plain)
 		.accessibilityIdentifier("template.\(template.id)")
 		.contextMenu {
-			Button("Delete Template", systemImage: "trash", role: .destructive) {
+			Button("Delete", systemImage: "trash", role: .destructive) {
 				templatePendingDeletion = template
 			}
 		}
@@ -1714,6 +1726,12 @@ private struct EntriesView: View {
 						destination: .entries,
 						identifier: "sidebar.entries"
 					)
+					.contextMenu {
+						Button("New", systemImage: "square.and.pencil") {
+							selection = .entries
+							beginCreatingEntry()
+						}
+					}
 					sidebarRow(
 						"Bookmarks",
 						systemImage: "bookmark",
@@ -1721,6 +1739,12 @@ private struct EntriesView: View {
 						identifier: "sidebar.bookmarks",
 						dropDestination: .bookmarks
 					)
+					.contextMenu {
+						Button("New", systemImage: "square.and.pencil") {
+							selection = .bookmarks
+							beginCreatingEntry()
+						}
+					}
 
 					HStack(spacing: 8) {
 						if model.topics.isEmpty {

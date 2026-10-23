@@ -270,6 +270,60 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.descendants(matching: .any)["entry.fixture-deleted-entry"].waitForExistence(timeout: 2))
 	}
 
+	func testEntriesSidebarContextMenuCreatesOrdinaryEntryDraft() {
+		let app = launchWorkspace()
+		let entries = app.buttons["sidebar.entries"]
+		XCTAssertTrue(entries.waitForExistence(timeout: 2))
+		entries.rightClick()
+
+		let new = app.menuItems["New"]
+		XCTAssertTrue(new.waitForExistence(timeout: 2))
+		new.click()
+
+		let editor = app.textViews["entry.editor"]
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		let draftTab = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.windows.firstMatch.title, "Entries")
+
+		draftTab.rightClick()
+		XCTAssertTrue(app.menuItems["Add Bookmark"].waitForExistence(timeout: 2))
+		XCTAssertFalse(app.menuItems["Remove Bookmark"].exists)
+	}
+
+	func testBookmarksSidebarContextMenuCreatesBookmarkedEntryDraft() {
+		let app = launchWorkspace()
+		let bookmarks = app.buttons["sidebar.bookmarks"]
+		XCTAssertTrue(bookmarks.waitForExistence(timeout: 2))
+		bookmarks.rightClick()
+
+		let new = app.menuItems["New"]
+		XCTAssertTrue(new.waitForExistence(timeout: 2))
+		new.click()
+
+		let editor = app.textViews["entry.editor"]
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		let draftTab = app.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"Untitled"
+			)
+		).firstMatch
+		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
+		XCTAssertEqual(app.windows.firstMatch.title, "Bookmarks")
+
+		draftTab.rightClick()
+		XCTAssertTrue(app.menuItems["Remove Bookmark"].waitForExistence(timeout: 2))
+		XCTAssertFalse(app.menuItems["Add Bookmark"].exists)
+	}
+
 	func testNewWindowMenuOpensASeparateWindow() {
 		let app = launchWorkspace()
 		let initialWindowCount = app.windows.count
@@ -1117,6 +1171,59 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.textViews["template.editor"].waitForExistence(timeout: 2))
 	}
 
+	func testFileMenuShowsDiaryActionsOnlyInWorkspaceAndCreatesDiary() {
+		let app = XCUIApplication()
+		launchedApp = app
+		app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", "--ui-testing-auth-scenario", "login-success"]
+		app.launch()
+		XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 2))
+		app.menuBars.menuBarItems["File"].click()
+		XCTAssertFalse(app.menuItems["New Diary…"].exists)
+		app.typeKey(.escape, modifierFlags: [])
+		app.terminate()
+		launchedApp = nil
+
+		let workspaceApp = launchWorkspace()
+		workspaceApp.menuBars.menuBarItems["File"].click()
+		let newDiary = workspaceApp.menuItems["New Diary…"]
+		XCTAssertTrue(newDiary.waitForExistence(timeout: 2))
+		newDiary.click()
+		XCTAssertTrue(workspaceApp.sheets.firstMatch.waitForExistence(timeout: 2))
+	}
+
+	func testFileMenuChangeDiaryHandlesSingleAndMultipleDiaries() {
+		let single = launchWorkspace()
+		single.menuBars.menuBarItems["File"].click()
+		let singleSubmenu = single.menuItems["Change Diary"]
+		XCTAssertTrue(singleSubmenu.waitForExistence(timeout: 2))
+		singleSubmenu.hover()
+		let onlyDiary = single.menuItems["Test Diary"]
+		XCTAssertTrue(onlyDiary.waitForExistence(timeout: 2))
+		XCTAssertFalse(onlyDiary.isEnabled)
+		single.typeKey(.escape, modifierFlags: [])
+		single.terminate()
+		launchedApp = nil
+
+		let multiple = launchWorkspace(additionalArguments: ["--ui-testing-multiple-diaries"])
+		multiple.menuBars.menuBarItems["File"].click()
+		let changeDiary = multiple.menuItems["Change Diary"]
+		XCTAssertTrue(changeDiary.waitForExistence(timeout: 2))
+		changeDiary.hover()
+		let currentDiary = multiple.menuItems["Test Diary"]
+		let otherDiary = multiple.menuItems["Second Diary"]
+		XCTAssertTrue(currentDiary.waitForExistence(timeout: 2))
+		XCTAssertTrue(otherDiary.waitForExistence(timeout: 2))
+		XCTAssertFalse(currentDiary.isEnabled)
+		XCTAssertTrue(otherDiary.isEnabled)
+		otherDiary.click()
+		let switcher = multiple.buttons["diary.switcher"]
+		XCTAssertTrue(switcher.waitForExistence(timeout: 2))
+		switcher.click()
+		let selectedDiary = multiple.buttons["diary.switch.fixture-diary-2"]
+		XCTAssertTrue(selectedDiary.waitForExistence(timeout: 2))
+		XCTAssertEqual(selectedDiary.value as? String, "Selected")
+	}
+
 	func testEntryTabActivatesWhenClickingOutsideItsText() {
 		let app = launchWorkspace()
 		app.buttons["entry.fixture-entry"].doubleClick()
@@ -1617,6 +1724,20 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(app.windows.firstMatch.title, "Templates")
 		XCTAssertTrue(app.textViews["template.editor"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.buttons["Untitled Template"].firstMatch.exists)
+	}
+
+	func testTemplateRowContextMenuUsesDeleteLabel() {
+		let app = launchWorkspace(additionalArguments: ["--ui-testing-template"])
+		let workspace = workspace(in: app)
+		workspace.buttons["sidebar.templates"].click()
+
+		let template = workspace.buttons["template.fixture-template"]
+		XCTAssertTrue(template.waitForExistence(timeout: 2))
+		template.rightClick()
+
+		let delete = app.menuItems["Delete"]
+		XCTAssertTrue(delete.waitForExistence(timeout: 2))
+		XCTAssertFalse(app.menuItems["Delete Template"].exists)
 	}
 
 	func testTopicContextMenuCreatesEntryInTopic() {

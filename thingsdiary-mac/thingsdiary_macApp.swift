@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import ThingsDiaryClient
 
 struct EntrySaveActionKey: FocusedValueKey {
 	typealias Value = () -> Void
@@ -33,6 +34,17 @@ struct SelectPreviousTabActionKey: FocusedValueKey {
 
 struct LogoutActionKey: FocusedValueKey {
 	typealias Value = () -> Void
+}
+
+struct DiaryMenuActions {
+	let currentDiaryID: String
+	let availableDiaries: [ThingsDiaryDiary]
+	let createDiary: () -> Void
+	let selectDiary: (ThingsDiaryDiary) -> Void
+}
+
+struct DiaryMenuActionKey: FocusedValueKey {
+	typealias Value = DiaryMenuActions
 }
 
 extension FocusedValues {
@@ -69,6 +81,11 @@ extension FocusedValues {
 	var logoutAction: LogoutActionKey.Value? {
 		get { self[LogoutActionKey.self] }
 		set { self[LogoutActionKey.self] = newValue }
+	}
+
+	var diaryMenuActions: DiaryMenuActionKey.Value? {
+		get { self[DiaryMenuActionKey.self] }
+		set { self[DiaryMenuActionKey.self] = newValue }
 	}
 }
 
@@ -113,6 +130,7 @@ private struct EntryCommands: Commands {
 	@FocusedValue(\.entrySaveAllAction) private var saveAll
 	@FocusedValue(\.entryCloseAction) private var close
 	@FocusedValue(\.entryCreateAction) private var creationActions
+	@FocusedValue(\.diaryMenuActions) private var diaryMenuActions
 	@FocusedValue(\.selectNextTabAction) private var selectNextTab
 	@FocusedValue(\.selectPreviousTabAction) private var selectPreviousTab
 
@@ -138,6 +156,27 @@ private struct EntryCommands: Commands {
 				creationActions?.newTemplate()
 			}
 			.disabled(creationActions == nil)
+		}
+
+		CommandGroup(after: .newItem) {
+			if let diaryMenuActions {
+				Divider()
+				Button("New Diary…", action: diaryMenuActions.createDiary)
+				Menu("Change Diary") {
+					ForEach(diaryMenuActions.availableDiaries) { diary in
+						Button {
+							diaryMenuActions.selectDiary(diary)
+						} label: {
+							if diary.id == diaryMenuActions.currentDiaryID {
+								Label(diary.title, systemImage: "checkmark")
+							} else {
+								Text(diary.title)
+							}
+						}
+						.disabled(diary.id == diaryMenuActions.currentDiaryID)
+					}
+				}
+			}
 		}
 
 		CommandMenu("Tabs") {
@@ -226,6 +265,9 @@ struct ThingsDiaryApp: App {
 						),
 						includesTemplate: ProcessInfo.processInfo.arguments.contains(
 							"--ui-testing-template"
+						),
+						includesMultipleDiaries: ProcessInfo.processInfo.arguments.contains(
+							"--ui-testing-multiple-diaries"
 						)
 					)
 				)

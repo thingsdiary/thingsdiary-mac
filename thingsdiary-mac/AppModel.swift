@@ -785,7 +785,8 @@ final class ThingsDiaryAppModel {
 
 		static func uiTestingWorkspace(
 			includesDeletedEntry: Bool = true,
-			includesTemplate: Bool = false
+			includesTemplate: Bool = false,
+			includesMultipleDiaries: Bool = false
 		) -> ThingsDiaryAppModel {
 			let now = Date(timeIntervalSince1970: 1_700_000_000)
 			let diary = ThingsDiaryDiary(
@@ -853,7 +854,15 @@ final class ThingsDiaryAppModel {
 			)
 			let model = ThingsDiaryAppModel(client: UITestingAppClient())
 			model.isAuthenticated = true
-			model.loadedDiaries = [diary]
+			let secondDiary = ThingsDiaryDiary(
+				id: "fixture-diary-2",
+				title: "Second Diary",
+				description: "Second UI testing diary",
+				createdAt: now,
+				updatedAt: now,
+				version: 1
+			)
+			model.loadedDiaries = includesMultipleDiaries ? [diary, secondDiary] : [diary]
 			model.topics = [topic, secondTopic]
 			if includesTemplate {
 				model.templates = [
