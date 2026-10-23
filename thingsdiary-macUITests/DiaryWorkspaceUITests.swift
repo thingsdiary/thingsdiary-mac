@@ -551,6 +551,52 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(sidebarDivider.exists)
 	}
 
+	func testDraggingSidebarDividerPastCollapseThresholdHidesSidebar() {
+		let app = launchWorkspace()
+		let sidebarDivider = app.descendants(matching: .any)[
+			"workspace.sidebar-divider"
+		].firstMatch
+
+		XCTAssertTrue(sidebarDivider.waitForExistence(timeout: 2))
+		let start = sidebarDivider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+		start.press(
+			forDuration: 0.1,
+			thenDragTo: start.withOffset(CGVector(dx: -500, dy: 0))
+		)
+
+		XCTAssertTrue(app.buttons["Show Sidebar"].firstMatch.waitForExistence(timeout: 2))
+		XCTAssertTrue(sidebarDivider.waitForNonExistence(timeout: 2))
+	}
+
+	func testDraggingEntryListDividerPastCollapseThresholdHidesEntryList() {
+		let app = launchWorkspace()
+		app.buttons["Hide Sidebar"].firstMatch.click()
+		app.buttons["entry.fixture-entry"].click()
+
+		let entryList = app.descendants(matching: .any)["entry-list.scroll"]
+		let editor = app.textViews["entry.editor"]
+		let entryListDivider = app.descendants(matching: .any)[
+			"workspace.entry-list-divider.header"
+		].firstMatch
+		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
+		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertTrue(entryListDivider.waitForExistence(timeout: 2))
+
+		let start = entryListDivider.coordinate(
+			withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)
+		)
+		start.press(
+			forDuration: 0.1,
+			thenDragTo: start.withOffset(CGVector(dx: -500, dy: 0))
+		)
+
+		XCTAssertTrue(
+			app.buttons["workspace.show-entry-list"].firstMatch.waitForExistence(timeout: 2)
+		)
+		XCTAssertTrue(entryList.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(editor.exists)
+	}
+
 	func testEditorPriorityAndEntryListToggle() {
 		let app = launchWorkspace()
 		let entryList = app.descendants(matching: .any)["entry-list.scroll"]

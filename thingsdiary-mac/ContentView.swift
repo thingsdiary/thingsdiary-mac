@@ -981,8 +981,14 @@ private struct EntriesView: View {
 			onChanged: { translation in
 				let start = dragStartSidebarWidth ?? effectiveSidebarWidth
 				dragStartSidebarWidth = start
+				let proposedWidth = start + translation
+				guard proposedWidth >= minimumSidebarWidth / 2 else {
+					dragStartSidebarWidth = nil
+					collapseSidebar()
+					return
+				}
 				preferredSidebarWidth = Double(
-					min(max(start + translation, minimumSidebarWidth), maximumSidebarWidth)
+					min(max(proposedWidth, minimumSidebarWidth), maximumSidebarWidth)
 				)
 			},
 			onEnded: { dragStartSidebarWidth = nil }
@@ -1631,9 +1637,15 @@ private struct EntriesView: View {
 				onChanged: { translation in
 					let start = dragStartEntryListWidth ?? effectiveListWidth
 					dragStartEntryListWidth = start
+					let proposedWidth = start + translation
+					guard proposedWidth >= minimumEntryListWidth / 2 else {
+						dragStartEntryListWidth = nil
+						collapseEntryList()
+						return
+					}
 					preferredEntryListWidth = Double(
 						min(
-							max(start + translation, minimumEntryListWidth),
+							max(proposedWidth, minimumEntryListWidth),
 							440
 						)
 					)
@@ -2149,6 +2161,12 @@ private struct EntriesView: View {
 		}
 	}
 
+	private func collapseSidebar() {
+		withAnimation(.easeInOut(duration: 0.24)) {
+			sidebarToggleInSidebar = false
+		}
+	}
+
 	private func toggleEntryList() {
 		withAnimation(.easeInOut(duration: 0.24)) {
 			if currentWorkspaceLayout == .editorOnly {
@@ -2158,6 +2176,13 @@ private struct EntriesView: View {
 				isEntryListCollapsed = true
 				compactWorkspacePane = .editor
 			}
+		}
+	}
+
+	private func collapseEntryList() {
+		withAnimation(.easeInOut(duration: 0.24)) {
+			isEntryListCollapsed = true
+			compactWorkspacePane = .editor
 		}
 	}
 
