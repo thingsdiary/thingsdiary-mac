@@ -1558,10 +1558,11 @@ private struct EntriesView: View {
 		}
 		.buttonStyle(.plain)
 		.accessibilityIdentifier("template.\(template.id)")
-		.contextMenu {
-			Button("Delete", systemImage: "trash", role: .destructive) {
+		.overlay {
+			WorkspaceTemplateContextMenuArea {
 				templatePendingDeletion = template
 			}
+			.accessibilityHidden(true)
 		}
 	}
 
@@ -2547,8 +2548,9 @@ private struct EntriesView: View {
 						.accessibilityElement(children: .combine)
 						.accessibilityIdentifier("entry.\(entry.id)")
 						.accessibilityAddTraits(.isButton)
-						.contextMenu {
+						.overlay {
 							entryActions(for: entry)
+								.accessibilityHidden(true)
 						}
 						.overlay(alignment: .bottom) {
 							Divider()
@@ -2784,7 +2786,7 @@ private struct EntriesView: View {
 	}
 
 	private func entryActions(for entry: ThingsDiaryEntry) -> some View {
-		EntryActionsMenuContent(
+		WorkspaceEntryContextMenuArea(
 			entry: entry,
 			topics: model.topics,
 			isEphemeral: model.entryDraftIDs.contains(entry.id)
@@ -3270,87 +3272,6 @@ private struct EntriesView: View {
 		}
 	}
 
-}
-
-private struct EntryActionsMenuContent: View {
-	let entry: ThingsDiaryEntry
-	let topics: [ThingsDiaryTopic]
-	let isEphemeral: Bool
-	let perform: (EntryAction, String?) -> Void
-
-	var body: some View {
-		let actions = availableEntryActions(for: entry)
-
-		if actions.contains(.restore) {
-			Button("Restore", systemImage: "arrow.uturn.backward") {
-				perform(.restore, nil)
-			}
-		}
-
-		if actions.contains(.toggleBookmark) {
-			Button(
-				entry.bookmarked ? "Remove Bookmark" : "Add Bookmark",
-				systemImage: entry.bookmarked ? "bookmark.slash" : "bookmark"
-			) {
-				perform(.toggleBookmark, nil)
-			}
-		}
-
-		if actions.contains(.duplicate) {
-			Button("Duplicate", systemImage: "plus.square.on.square") {
-				perform(.duplicate, nil)
-			}
-			.disabled(isEphemeral)
-		}
-
-		if actions.contains(.saveAsTemplate) {
-			Button("Save as Template", systemImage: "square.and.arrow.down.on.square") {
-				perform(.saveAsTemplate, nil)
-			}
-		}
-
-		if actions.contains(.moveToTopic),
-			shouldShowTopicAssignmentMenu(
-				topicCount: topics.count,
-				currentTopicID: entry.topicID
-			)
-		{
-			TopicAssignmentPicker(entry: entry, topics: topics) { topicID in
-				perform(.moveToTopic, topicID)
-			}
-		}
-
-		if actions.contains(.moveToTrash) || actions.contains(.deletePermanently) {
-			Divider()
-		}
-
-		if actions.contains(.toggleArchive) {
-			Button(
-				entry.archived ? "Restore from Archive" : "Archive",
-				systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox"
-			) {
-				perform(.toggleArchive, nil)
-			}
-			.disabled(isEphemeral)
-		}
-
-		if actions.contains(.moveToTrash) {
-			Button("Move to Trash", systemImage: "trash", role: .destructive) {
-				perform(.moveToTrash, nil)
-			}
-			.disabled(isEphemeral)
-		}
-
-		if actions.contains(.deletePermanently) {
-			Button(
-				"Delete Permanently",
-				systemImage: "trash.slash",
-				role: .destructive
-			) {
-				perform(.deletePermanently, nil)
-			}
-		}
-	}
 }
 
 private struct TopicAssignmentPicker: View {

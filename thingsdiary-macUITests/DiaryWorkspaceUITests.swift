@@ -2045,7 +2045,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		).firstMatch
 		XCTAssertTrue(template.waitForExistence(timeout: 2))
 		template.rightClick()
-		let deleteTemplate = app.menuItems["Delete Template"]
+		let deleteTemplate = app.menuItems["Delete"]
 		XCTAssertTrue(deleteTemplate.waitForExistence(timeout: 2))
 		deleteTemplate.click()
 		let confirmation = app.staticTexts["Delete Template?"]

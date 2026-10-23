@@ -1,7 +1,15 @@
 import AppKit
 import SwiftUI
+import ThingsDiaryClient
 
 nonisolated let workspaceTrafficLightsLeadingInset: CGFloat = 20
+
+private func markMenuItemDestructive(_ item: NSMenuItem) {
+	item.attributedTitle = NSAttributedString(
+		string: item.title,
+		attributes: [.foregroundColor: NSColor.systemRed]
+	)
+}
 
 nonisolated func workspaceTitlebarCenterY(in bounds: CGRect, isFlipped: Bool) -> CGFloat {
 	isFlipped
@@ -131,6 +139,275 @@ final class WorkspaceWindowDragAreaView: NSView {
 	}
 }
 
+struct WorkspaceEntryContextMenuArea: NSViewRepresentable {
+	let entry: ThingsDiaryEntry
+	let topics: [ThingsDiaryTopic]
+	let isEphemeral: Bool
+	let perform: (EntryAction, String?) -> Void
+
+	func makeNSView(context: Context) -> WorkspaceEntryContextMenuAreaView {
+		WorkspaceEntryContextMenuAreaView()
+	}
+
+	func updateNSView(_ view: WorkspaceEntryContextMenuAreaView, context: Context) {
+		view.entry = entry
+		view.topics = topics
+		view.isEphemeral = isEphemeral
+		view.perform = perform
+	}
+}
+
+final class WorkspaceEntryContextMenuAreaView: NSView {
+	var entry: ThingsDiaryEntry?
+	var topics: [ThingsDiaryTopic] = []
+	var isEphemeral = false
+	var perform: ((EntryAction, String?) -> Void)?
+
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		guard let event = NSApplication.shared.currentEvent else { return nil }
+		switch event.type {
+		case .rightMouseDown, .rightMouseUp:
+			return bounds.contains(point) ? self : nil
+		default:
+			return nil
+		}
+	}
+
+	override func rightMouseDown(with event: NSEvent) {
+		NSMenu.popUpContextMenu(makeMenu(), with: event, for: self)
+	}
+
+	func makeMenu() -> NSMenu {
+		let menu = NSMenu()
+		menu.autoenablesItems = false
+		guard let entry else { return menu }
+		let actions = availableEntryActions(for: entry)
+
+		if actions.contains(.restore) {
+			menu.addItem(
+				menuItem(
+					title: "Restore",
+					action: #selector(performRestoreAction)
+				)
+			)
+		}
+
+		if actions.contains(.toggleBookmark) {
+			menu.addItem(
+				menuItem(
+					title: entry.bookmarked ? "Remove Bookmark" : "Add Bookmark",
+					action: #selector(performToggleBookmarkAction)
+				)
+			)
+		}
+
+		if actions.contains(.duplicate) {
+			let duplicate = menuItem(
+				title: "Duplicate",
+				action: #selector(performDuplicateAction)
+			)
+			duplicate.isEnabled = !isEphemeral
+			menu.addItem(duplicate)
+		}
+
+		if actions.contains(.saveAsTemplate) {
+			menu.addItem(
+				menuItem(
+					title: "Save as Template",
+					action: #selector(performSaveAsTemplateAction)
+				)
+			)
+		}
+
+		if actions.contains(.moveToTopic),
+			shouldShowTopicAssignmentMenu(
+				topicCount: topics.count,
+				currentTopicID: entry.topicID
+			)
+		{
+			menu.addItem(topicAssignmentItem(for: entry))
+		}
+
+		if actions.contains(.moveToTrash) || actions.contains(.deletePermanently) {
+			menu.addItem(.separator())
+		}
+
+		if actions.contains(.toggleArchive) {
+			let archive = menuItem(
+				title: entry.archived ? "Restore from Archive" : "Archive",
+				action: #selector(performToggleArchiveAction)
+			)
+			archive.isEnabled = !isEphemeral
+			menu.addItem(archive)
+		}
+
+		if actions.contains(.moveToTrash) {
+			let trash = menuItem(
+				title: "Move to Trash",
+				action: #selector(performMoveToTrashAction)
+			)
+			trash.isEnabled = !isEphemeral
+			markMenuItemDestructive(trash)
+			menu.addItem(trash)
+		}
+
+		if actions.contains(.deletePermanently) {
+			let delete = menuItem(
+				title: "Delete Permanently",
+				action: #selector(performDeletePermanentlyAction)
+			)
+			markMenuItemDestructive(delete)
+			menu.addItem(delete)
+		}
+
+		return menu
+	}
+
+	private func menuItem(title: String, action: Selector?) -> NSMenuItem {
+		let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+		item.target = self
+		return item
+	}
+
+	private func topicAssignmentItem(for entry: ThingsDiaryEntry) -> NSMenuItem {
+		let item = menuItem(title: "Move to Topic", action: nil)
+		let submenu = NSMenu(title: "Move to Topic")
+		submenu.autoenablesItems = false
+
+		if let currentTopicID = entry.topicID,
+			!topics.contains(where: { $0.id == currentTopicID })
+		{
+			let unavailable = NSMenuItem(
+				title: "Unavailable Topic",
+				action: nil,
+				keyEquivalent: ""
+			)
+			unavailable.state = .on
+			unavailable.isEnabled = false
+			submenu.addItem(unavailable)
+			submenu.addItem(.separator())
+		}
+
+		let noTopic = NSMenuItem(
+			title: "No Topic",
+			action: #selector(performMoveToTopicAction(_:)),
+			keyEquivalent: ""
+		)
+		noTopic.target = self
+		noTopic.representedObject = WorkspaceEntryTopicSelection(topicID: nil)
+		noTopic.state = entry.topicID == nil ? .on : .off
+		submenu.addItem(noTopic)
+
+		if !topics.isEmpty {
+			submenu.addItem(.separator())
+		}
+		for topic in topics {
+			let topicItem = NSMenuItem(
+				title: topic.title,
+				action: #selector(performMoveToTopicAction(_:)),
+				keyEquivalent: ""
+			)
+			topicItem.target = self
+			topicItem.representedObject = WorkspaceEntryTopicSelection(topicID: topic.id)
+			topicItem.state = entry.topicID == topic.id ? .on : .off
+			submenu.addItem(topicItem)
+		}
+		item.submenu = submenu
+		return item
+	}
+
+	@objc private func performRestoreAction() {
+		perform?(.restore, nil)
+	}
+
+	@objc private func performToggleBookmarkAction() {
+		perform?(.toggleBookmark, nil)
+	}
+
+	@objc private func performDuplicateAction() {
+		perform?(.duplicate, nil)
+	}
+
+	@objc private func performSaveAsTemplateAction() {
+		perform?(.saveAsTemplate, nil)
+	}
+
+	@objc private func performToggleArchiveAction() {
+		perform?(.toggleArchive, nil)
+	}
+
+	@objc private func performMoveToTrashAction() {
+		perform?(.moveToTrash, nil)
+	}
+
+	@objc private func performDeletePermanentlyAction() {
+		perform?(.deletePermanently, nil)
+	}
+
+	@objc private func performMoveToTopicAction(_ sender: NSMenuItem) {
+		guard let selection = sender.representedObject as? WorkspaceEntryTopicSelection else {
+			return
+		}
+		perform?(.moveToTopic, selection.topicID)
+	}
+}
+
+private final class WorkspaceEntryTopicSelection: NSObject {
+	let topicID: String?
+
+	init(topicID: String?) {
+		self.topicID = topicID
+	}
+}
+
+struct WorkspaceTemplateContextMenuArea: NSViewRepresentable {
+	let delete: () -> Void
+
+	func makeNSView(context: Context) -> WorkspaceTemplateContextMenuAreaView {
+		WorkspaceTemplateContextMenuAreaView()
+	}
+
+	func updateNSView(_ view: WorkspaceTemplateContextMenuAreaView, context: Context) {
+		view.delete = delete
+	}
+}
+
+final class WorkspaceTemplateContextMenuAreaView: NSView {
+	var delete: (() -> Void)?
+
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		guard let event = NSApplication.shared.currentEvent else { return nil }
+		switch event.type {
+		case .rightMouseDown, .rightMouseUp:
+			return bounds.contains(point) ? self : nil
+		default:
+			return nil
+		}
+	}
+
+	override func rightMouseDown(with event: NSEvent) {
+		NSMenu.popUpContextMenu(makeMenu(), with: event, for: self)
+	}
+
+	func makeMenu() -> NSMenu {
+		let menu = NSMenu()
+		menu.autoenablesItems = false
+		let item = NSMenuItem(
+			title: "Delete",
+			action: #selector(performDeleteAction),
+			keyEquivalent: ""
+		)
+		item.target = self
+		markMenuItemDestructive(item)
+		menu.addItem(item)
+		return menu
+	}
+
+	@objc private func performDeleteAction() {
+		delete?()
+	}
+}
+
 struct WorkspaceContextMenuArea: NSViewRepresentable {
 	let title: String
 	let isEnabled: Bool
@@ -181,10 +458,7 @@ final class WorkspaceContextMenuAreaView: NSView {
 		)
 		item.target = self
 		item.isEnabled = isMenuItemEnabled
-		item.attributedTitle = NSAttributedString(
-			string: title,
-			attributes: [.foregroundColor: NSColor.systemRed]
-		)
+		markMenuItemDestructive(item)
 		menu.addItem(item)
 		return menu
 	}
@@ -363,10 +637,7 @@ final class WorkspaceTopicContextMenuAreaView: NSView {
 			keyEquivalent: ""
 		)
 		deleteItem.target = self
-		deleteItem.attributedTitle = NSAttributedString(
-			string: "Delete",
-			attributes: [.foregroundColor: NSColor.systemRed]
-		)
+		markMenuItemDestructive(deleteItem)
 		menu.addItem(deleteItem)
 
 		return menu
