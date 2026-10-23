@@ -568,6 +568,37 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(sidebarDivider.waitForNonExistence(timeout: 2))
 	}
 
+	func testHiddenSidebarRemovesListActionFromHeaderLayout() {
+		let app = launchWorkspace()
+		let sectionTitle = app.staticTexts["entry-list.section-title"]
+		let createEntry = app.buttons["entry.create"]
+
+		XCTAssertTrue(sectionTitle.waitForExistence(timeout: 2))
+		XCTAssertTrue(createEntry.waitForExistence(timeout: 2))
+
+		app.buttons["Hide Sidebar"].firstMatch.click()
+
+		XCTAssertTrue(createEntry.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(sectionTitle.exists)
+		XCTAssertEqual(sectionTitle.value as? String, "Entries")
+		XCTAssertGreaterThanOrEqual(sectionTitle.frame.width, 44)
+	}
+
+	func testCollapsedListRemovesItsHeaderAndKeepsBrowserActions() {
+		let app = launchWorkspace()
+		let listTitlebar = app.descendants(matching: .any)["entry-list.titlebar"].firstMatch
+
+		app.buttons["Hide Sidebar"].firstMatch.click()
+		app.buttons["entry.fixture-entry"].click()
+		XCTAssertTrue(app.textViews["entry.editor"].waitForExistence(timeout: 2))
+		app.buttons["workspace.hide-entry-list"].firstMatch.click()
+
+		XCTAssertTrue(listTitlebar.waitForNonExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["entry.create"].waitForNonExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["workspace.show-entry-list"].firstMatch.waitForExistence(timeout: 2))
+		XCTAssertTrue(app.buttons["browser-tab.create"].waitForExistence(timeout: 2))
+	}
+
 	func testDraggingEntryListDividerPastCollapseThresholdHidesEntryList() {
 		let app = launchWorkspace()
 		app.buttons["Hide Sidebar"].firstMatch.click()

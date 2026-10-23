@@ -1020,22 +1020,23 @@ private struct EntriesView: View {
 				}
 
 			ZStack(alignment: .trailing) {
-				HStack(spacing: 0) {
-					entryListTitlebar
-						.frame(
-							width: currentWorkspaceLayout == .listOnly ? availableWidth : listWidth
-						)
-					if currentWorkspaceLayout != .listOnly {
-						entryListDivider(
-							isInteractive: currentWorkspaceLayout == .split,
-							height: workspaceTitlebarHeight,
-							accessibilityIdentifier: "workspace.entry-list-divider.header"
-						)
+				if !isEntryListCollapsed && currentWorkspaceLayout != .editorOnly {
+					HStack(spacing: 0) {
+						entryListTitlebar
+							.frame(
+								width: currentWorkspaceLayout == .listOnly ? availableWidth : listWidth
+							)
+						if currentWorkspaceLayout == .split {
+							entryListDivider(
+								isInteractive: true,
+								height: workspaceTitlebarHeight,
+								accessibilityIdentifier: "workspace.entry-list-divider.header"
+							)
+						}
 					}
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.accessibilityElement(children: .contain)
 				}
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.allowsHitTesting(currentWorkspaceLayout != .editorOnly)
-				.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
 
 				HStack(spacing: 0) {
 					browserTabsBar
@@ -1071,8 +1072,8 @@ private struct EntriesView: View {
 			Text(selectionTitle)
 				.font(.headline)
 				.lineLimit(1)
-				.opacity(currentWorkspaceLayout != .editorOnly ? 1 : 0)
-				.accessibilityHidden(currentWorkspaceLayout == .editorOnly)
+				.truncationMode(.tail)
+				.layoutPriority(1)
 				.accessibilityIdentifier("entry-list.section-title")
 
 			Spacer(minLength: 8)
@@ -1089,7 +1090,10 @@ private struct EntriesView: View {
 				.help("Show Editor")
 			}
 
-			entryListTitlebarAction
+			if sidebarToggleInSidebar {
+				entryListTitlebarAction
+					.transition(.opacity)
+			}
 		}
 		.buttonStyle(.borderless)
 		.frame(
@@ -1117,15 +1121,6 @@ private struct EntriesView: View {
 				.transition(.opacity)
 		}
 		.frame(width: 30, height: 30)
-		.opacity(
-			sidebarToggleInSidebar && currentWorkspaceLayout != .editorOnly ? 1 : 0
-		)
-		.allowsHitTesting(
-			sidebarToggleInSidebar && currentWorkspaceLayout != .editorOnly
-		)
-		.accessibilityHidden(
-			!sidebarToggleInSidebar || currentWorkspaceLayout == .editorOnly
-		)
 		.animation(.easeInOut(duration: 0.16), value: activeSelection)
 	}
 
@@ -1217,17 +1212,25 @@ private struct EntriesView: View {
 	}
 
 	private var workspaceHeaderNavigationDivider: some View {
-		Rectangle()
-			.fill(Color(nsColor: .separatorColor))
-			.frame(width: 1, height: 24)
-			.offset(
-				x: 10 + trafficLightsTrailingInset + 8 + 64 + 8
-			)
-			.allowsHitTesting(false)
+		HStack(spacing: 0) {
+			Color.clear
+				.frame(width: workspaceHeaderNavigationChromeWidth - 1)
+			Rectangle()
+				.fill(Color(nsColor: .separatorColor))
+				.frame(width: 1, height: 24)
+				.accessibilityIdentifier("workspace.navigation-divider")
+		}
+		.frame(width: workspaceHeaderNavigationChromeWidth, alignment: .leading)
+		.fixedSize(horizontal: true, vertical: false)
+		.allowsHitTesting(false)
+	}
+
+	private var workspaceHeaderNavigationChromeWidth: CGFloat {
+		10 + trafficLightsTrailingInset + 8 + 64 + 8 + 1
 	}
 
 	private var workspaceHeaderNavigationControlsReservedWidth: CGFloat {
-		10 + trafficLightsTrailingInset + 8 + 64 + 8 + 1 + 8
+		workspaceHeaderNavigationChromeWidth + 8
 	}
 
 	private var browserTabsBar: some View {
@@ -1245,7 +1248,7 @@ private struct EntriesView: View {
 		.padding(
 			.leading,
 			!sidebarToggleInSidebar && currentWorkspaceLayout == .editorOnly
-				? workspaceHeaderNavigationControlsReservedWidth
+				? workspaceHeaderNavigationChromeWidth
 				: 0
 		)
 		.padding(.trailing, workspaceTitlebarHorizontalInset)
