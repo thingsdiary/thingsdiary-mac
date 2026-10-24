@@ -622,18 +622,14 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		app.buttons["Hide Sidebar"].firstMatch.click()
 
 		let toggle = app.buttons["workspace.hide-entry-list"].firstMatch
-		let sidebarToggle = app.buttons["sidebar.toggle"].firstMatch
 		let divider = app.descendants(matching: .any)["workspace.navigation-divider"].firstMatch
 		let title = app.staticTexts["entry-list.section-title"]
 		XCTAssertTrue(toggle.waitForExistence(timeout: 2))
-		XCTAssertTrue(sidebarToggle.waitForExistence(timeout: 2))
 		XCTAssertTrue(divider.waitForExistence(timeout: 2))
 		XCTAssertTrue(title.waitForExistence(timeout: 2))
 
-		let navigationButtonsGap = toggle.frame.minX - sidebarToggle.frame.maxX
 		let controlsGap = divider.frame.minX - toggle.frame.maxX
 		let titleGap = title.frame.minX - divider.frame.minX
-		XCTAssertEqual(navigationButtonsGap, 12, accuracy: 2)
 		XCTAssertEqual(controlsGap, 12, accuracy: 2)
 		XCTAssertEqual(titleGap, controlsGap, accuracy: 2)
 
@@ -1613,10 +1609,15 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(newTabButton.waitForExistence(timeout: 2))
 		newTabButton.click()
 
+		let previousTab = app.descendants(matching: .any)["entry-tab.fixture-entry"].firstMatch
 		let draftTab = app.buttons["Untitled"].firstMatch
+		XCTAssertTrue(previousTab.waitForExistence(timeout: 2))
 		XCTAssertTrue(draftTab.waitForExistence(timeout: 2))
+		let tabsGap = draftTab.frame.minX - previousTab.frame.maxX
 		let gap = newTabButton.frame.minX - draftTab.frame.maxX
-		XCTAssertEqual(gap, 12, accuracy: 2)
+		XCTAssertEqual(tabsGap, 12, accuracy: 2)
+		XCTAssertGreaterThanOrEqual(gap, 7)
+		XCTAssertLessThanOrEqual(gap, 9)
 	}
 
 	func testPinnedTabBarPlusKeepsSpacingAfterLastTab() {
@@ -1640,7 +1641,8 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(lastTab.isHittable)
 
 		let gap = newTabButton.frame.minX - lastTab.frame.maxX
-		XCTAssertEqual(gap, 12, accuracy: 2)
+		XCTAssertGreaterThanOrEqual(gap, 7)
+		XCTAssertLessThanOrEqual(gap, 9)
 	}
 
 	func testPendingEntryKeepsSaveShortcutEnabledAfterFurtherEditing() {

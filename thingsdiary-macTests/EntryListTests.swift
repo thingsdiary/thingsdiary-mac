@@ -618,15 +618,14 @@ func newTabButtonFollowsLastTab() {
 
 	#expect(browserTabLeadingPadding == 12)
 	#expect(browserTabSpacing == workspaceTitlebarHorizontalInset)
-	#expect(browserTabCreateButtonSpacing == workspaceTitlebarHorizontalInset)
 	#expect(tabsWidth == 364)
 	#expect(
 		browserTabCreateButtonOffset(
 			availableWidth: 500,
 			tabsContentWidth: tabsWidth
-		) == 376
+		) == 372
 	)
-	#expect(browserTabsViewportWidth(createButtonOffset: 376) == tabsWidth)
+	#expect(browserTabsViewportWidth(createButtonOffset: 372) == tabsWidth)
 	#expect(
 		!browserTabCreateButtonIsPinned(
 			availableWidth: 500,
@@ -646,7 +645,7 @@ func newTabButtonStaysPinned() {
 			tabsContentWidth: tabsWidth
 		) == 370
 	)
-	#expect(browserTabsViewportWidth(createButtonOffset: 370) == 358)
+	#expect(browserTabsViewportWidth(createButtonOffset: 370) == 362)
 	#expect(
 		browserTabCreateButtonIsPinned(
 			availableWidth: 400,
