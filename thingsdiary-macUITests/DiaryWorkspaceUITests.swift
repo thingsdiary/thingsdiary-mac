@@ -1461,11 +1461,11 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let entry = app.descendants(matching: .any).matching(identifier: "entry.fixture-entry")
 			.allElementsBoundByIndex.first(where: \.isHittable)
 		guard let entry else { return XCTFail("Expected a visible fixture entry") }
-		entry.click()
 		entry.rightClick()
 		let hide = app.menuItems["Hide Preview"]
 		XCTAssertTrue(hide.waitForExistence(timeout: 2))
 		hide.click()
+		entry.click()
 
 		let tab = app.buttons["entry-tab.fixture-entry"]
 		XCTAssertTrue(tab.waitForExistence(timeout: 2))
@@ -1914,6 +1914,22 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(app.windows.firstMatch.title, "Templates")
 		XCTAssertTrue(app.textViews["template.editor"].waitForExistence(timeout: 2))
 		XCTAssertTrue(app.buttons["Untitled Template"].firstMatch.exists)
+	}
+
+	func testTemplateTabContextMenuOpensDeleteConfirmation() {
+		let app = launchWorkspace(additionalArguments: ["--ui-testing-template"])
+		app.buttons["sidebar.templates"].click()
+		app.buttons["template.fixture-template"].click()
+		let tab = app.buttons["template-tab.fixture-template"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		tab.rightClick()
+		let delete = app.menuItems["Delete Template"]
+		XCTAssertTrue(delete.waitForExistence(timeout: 2))
+		XCTAssertTrue(delete.isEnabled)
+		delete.click()
+		XCTAssertTrue(app.staticTexts["Delete Template?"].waitForExistence(timeout: 2))
+		app.sheets.firstMatch.buttons["Cancel"].click()
+		XCTAssertTrue(tab.exists)
 	}
 
 	func testTemplateRowContextMenuUsesDeleteLabel() {

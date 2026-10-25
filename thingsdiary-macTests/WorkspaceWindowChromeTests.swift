@@ -28,6 +28,34 @@ func windowControlsKeepLeadingInset() {
 
 @MainActor
 final class WorkspaceWindowChromeMenuTests: XCTestCase {
+	func testTabContextMenusRenderDestructiveActionsInRed() {
+		for title in ["Delete Template", "Move to Trash"] {
+			for enabled in [false, true] {
+				let view = WorkspaceTabContextMenuAreaView()
+				var invoked = false
+				view.items = [
+					WorkspaceTabMenuItem(title: "Close", action: {}),
+					.separator,
+					WorkspaceTabMenuItem(
+						title: title, isEnabled: enabled, isDestructive: true, action: { invoked = true }
+					),
+				]
+				let menu = view.makeMenu()
+				let item = menu.items[2]
+				XCTAssertEqual(item.title, title)
+				XCTAssertEqual(item.isEnabled, enabled)
+				XCTAssertEqual(
+					item.attributedTitle?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+					NSColor.systemRed
+				)
+				XCTAssertNil(menu.items[0].attributedTitle)
+				XCTAssertTrue(menu.items[1].isSeparatorItem)
+				if let action = item.action { view.perform(action, with: item) }
+				XCTAssertEqual(invoked, enabled)
+			}
+		}
+	}
+
 	func testEntryContextMenusMarkMoveToTrashAsDestructive() {
 		for topicID in [nil, "topic-1"] as [String?] {
 			let view = WorkspaceEntryContextMenuAreaView()

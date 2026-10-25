@@ -1454,8 +1454,9 @@ private struct EntriesView: View {
 		.frame(width: width, height: workspaceTitlebarHeight)
 		.contentShape(Rectangle())
 		.id(tabID)
-		.contextMenu {
-			browserTabContextMenu(for: tabID, at: index)
+		.overlay {
+			WorkspaceTabContextMenuArea(items: browserTabContextMenu(for: tabID, at: index))
+				.accessibilityHidden(true)
 		}
 	}
 
@@ -2322,108 +2323,116 @@ private struct EntriesView: View {
 		}
 	}
 
-	@ViewBuilder private func browserTabContextMenu(
+	private func browserTabContextMenu(
 		for tabID: WorkspaceTabID,
 		at index: Int
-	) -> some View {
+	) -> [WorkspaceTabMenuItem] {
 		let otherTabsToClose = tabs.closeableOtherTabIDs(keeping: tabID)
 		let tabsToTheRight = Array(tabs.openTabIDs.dropFirst(index + 1))
-
-		Button("Close", systemImage: "xmark") {
-			closeBrowserTab(tabID)
-		}
-		Button("Close Other Tabs", systemImage: "xmark.square") {
-			requestCloseBrowserTabs(otherTabsToClose)
-		}
-		.disabled(otherTabsToClose.isEmpty)
-		Button("Close Tabs to the Right", systemImage: "arrow.right.to.line") {
-			requestCloseBrowserTabs(tabsToTheRight)
-		}
-		.disabled(tabsToTheRight.isEmpty)
-
-		Divider()
-
-		Button(
-			tabs.isPinned(tabID) ? "Unpin Tab" : "Pin Tab",
-			systemImage: tabs.isPinned(tabID) ? "pin.slash" : "pin"
-		) {
-			tabs.togglePin(tabID)
-		}
-
-		Divider()
-		browserTabDocumentActions(tabID)
+		return [
+			WorkspaceTabMenuItem(title: "Close", action: { closeBrowserTab(tabID) }),
+			WorkspaceTabMenuItem(
+				title: "Close Other Tabs", isEnabled: !otherTabsToClose.isEmpty,
+				action: { requestCloseBrowserTabs(otherTabsToClose) }
+			),
+			WorkspaceTabMenuItem(
+				title: "Close Tabs to the Right",
+				isEnabled: !tabsToTheRight.isEmpty,
+				action: { requestCloseBrowserTabs(tabsToTheRight) }
+			),
+			.separator,
+			WorkspaceTabMenuItem(
+				title: tabs.isPinned(tabID) ? "Unpin Tab" : "Pin Tab",
+				action: { tabs.togglePin(tabID) }
+			),
+			.separator,
+		] + browserTabDocumentActions(tabID)
 	}
 
-	@ViewBuilder private func browserTabDocumentActions(_ tabID: WorkspaceTabID) -> some View {
+	private func browserTabDocumentActions(_ tabID: WorkspaceTabID) -> [WorkspaceTabMenuItem] {
 		switch tabID {
 		case .entry(let entryID):
-			if let entry = entries.first(where: { $0.id == entryID }) {
-				entryTabDocumentActions(entry)
-			}
+			guard let entry = entries.first(where: { $0.id == entryID }) else { return [] }
+			return entryTabDocumentActions(entry)
 		case .template(let templateID):
-			if let template = model.templates.first(where: { $0.id == templateID }) {
-				Button("Delete Template", systemImage: "trash", role: .destructive) {
-					templatePendingDeletion = template
-				}
-			}
+			guard let template = model.templates.first(where: { $0.id == templateID }) else { return [] }
+			return [
+				WorkspaceTabMenuItem(
+					title: "Delete Template", isDestructive: true,
+					action: { templatePendingDeletion = template }
+				)
+			]
 		}
 	}
 
-	@ViewBuilder private func entryTabDocumentActions(_ entry: ThingsDiaryEntry) -> some View {
+	private func entryTabDocumentActions(_ entry: ThingsDiaryEntry) -> [WorkspaceTabMenuItem] {
 		let isEphemeral = model.entryDraftIDs.contains(entry.id)
 		let isDeleted = entry.deletedAt != nil
-
-		Button(
-			entry.bookmarked ? "Remove Bookmark" : "Add Bookmark",
-			systemImage: entry.bookmarked ? "bookmark.slash" : "bookmark"
-		) {
-			perform(.toggleBookmark, on: entry, topicID: nil)
-		}
-		.disabled(isDeleted)
-
 		let topic = model.topics.first { $0.id == entry.topicID }
 		let preview = EntryPreviewMenuState(
 			entryHidesPreview: entry.previewHidden,
 			topicHidesPreview: topic?.entryPreviewable == false
 		)
-		Button(preview.title) {
-			toggleEntryPreview(entry)
-		}
-		.disabled(preview.topicHidesPreview || isEphemeral || isDeleted)
+		var items = [
+			WorkspaceTabMenuItem(
+				title: entry.bookmarked ? "Remove Bookmark" : "Add Bookmark",
+				isEnabled: !isDeleted,
+				action: { perform(.toggleBookmark, on: entry, topicID: nil) }
+			),
+			WorkspaceTabMenuItem(
+				title: preview.title, isEnabled: !preview.topicHidesPreview && !isEphemeral && !isDeleted,
+				action: { toggleEntryPreview(entry) }
+			),
+		]
 		if preview.topicHidesPreview, let topic {
-			Button("Topic Settings…") { beginEditing(topic) }
+			items.append(WorkspaceTabMenuItem(title: "Topic Settings…", action: { beginEditing(topic) }))
 		}
-
-		Button("Duplicate", systemImage: "plus.square.on.square") {
-			perform(.duplicate, on: entry, topicID: nil)
-		}
-		.disabled(isEphemeral || isDeleted)
-
+		items.append(
+			WorkspaceTabMenuItem(
+				title: "Duplicate", isEnabled: !isEphemeral && !isDeleted,
+				action: { perform(.duplicate, on: entry, topicID: nil) }
+			))
 		if !isDeleted,
-			shouldShowTopicAssignmentMenu(
-				topicCount: model.topics.count,
-				currentTopicID: entry.topicID
-			)
+			shouldShowTopicAssignmentMenu(topicCount: model.topics.count, currentTopicID: entry.topicID)
 		{
-			TopicAssignmentPicker(entry: entry, topics: model.topics) { topicID in
-				perform(.moveToTopic, on: entry, topicID: topicID)
+			var topics: [WorkspaceTabMenuItem] = []
+			if let topicID = entry.topicID, !model.topics.contains(where: { $0.id == topicID }) {
+				topics += [
+					WorkspaceTabMenuItem(title: "Unavailable Topic", isEnabled: false, isSelected: true), .separator,
+				]
 			}
+			topics.append(
+				WorkspaceTabMenuItem(
+					title: "No Topic", isSelected: entry.topicID == nil,
+					action: {
+						if entry.topicID != nil { perform(.moveToTopic, on: entry, topicID: nil) }
+					}
+				))
+			if !model.topics.isEmpty { topics.append(.separator) }
+			topics += model.topics.map { topic in
+				WorkspaceTabMenuItem(
+					title: topic.title, isSelected: entry.topicID == topic.id,
+					action: {
+						if entry.topicID != topic.id { perform(.moveToTopic, on: entry, topicID: topic.id) }
+					}
+				)
+			}
+			items.append(WorkspaceTabMenuItem(title: "Move to Topic", children: topics))
 		}
-
-		Divider()
-
-		Button(
-			entry.archived ? "Restore from Archive" : "Archive",
-			systemImage: entry.archived ? "tray.and.arrow.up" : "archivebox"
-		) {
-			perform(.toggleArchive, on: entry, topicID: nil)
-		}
-		.disabled(isEphemeral || isDeleted)
-
-		Button("Move to Trash", systemImage: "trash", role: .destructive) {
-			perform(.moveToTrash, on: entry, topicID: nil)
-		}
-		.disabled(isEphemeral || isDeleted)
+		items += [
+			.separator,
+			WorkspaceTabMenuItem(
+				title: entry.archived ? "Restore from Archive" : "Archive",
+				isEnabled: !isEphemeral && !isDeleted,
+				action: { perform(.toggleArchive, on: entry, topicID: nil) }
+			),
+			WorkspaceTabMenuItem(
+				title: "Move to Trash", isEnabled: !isEphemeral && !isDeleted,
+				isDestructive: true,
+				action: { perform(.moveToTrash, on: entry, topicID: nil) }
+			),
+		]
+		return items
 	}
 
 	private func closeBrowserTab(_ tabID: WorkspaceTabID) {
@@ -3366,58 +3375,6 @@ private struct EntriesView: View {
 		}
 	}
 
-}
-
-private struct TopicAssignmentPicker: View {
-	let entry: ThingsDiaryEntry
-	let topics: [ThingsDiaryTopic]
-	let move: (String?) -> Void
-
-	private var selection: Binding<String?> {
-		Binding(
-			get: { entry.topicID },
-			set: { selectedTopicID in
-				guard
-					shouldChangeTopicAssignment(
-						currentTopicID: entry.topicID,
-						selectedTopicID: selectedTopicID
-					)
-				else { return }
-				move(selectedTopicID)
-			}
-		)
-	}
-
-	private var currentTopicIsUnavailable: Bool {
-		guard let currentTopicID = entry.topicID else { return false }
-		return !topics.contains { $0.id == currentTopicID }
-	}
-
-	var body: some View {
-		Picker(selection: selection) {
-			if currentTopicIsUnavailable, let currentTopicID = entry.topicID {
-				Text("Unavailable Topic")
-					.tag(Optional(currentTopicID))
-					.disabled(true)
-				Divider()
-			}
-
-			Text("No Topic")
-				.tag(nil as String?)
-
-			if !topics.isEmpty {
-				Divider()
-			}
-
-			ForEach(topics) { topic in
-				Text(topic.title)
-					.tag(Optional(topic.id))
-			}
-		} label: {
-			Label("Move to Topic", systemImage: "tag")
-		}
-		.pickerStyle(.menu)
-	}
 }
 
 extension Color {

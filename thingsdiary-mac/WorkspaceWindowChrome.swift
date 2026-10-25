@@ -139,6 +139,78 @@ final class WorkspaceWindowDragAreaView: NSView {
 	}
 }
 
+struct WorkspaceTabMenuItem {
+	let title: String
+	var isEnabled = true
+	var isDestructive = false
+	var isSelected = false
+	var children: [WorkspaceTabMenuItem]? = nil
+	var action: (() -> Void)? = nil
+
+	static var separator: Self { Self(title: "") }
+}
+
+struct WorkspaceTabContextMenuArea: NSViewRepresentable {
+	let items: [WorkspaceTabMenuItem]
+
+	func makeNSView(context: Context) -> WorkspaceTabContextMenuAreaView {
+		WorkspaceTabContextMenuAreaView()
+	}
+
+	func updateNSView(_ view: WorkspaceTabContextMenuAreaView, context: Context) {
+		view.items = items
+	}
+}
+
+final class WorkspaceTabContextMenuAreaView: NSView {
+	var items: [WorkspaceTabMenuItem] = []
+
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		guard let event = NSApplication.shared.currentEvent else { return nil }
+		switch event.type {
+		case .rightMouseDown, .rightMouseUp:
+			return bounds.contains(point) ? self : nil
+		default:
+			return nil
+		}
+	}
+
+	override func rightMouseDown(with event: NSEvent) {
+		NSMenu.popUpContextMenu(makeMenu(), with: event, for: self)
+	}
+
+	func makeMenu() -> NSMenu { makeMenu(items: items) }
+
+	private func makeMenu(items: [WorkspaceTabMenuItem]) -> NSMenu {
+		let menu = NSMenu()
+		menu.autoenablesItems = false
+		for item in items {
+			guard !item.title.isEmpty else {
+				menu.addItem(.separator())
+				continue
+			}
+			let nativeItem = NSMenuItem(
+				title: item.title,
+				action: item.action == nil ? nil : #selector(performAction(_:)),
+				keyEquivalent: ""
+			)
+			nativeItem.target = self
+			nativeItem.representedObject = item
+			nativeItem.isEnabled = item.isEnabled
+			nativeItem.state = item.isSelected ? .on : .off
+			if item.isDestructive { markMenuItemDestructive(nativeItem) }
+			if let children = item.children { nativeItem.submenu = makeMenu(items: children) }
+			menu.addItem(nativeItem)
+		}
+		return menu
+	}
+
+	@objc private func performAction(_ sender: NSMenuItem) {
+		guard sender.isEnabled, let item = sender.representedObject as? WorkspaceTabMenuItem else { return }
+		item.action?()
+	}
+}
+
 struct WorkspaceEntryContextMenuArea: NSViewRepresentable {
 	let entry: ThingsDiaryEntry
 	let topics: [ThingsDiaryTopic]
