@@ -1,6 +1,21 @@
 import Foundation
 import ThingsDiaryClient
 
+nonisolated struct EntryPreviewMenuState {
+	let entryHidesPreview: Bool
+	let topicHidesPreview: Bool
+
+	var isHidden: Bool { entryHidesPreview || topicHidesPreview }
+
+	var title: String {
+		if topicHidesPreview {
+			return entryHidesPreview
+				? "Preview Hidden by Entry and Topic" : "Preview Hidden by Topic"
+		}
+		return entryHidesPreview ? "Show Preview" : "Hide Preview"
+	}
+}
+
 nonisolated enum EntrySection: String, CaseIterable, Identifiable {
 	case entries = "Entries"
 	case bookmarks = "Bookmarks"

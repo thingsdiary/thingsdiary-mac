@@ -1975,3 +1975,62 @@ private actor StubAppClient: ThingsDiaryAppClient {
 		return try updateEntryResult.get()
 	}
 }
+
+@MainActor
+@Test("Toggling entry previews preserves content and metadata", arguments: [false, true])
+func togglesEntryPreview(hidden: Bool) async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let original = ThingsDiaryEntry(
+		id: "entry-1", diaryID: selectedDiary.id, content: "Keep this content",
+		topicID: "topic-1", archived: true, bookmarked: true, previewHidden: hidden,
+		createdAt: Date(timeIntervalSince1970: 3), updatedAt: Date(timeIntervalSince1970: 4), version: 5
+	)
+	let updated = ThingsDiaryEntry(
+		id: original.id, diaryID: original.diaryID, content: original.content,
+		topicID: original.topicID, archived: true, bookmarked: true, previewHidden: !hidden,
+		createdAt: original.createdAt, updatedAt: Date(timeIntervalSince1970: 6), version: 6
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]), entriesResult: .success([original]),
+		updateEntryResult: .success(updated)
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	await model.selectDiary(selectedDiary)
+
+	await model.toggleEntryPreview(original)
+
+	#expect(model.screen == .entries(diary: selectedDiary, entries: [updated]))
+	#expect(
+		await client.receivedUpdateParams
+			== ThingsDiaryEntryParams(
+				content: original.content, topicID: original.topicID,
+				archived: true, bookmarked: true, previewHidden: !hidden
+			))
+}
+
+@MainActor
+@Test("Topic preview restrictions block entry toggles", arguments: [false, true])
+func topicBlocksEntryPreviewToggle(hidden: Bool) async {
+	let selectedDiary = diary(id: "diary-1", title: "Personal")
+	let restrictedTopic = ThingsDiaryTopic(
+		id: "topic-1", diaryID: selectedDiary.id, title: "Private", description: "", color: "blue",
+		entryPreviewable: false,
+		createdAt: Date(timeIntervalSince1970: 1), updatedAt: Date(timeIntervalSince1970: 2), version: 3
+	)
+	let original = ThingsDiaryEntry(
+		id: "entry-1", diaryID: selectedDiary.id, content: "Private content",
+		topicID: restrictedTopic.id, previewHidden: hidden,
+		createdAt: Date(timeIntervalSince1970: 3), updatedAt: Date(timeIntervalSince1970: 4), version: 5
+	)
+	let client = StubAppClient(
+		result: .success([selectedDiary]), entriesResult: .success([original]),
+		topicsResult: .success([restrictedTopic])
+	)
+	let model = ThingsDiaryAppModel(client: client)
+	await model.selectDiary(selectedDiary)
+
+	await model.toggleEntryPreview(original)
+
+	#expect(model.screen == .entries(diary: selectedDiary, entries: [original]))
+	#expect(await client.receivedUpdateParams == nil)
+}

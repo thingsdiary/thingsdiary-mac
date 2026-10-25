@@ -1414,6 +1414,74 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(app.buttons["entry.fixture-entry"].waitForExistence(timeout: 2))
 	}
 
+	func testRowPreviewMenuExplainsTopicRestrictionAndOpensTopicSettings() {
+		assertTopicPreviewRestrictionMenu(fromTab: false)
+	}
+
+	func testTabPreviewMenuExplainsTopicRestrictionAndOpensTopicSettings() {
+		assertTopicPreviewRestrictionMenu(fromTab: true)
+	}
+
+	private func assertTopicPreviewRestrictionMenu(fromTab: Bool) {
+		let app = launchWorkspace(additionalArguments: ["--ui-testing-hidden-previews"])
+		app.buttons["sidebar.topic.fixture-topic-2"].click()
+		let entry = app.buttons["entry.fixture-entry-6"]
+		XCTAssertTrue(entry.waitForExistence(timeout: 2))
+		entry.click()
+		let tab = app.buttons["entry-tab.fixture-entry-6"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		XCTAssertEqual(tab.label, "Hidden entry")
+
+		(fromTab ? tab : entry).rightClick()
+
+		let reason = app.menuItems["Preview Hidden by Topic"]
+		XCTAssertTrue(reason.waitForExistence(timeout: 2))
+		XCTAssertFalse(reason.isEnabled)
+		XCTAssertFalse(app.menuItems["Show Preview"].exists)
+		XCTAssertFalse(app.menuItems["Hide Preview"].exists)
+		let settings = app.menuItems["Topic Settings…"]
+		XCTAssertTrue(settings.exists)
+		XCTAssertTrue(settings.isEnabled)
+		settings.click()
+
+		let sheet = app.sheets.firstMatch
+		XCTAssertTrue(sheet.waitForExistence(timeout: 2))
+		let title = sheet.textFields["topic.title"]
+		XCTAssertTrue(title.waitForExistence(timeout: 2))
+		XCTAssertEqual(title.value as? String, "Personal Topic")
+		let previews = sheet.descendants(matching: .any)["topic.entry-previews"].firstMatch
+		XCTAssertTrue(previews.exists)
+		sheet.buttons["Cancel"].click()
+		XCTAssertTrue(sheet.waitForNonExistence(timeout: 2))
+		XCTAssertEqual(tab.label, "Hidden entry")
+	}
+
+	func testPreviewCanBeHiddenFromRowAndShownFromTab() {
+		let app = launchWorkspace()
+		let entry = app.descendants(matching: .any).matching(identifier: "entry.fixture-entry")
+			.allElementsBoundByIndex.first(where: \.isHittable)
+		guard let entry else { return XCTFail("Expected a visible fixture entry") }
+		entry.click()
+		entry.rightClick()
+		let hide = app.menuItems["Hide Preview"]
+		XCTAssertTrue(hide.waitForExistence(timeout: 2))
+		hide.click()
+
+		let tab = app.buttons["entry-tab.fixture-entry"]
+		XCTAssertTrue(tab.waitForExistence(timeout: 2))
+		let hidden = NSPredicate(format: "label CONTAINS %@", "Hidden entry")
+		expectation(for: hidden, evaluatedWith: tab)
+		waitForExpectations(timeout: 3)
+		tab.rightClick()
+		let show = app.menuItems["Show Preview"]
+		XCTAssertTrue(show.waitForExistence(timeout: 2))
+		show.click()
+
+		let visible = NSPredicate(format: "label CONTAINS %@", "Fixture Entry")
+		expectation(for: visible, evaluatedWith: tab)
+		waitForExpectations(timeout: 3)
+	}
+
 	func testEntryActionsStayInRowContextMenuAndAreHiddenFromEditorToolbar() {
 		let app = launchWorkspace()
 		let entries = app.descendants(matching: .any)

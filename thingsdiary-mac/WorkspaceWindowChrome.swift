@@ -143,6 +143,8 @@ struct WorkspaceEntryContextMenuArea: NSViewRepresentable {
 	let entry: ThingsDiaryEntry
 	let topics: [ThingsDiaryTopic]
 	let isEphemeral: Bool
+	let togglePreview: () -> Void
+	let editTopic: (ThingsDiaryTopic) -> Void
 	let perform: (EntryAction, String?) -> Void
 
 	func makeNSView(context: Context) -> WorkspaceEntryContextMenuAreaView {
@@ -153,6 +155,8 @@ struct WorkspaceEntryContextMenuArea: NSViewRepresentable {
 		view.entry = entry
 		view.topics = topics
 		view.isEphemeral = isEphemeral
+		view.togglePreview = togglePreview
+		view.editTopic = editTopic
 		view.perform = perform
 	}
 }
@@ -161,6 +165,8 @@ final class WorkspaceEntryContextMenuAreaView: NSView {
 	var entry: ThingsDiaryEntry?
 	var topics: [ThingsDiaryTopic] = []
 	var isEphemeral = false
+	var togglePreview: (() -> Void)?
+	var editTopic: ((ThingsDiaryTopic) -> Void)?
 	var perform: ((EntryAction, String?) -> Void)?
 
 	override func hitTest(_ point: NSPoint) -> NSView? {
@@ -199,6 +205,21 @@ final class WorkspaceEntryContextMenuAreaView: NSView {
 					action: #selector(performToggleBookmarkAction)
 				)
 			)
+		}
+
+		let topic = topics.first { $0.id == entry.topicID }
+		let preview = EntryPreviewMenuState(
+			entryHidesPreview: entry.previewHidden,
+			topicHidesPreview: topic?.entryPreviewable == false
+		)
+		let previewItem = menuItem(
+			title: preview.title,
+			action: #selector(performTogglePreviewAction)
+		)
+		previewItem.isEnabled = !preview.topicHidesPreview && !isEphemeral && entry.deletedAt == nil
+		menu.addItem(previewItem)
+		if preview.topicHidesPreview {
+			menu.addItem(menuItem(title: "Topic Settings…", action: #selector(performEditTopicAction)))
 		}
 
 		if actions.contains(.duplicate) {
@@ -322,6 +343,19 @@ final class WorkspaceEntryContextMenuAreaView: NSView {
 
 	@objc private func performToggleBookmarkAction() {
 		perform?(.toggleBookmark, nil)
+	}
+
+	@objc private func performTogglePreviewAction() {
+		guard let entry,
+			entry.deletedAt == nil, !isEphemeral,
+			topics.first(where: { $0.id == entry.topicID })?.entryPreviewable != false
+		else { return }
+		togglePreview?()
+	}
+
+	@objc private func performEditTopicAction() {
+		guard let entry, let topic = topics.first(where: { $0.id == entry.topicID }) else { return }
+		editTopic?(topic)
 	}
 
 	@objc private func performDuplicateAction() {

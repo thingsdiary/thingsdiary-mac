@@ -669,8 +669,10 @@ private struct EntriesView: View {
 	}
 
 	private func entryPreviewIsHidden(_ entry: ThingsDiaryEntry) -> Bool {
-		entry.previewHidden
-			|| model.topics.first(where: { $0.id == entry.topicID })?.entryPreviewable == false
+		EntryPreviewMenuState(
+			entryHidesPreview: entry.previewHidden,
+			topicHidesPreview: model.topics.first(where: { $0.id == entry.topicID })?.entryPreviewable == false
+		).isHidden
 	}
 
 	private func tabTitleIsHidden(_ tabID: WorkspaceTabID) -> Bool {
@@ -2379,6 +2381,19 @@ private struct EntriesView: View {
 		}
 		.disabled(isDeleted)
 
+		let topic = model.topics.first { $0.id == entry.topicID }
+		let preview = EntryPreviewMenuState(
+			entryHidesPreview: entry.previewHidden,
+			topicHidesPreview: topic?.entryPreviewable == false
+		)
+		Button(preview.title) {
+			toggleEntryPreview(entry)
+		}
+		.disabled(preview.topicHidesPreview || isEphemeral || isDeleted)
+		if preview.topicHidesPreview, let topic {
+			Button("Topic Settings…") { beginEditing(topic) }
+		}
+
 		Button("Duplicate", systemImage: "plus.square.on.square") {
 			perform(.duplicate, on: entry, topicID: nil)
 		}
@@ -2853,10 +2868,17 @@ private struct EntriesView: View {
 		WorkspaceEntryContextMenuArea(
 			entry: entry,
 			topics: model.topics,
-			isEphemeral: model.entryDraftIDs.contains(entry.id)
+			isEphemeral: model.entryDraftIDs.contains(entry.id),
+			togglePreview: { toggleEntryPreview(entry) },
+			editTopic: { beginEditing($0) }
 		) { action, topicID in
 			perform(action, on: entry, topicID: topicID)
 		}
+	}
+
+	private func toggleEntryPreview(_ entry: ThingsDiaryEntry) {
+		tabs.promote(.entry(entry.id))
+		Task { await model.toggleEntryPreview(entry) }
 	}
 
 	private func perform(
@@ -3207,6 +3229,9 @@ private struct EntriesView: View {
 				.accessibilityIdentifier("topic.default-template")
 				Toggle("Show entry previews", isOn: $topicEntryPreviewable)
 					.accessibilityIdentifier("topic.entry-previews")
+				Text("When off, hides entry titles and previews in the list and tabs.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
 				LabeledContent("Color") {
 					HStack(spacing: 10) {
 						ForEach(topicColorOptions) { option in

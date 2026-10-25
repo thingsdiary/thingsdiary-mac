@@ -1585,6 +1585,25 @@ final class ThingsDiaryAppModel {
 		}
 	}
 
+	func toggleEntryPreview(_ entry: ThingsDiaryEntry) async {
+		guard case .entries(_, let entries) = screen,
+			let current = entries.first(where: { $0.id == entry.id }),
+			current.deletedAt == nil,
+			!entryDraftIDs.contains(current.id),
+			topics.first(where: { $0.id == current.topicID })?.entryPreviewable != false
+		else { return }
+		await saveEntry(
+			current,
+			params: ThingsDiaryEntryParams(
+				content: current.content,
+				topicID: current.topicID,
+				archived: current.archived,
+				bookmarked: current.bookmarked,
+				previewHidden: !current.previewHidden
+			)
+		)
+	}
+
 	func toggleBookmark(_ entry: ThingsDiaryEntry) async {
 		if entryDraftIDs.contains(entry.id) {
 			promoteEntryDraft(
