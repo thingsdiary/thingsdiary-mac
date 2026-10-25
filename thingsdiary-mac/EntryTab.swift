@@ -5,6 +5,7 @@ struct AppIcon {
 
 	static let close = Self(resource: .iconX)
 	static let circleX = Self(resource: .iconCircleX)
+	static let eyeOff = Self(resource: .iconEyeOff)
 	static let menu = Self(resource: .iconMenu)
 	static let newEntry = Self(resource: .iconSquarePen)
 	static let panelLeft = Self(resource: .iconPanelLeft)

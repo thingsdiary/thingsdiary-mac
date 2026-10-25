@@ -2934,6 +2934,7 @@ private struct EntriesView: View {
 			content: draftsByEntryID[entry.id] ?? entry.content
 		)
 		let topic = model.topics.first { $0.id == entry.topicID }
+		let previewIsHidden = entry.previewHidden || topic?.entryPreviewable == false
 		VStack(alignment: .leading, spacing: 6) {
 			HStack(spacing: 7) {
 				if let topic {
@@ -2975,10 +2976,14 @@ private struct EntriesView: View {
 						.foregroundStyle(.secondary)
 						.fixedSize()
 				}
-				if !entry.previewHidden,
-					topic?.entryPreviewable != false,
-					let preview = presentation.preview
-				{
+				if previewIsHidden {
+					Spacer(minLength: 0)
+					AppIconImage(icon: .eyeOff, size: 24)
+						.foregroundStyle(.secondary)
+						.padding(.vertical, 6)
+						.accessibilityLabel("Preview hidden")
+						.accessibilityIdentifier("entry.preview-hidden.\(entry.id)")
+				} else if let preview = presentation.preview {
 					Text(preview)
 						.font(.subheadline)
 						.foregroundStyle(.secondary)
@@ -2988,11 +2993,12 @@ private struct EntriesView: View {
 				}
 				Spacer(minLength: 0)
 			}
+			.frame(minHeight: previewIsHidden ? 24 : nil)
 			.frame(maxWidth: .infinity, alignment: .topLeading)
 		}
 		.contentShape(.rect)
 		.padding(.top, 6)
-		.padding(.bottom, 12)
+		.padding(.bottom, previewIsHidden ? 6 : 12)
 	}
 
 	private var emptyStateTitle: String {
