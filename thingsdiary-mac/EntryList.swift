@@ -608,6 +608,38 @@ nonisolated struct EntryListPresentation: Equatable {
 	let preview: String?
 }
 
+nonisolated func hiddenEntryListPlaceholder(for entryID: String) -> EntryListPresentation {
+	let words = [
+		"a", "quiet", "moment", "today", "small", "details", "remember", "thoughts",
+		"another", "day", "looking", "back", "ideas", "space", "plans", "tomorrow",
+	]
+	// Stable seed and SplitMix64 keep similar IDs visually distinct without changing on redraw.
+	var state = entryID.utf8.reduce(UInt64(0xcbf29ce484222325)) {
+		($0 ^ UInt64($1)) &* 0x100000001b3
+	}
+	func next(_ range: ClosedRange<Int>) -> Int {
+		state &+= 0x9e3779b97f4a7c15
+		var value = state
+		value = (value ^ (value >> 30)) &* 0xbf58476d1ce4e5b9
+		value = (value ^ (value >> 27)) &* 0x94d049bb133111eb
+		value ^= value >> 31
+		return range.lowerBound + Int(value % UInt64(range.count))
+	}
+	func text(length: ClosedRange<Int>) -> String {
+		let count = next(length)
+		var result = ""
+		while result.count < count {
+			if !result.isEmpty { result += " " }
+			result += words[next(0...(words.count - 1))]
+		}
+		return String(result.prefix(count)).trimmingCharacters(in: .whitespaces)
+	}
+	let title = text(length: 8...28)
+	let lineCount = next(1...3)
+	let preview = (0..<lineCount).map { _ in text(length: 18...42) }.joined(separator: "\n")
+	return EntryListPresentation(title: title, preview: preview)
+}
+
 nonisolated func entryListTimestamp(
 	_ date: Date,
 	now: Date = .now,

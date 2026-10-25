@@ -661,10 +661,23 @@ private struct EntriesView: View {
 	private func tabTitle(_ tabID: WorkspaceTabID) -> String {
 		switch tabID {
 		case .entry:
-			entryListPresentation(content: tabDraftContent(tabID)).title
+			tabTitleIsHidden(tabID)
+				? "Hidden entry" : entryListPresentation(content: tabDraftContent(tabID)).title
 		case .template:
 			templateListPresentation(content: tabDraftContent(tabID)).title
 		}
+	}
+
+	private func entryPreviewIsHidden(_ entry: ThingsDiaryEntry) -> Bool {
+		entry.previewHidden
+			|| model.topics.first(where: { $0.id == entry.topicID })?.entryPreviewable == false
+	}
+
+	private func tabTitleIsHidden(_ tabID: WorkspaceTabID) -> Bool {
+		guard case .entry(let entryID) = tabID,
+			let entry = entries.first(where: { $0.id == entryID })
+		else { return false }
+		return entryPreviewIsHidden(entry)
 	}
 
 	private var validTabIDs: Set<WorkspaceTabID> {
@@ -1400,12 +1413,20 @@ private struct EntriesView: View {
 		at index: Int,
 		width: CGFloat
 	) -> some View {
+		let titleIsHidden = tabTitleIsHidden(tabID)
+		let title: String
+		if titleIsHidden, case .entry(let entryID) = tabID {
+			title = hiddenEntryListPlaceholder(for: entryID).title
+		} else {
+			title = tabTitle(tabID)
+		}
 		return ZStack {
 			Color.clear
 			BrowserTab(
 				accessibilityIdentifier: tabID.tabAccessibilityID,
 				closeAccessibilityIdentifier: tabID.closeAccessibilityID,
-				title: tabTitle(tabID),
+				title: title,
+				titleIsHidden: titleIsHidden,
 				width: width,
 				isActive: tabs.activeTabID == tabID,
 				isDirty: tabDraftContent(tabID) != tabPersistedContent(tabID),
@@ -2930,11 +2951,13 @@ private struct EntriesView: View {
 
 	@ViewBuilder
 	private func entryListRow(_ entry: ThingsDiaryEntry) -> some View {
-		let presentation = entryListPresentation(
-			content: draftsByEntryID[entry.id] ?? entry.content
-		)
+		let content = draftsByEntryID[entry.id] ?? entry.content
 		let topic = model.topics.first { $0.id == entry.topicID }
-		let previewIsHidden = entry.previewHidden || topic?.entryPreviewable == false
+		let previewIsHidden = entryPreviewIsHidden(entry)
+		let presentation = previewIsHidden
+			? hiddenEntryListPlaceholder(for: entry.id) : entryListPresentation(content: content)
+		let title = presentation.title
+		let preview = presentation.preview
 		VStack(alignment: .leading, spacing: 6) {
 			HStack(spacing: 7) {
 				if let topic {
@@ -2943,11 +2966,14 @@ private struct EntriesView: View {
 						.frame(width: 8, height: 8)
 						.accessibilityLabel("Topic: \(topic.title)")
 				}
-				Text(presentation.title)
+				Text(title)
 					.font(.headline)
 					.lineLimit(1)
 					.truncationMode(.tail)
 					.layoutPriority(1)
+					.redacted(reason: previewIsHidden ? .placeholder : [])
+					.accessibilityElement(children: .ignore)
+					.accessibilityLabel(previewIsHidden ? "Hidden entry" : title)
 				Spacer(minLength: 8)
 				if entry.bookmarked {
 					Image(systemName: "bookmark.fill")
@@ -2976,29 +3002,23 @@ private struct EntriesView: View {
 						.foregroundStyle(.secondary)
 						.fixedSize()
 				}
-				if previewIsHidden {
-					Spacer(minLength: 0)
-					AppIconImage(icon: .eyeOff, size: 24)
-						.foregroundStyle(.secondary)
-						.padding(.vertical, 6)
-						.accessibilityLabel("Preview hidden")
-						.accessibilityIdentifier("entry.preview-hidden.\(entry.id)")
-				} else if let preview = presentation.preview {
+				if let preview {
 					Text(preview)
 						.font(.subheadline)
 						.foregroundStyle(.secondary)
 						.lineLimit(3)
 						.truncationMode(.tail)
 						.padding(.vertical, 1)
+						.redacted(reason: previewIsHidden ? .placeholder : [])
+						.accessibilityHidden(previewIsHidden)
 				}
 				Spacer(minLength: 0)
 			}
-			.frame(minHeight: previewIsHidden ? 24 : nil)
 			.frame(maxWidth: .infinity, alignment: .topLeading)
 		}
 		.contentShape(.rect)
 		.padding(.top, 6)
-		.padding(.bottom, previewIsHidden ? 6 : 12)
+		.padding(.bottom, 12)
 	}
 
 	private var emptyStateTitle: String {

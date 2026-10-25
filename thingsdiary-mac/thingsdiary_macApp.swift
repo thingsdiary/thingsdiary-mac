@@ -268,6 +268,9 @@ struct ThingsDiaryApp: App {
 						),
 						includesMultipleDiaries: ProcessInfo.processInfo.arguments.contains(
 							"--ui-testing-multiple-diaries"
+						),
+						includesHiddenPreviews: ProcessInfo.processInfo.arguments.contains(
+							"--ui-testing-hidden-previews"
 						)
 					)
 				)

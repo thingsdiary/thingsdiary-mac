@@ -786,7 +786,8 @@ final class ThingsDiaryAppModel {
 		static func uiTestingWorkspace(
 			includesDeletedEntry: Bool = true,
 			includesTemplate: Bool = false,
-			includesMultipleDiaries: Bool = false
+			includesMultipleDiaries: Bool = false,
+			includesHiddenPreviews: Bool = false
 		) -> ThingsDiaryAppModel {
 			let now = Date(timeIntervalSince1970: 1_700_000_000)
 			let diary = ThingsDiaryDiary(
@@ -799,16 +800,25 @@ final class ThingsDiaryAppModel {
 			)
 			let entries = (1...19).map { index in
 				let timestamp = now.addingTimeInterval(TimeInterval(-(index - 1) * 60))
-				return ThingsDiaryEntry(
-					id: index == 1 ? "fixture-entry" : "fixture-entry-\(index)",
-					diaryID: diary.id,
-					content:
-						index == 1
+				let content: String
+				if includesHiddenPreviews && (3...4).contains(index) {
+					content = ""
+				} else if includesHiddenPreviews && index == 5 {
+					content = "Мысли о сегодняшнем дне\nНесколько наблюдений, которые хочется сохранить. Прогулка, новые идеи и планы на следующую неделю. Ещё одна строка для проверки длинного превью. 🙂"
+				} else {
+					content = index == 1
 						? "Fixture Entry\nA useful preview for UI testing."
 						: index == 2
 							? "Fixture Entry 2"
-							: "Fixture Entry \(index)\nSample note \(index) for UI testing.",
-					topicID: index == 19 ? "fixture-topic-2" : nil,
+							: "Fixture Entry \(index)\nSample note \(index) for UI testing."
+				}
+				return ThingsDiaryEntry(
+					id: index == 1 ? "fixture-entry" : "fixture-entry-\(index)",
+					diaryID: diary.id,
+					content: content,
+					topicID: index == 19 || (includesHiddenPreviews && (6...8).contains(index))
+						? "fixture-topic-2" : nil,
+					previewHidden: includesHiddenPreviews && (2...5).contains(index),
 					createdAt: timestamp,
 					updatedAt: timestamp,
 					version: 1
@@ -848,6 +858,7 @@ final class ThingsDiaryAppModel {
 				title: "Personal Topic",
 				description: "",
 				color: "#FCA5A5",
+				entryPreviewable: !includesHiddenPreviews,
 				createdAt: now,
 				updatedAt: now,
 				version: 1

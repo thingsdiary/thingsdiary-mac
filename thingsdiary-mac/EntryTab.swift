@@ -5,7 +5,6 @@ struct AppIcon {
 
 	static let close = Self(resource: .iconX)
 	static let circleX = Self(resource: .iconCircleX)
-	static let eyeOff = Self(resource: .iconEyeOff)
 	static let menu = Self(resource: .iconMenu)
 	static let newEntry = Self(resource: .iconSquarePen)
 	static let panelLeft = Self(resource: .iconPanelLeft)
@@ -111,6 +110,7 @@ struct BrowserTab: View {
 	let accessibilityIdentifier: String
 	let closeAccessibilityIdentifier: String
 	let title: String
+	var titleIsHidden = false
 	let width: CGFloat
 	let isActive: Bool
 	let isDirty: Bool
@@ -129,7 +129,11 @@ struct BrowserTab: View {
 		isActive || isHovered
 	}
 
-	var body: some View {
+	private var accessibleTitle: String {
+		titleIsHidden ? "Hidden entry" : title
+	}
+
+	private var tabButton: some View {
 		Button(action: activate) {
 			HStack(spacing: 6) {
 				if isPinned {
@@ -147,6 +151,7 @@ struct BrowserTab: View {
 				Text(title)
 					.italic(isPreview)
 					.lineLimit(1)
+					.redacted(reason: titleIsHidden ? .placeholder : [])
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.foregroundStyle(isActive || isHovered ? Color.primary : Color.secondary)
 			}
@@ -157,19 +162,26 @@ struct BrowserTab: View {
 			.mask { titleMask }
 		}
 		.buttonStyle(.plain)
+		.accessibilityElement(children: .ignore)
+		.accessibilityAddTraits(.isButton)
 		.accessibilityIdentifier(accessibilityIdentifier)
+		.accessibilityLabel(accessibleTitle)
 		.accessibilityValue(
 			(isPinned ? "Pinned, " : "")
 				+ (isPreview ? "Preview, " : "")
 				+ (isDirty ? "Unsaved changes" : "Saved")
 		)
+	}
+
+	var body: some View {
+		tabButton
 		.overlay(alignment: .trailing) {
 			if showsCloseButton {
 				TabIconButton(icon: .close, iconSize: 12, action: close)
 					.padding(.trailing, 1)
 					.accessibilityIdentifier(closeAccessibilityIdentifier)
-					.accessibilityLabel("Close \(title)")
-					.help("Close \(title)")
+					.accessibilityLabel("Close \(accessibleTitle)")
+					.help("Close \(accessibleTitle)")
 			}
 		}
 		.background(
