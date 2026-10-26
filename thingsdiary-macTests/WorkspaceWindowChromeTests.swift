@@ -29,7 +29,7 @@ func windowControlsKeepLeadingInset() {
 @MainActor
 final class WorkspaceWindowChromeMenuTests: XCTestCase {
 	func testTabContextMenusRenderDestructiveActionsInRed() {
-		for title in ["Delete Template", "Move to Trash"] {
+		for title in ["Delete", "Delete Template", "Move to Trash", "Delete Permanently"] {
 			for enabled in [false, true] {
 				let view = WorkspaceTabContextMenuAreaView()
 				var invoked = false
@@ -127,6 +127,8 @@ final class WorkspaceWindowChromeMenuTests: XCTestCase {
 
 	func testTemplateListContextMenuMarksDeleteAsDestructive() {
 		let view = WorkspaceTemplateContextMenuAreaView()
+		var deleteRequested = false
+		view.delete = { deleteRequested = true }
 
 		let item = view.makeMenu().items.first { $0.title == "Delete" }
 
@@ -137,6 +139,8 @@ final class WorkspaceWindowChromeMenuTests: XCTestCase {
 			item?.attributedTitle?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
 			NSColor.systemRed
 		)
+		if let item, let action = item.action { view.perform(action, with: item) }
+		XCTAssertTrue(deleteRequested)
 	}
 
 	func testTrashContextMenuMarksEmptyTrashAsDestructive() {
@@ -158,6 +162,8 @@ final class WorkspaceWindowChromeMenuTests: XCTestCase {
 
 	func testTopicContextMenuMarksDeleteAsDestructive() {
 		let view = WorkspaceTopicContextMenuAreaView()
+		var deleteRequested = false
+		view.delete = { deleteRequested = true }
 
 		let item = view.makeMenu().items.first {
 			$0.title == "Delete" && $0.action == NSSelectorFromString("performDeleteAction")
@@ -169,5 +175,57 @@ final class WorkspaceWindowChromeMenuTests: XCTestCase {
 			item?.attributedTitle?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
 			NSColor.systemRed
 		)
+		if let item, let action = item.action { view.perform(action, with: item) }
+		XCTAssertTrue(deleteRequested)
 	}
+
+	func testTopicColorMenuPreviewsAndSelectionSurviveReopening() throws {
+		let view = WorkspaceTopicContextMenuAreaView()
+		let palette: [(title: String, hex: String, red: CGFloat, green: CGFloat, blue: CGFloat)] = [
+			("Red", "#E53935", 229 / 255, 57 / 255, 53 / 255),
+			("Green", "#43A047", 67 / 255, 160 / 255, 71 / 255),
+			("Blue", "#1E88E5", 30 / 255, 136 / 255, 229 / 255),
+		]
+		var selectedHex = palette[0].hex
+		var requestedColors: [String] = []
+		func refreshOptions() {
+			view.colors = palette.map { color in
+				WorkspaceTopicColorMenuOption(
+					id: color.hex, title: color.title, hex: color.hex, isSelected: color.hex == selectedHex)
+			}
+		}
+		view.selectColor = { hex in
+			requestedColors.append(hex)
+			selectedHex = hex
+		}
+		refreshOptions()
+
+		// Opening, choosing a color, and reopening must preserve both previews and selection.
+		for selectedIndex in [0, 1] {
+			let menu = view.makeMenu()
+			let colors = try XCTUnwrap(menu.items.first { $0.title == "Color" }?.submenu)
+			XCTAssertEqual(colors.items.map(\.title), palette.map(\.title))
+			for (index, color) in palette.enumerated() {
+				let item = colors.items[index]
+				XCTAssertEqual(item.state, index == selectedIndex ? .on : .off)
+				XCTAssertEqual(item.isEnabled, index != selectedIndex)
+				let image = try XCTUnwrap(item.image, "Missing preview for \(color.title)")
+				XCTAssertFalse(image.isTemplate, "AppKit must preserve the actual swatch color")
+				let bitmap = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(image.tiffRepresentation)))
+				let center = try XCTUnwrap(
+					bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+				XCTAssertEqual(center.redComponent, color.red, accuracy: 0.01)
+				XCTAssertEqual(center.greenComponent, color.green, accuracy: 0.01)
+				XCTAssertEqual(center.blueComponent, color.blue, accuracy: 0.01)
+				XCTAssertEqual(center.alphaComponent, 1, accuracy: 0.01)
+				XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: 0, y: 0)).alphaComponent, 0, accuracy: 0.01)
+			}
+			if selectedIndex == 0 {
+				colors.performActionForItem(at: 1)
+				XCTAssertEqual(requestedColors, [palette[1].hex])
+				refreshOptions()
+			}
+		}
+	}
+
 }

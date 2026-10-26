@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 extension XCUIElement {
@@ -2018,7 +2019,68 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertEqual(entry.frame.height, 60, accuracy: 1)
 	}
 
-	func testTopicColorCanBeChangedFromContextMenu() {
+	func testDestructiveContextMenusAreRedAndOpenConfirmations() throws {
+		let app = launchWorkspace(additionalArguments: ["--ui-testing-template"])
+		continueAfterFailure = false
+		func checkAction(on target: XCUIElement, title: String, confirmation: String) throws {
+			XCTAssertTrue(target.waitForExistence(timeout: 3))
+			target.rightClick()
+			// The Edit menu also exposes a hidden Delete item. Use the visible context action.
+			let action = try XCTUnwrap(
+				app.menuItems.matching(identifier: title).allElementsBoundByIndex.first { $0.isHittable },
+				"Missing visible context action: \(title)")
+			try assertMenuPixels(
+				action,
+				matching: { red, green, blue in
+					red > 0.5 && red > green * 1.4 && red > blue * 1.4
+				}, description: "Red destructive text in \(title)")
+			action.click()
+			XCTAssertTrue(app.staticTexts[confirmation].waitForExistence(timeout: 3))
+			app.sheets.firstMatch.buttons["Cancel"].click()
+			XCTAssertTrue(target.exists)
+		}
+
+		let note = app.descendants(matching: .any)["entry.fixture-entry"]
+		try checkAction(on: note, title: "Move to Trash", confirmation: "Move Entry to Trash?")
+		note.click()
+		let tab = app.buttons["entry-tab.fixture-entry"]
+		try checkAction(on: tab, title: "Move to Trash", confirmation: "Move Entry to Trash?")
+
+		app.buttons["sidebar.templates"].click()
+		let template = app.descendants(matching: .any)["template.fixture-template"]
+		try checkAction(on: template, title: "Delete", confirmation: "Delete Template?")
+		template.click()
+		try checkAction(
+			on: app.buttons["template-tab.fixture-template"], title: "Delete Template", confirmation: "Delete Template?"
+		)
+
+		try checkAction(
+			on: app.buttons["sidebar.topic.fixture-topic"], title: "Delete", confirmation: "Delete Topic?")
+	}
+
+	private func assertMenuPixels(
+		_ item: XCUIElement, matching predicate: (CGFloat, CGFloat, CGFloat) -> Bool,
+		description: String, file: StaticString = #filePath, line: UInt = #line
+	) throws {
+		let screenshot = item.screenshot()
+		let bitmap = try XCTUnwrap(NSBitmapImageRep(data: screenshot.pngRepresentation), file: file, line: line)
+		var matchingPixels = 0
+		for y in 0..<bitmap.pixelsHigh {
+			for x in 0..<bitmap.pixelsWide {
+				guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+				if predicate(color.redComponent, color.greenComponent, color.blueComponent) { matchingPixels += 1 }
+			}
+		}
+		if matchingPixels < 5 {
+			let attachment = XCTAttachment(screenshot: screenshot)
+			attachment.name = description
+			attachment.lifetime = .keepAlways
+			add(attachment)
+		}
+		XCTAssertGreaterThanOrEqual(matchingPixels, 5, description, file: file, line: line)
+	}
+
+	func testTopicColorCanBeChangedFromContextMenu() throws {
 		let app = launchWorkspace()
 		let topic = app.buttons["sidebar.topic.fixture-topic"]
 
@@ -2029,6 +2091,11 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		let green = app.menuItems["Green"].firstMatch
 		XCTAssertTrue(green.waitForExistence(timeout: 2))
+		try assertMenuPixels(
+			green,
+			matching: { red, green, blue in
+				green > 0.6 && green > red * 1.2 && green > blue * 1.15
+			}, description: "Green color preview in the topic menu")
 		green.click()
 
 		topic.rightClick()
