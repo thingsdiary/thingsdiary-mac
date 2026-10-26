@@ -3429,17 +3429,6 @@ private struct EntriesView: View {
 			}
 			.frame(minHeight: 20)
 			HStack(alignment: .top, spacing: 6) {
-				if entry.archived {
-					Label("Archived", systemImage: "archivebox.fill")
-						.font(.caption)
-						.foregroundStyle(.secondary)
-						.fixedSize()
-				} else if entry.deletedAt != nil {
-					Label("In Trash", systemImage: "trash.fill")
-						.font(.caption)
-						.foregroundStyle(.secondary)
-						.fixedSize()
-				}
 				if let preview {
 					Text(preview)
 						.font(.subheadline)
