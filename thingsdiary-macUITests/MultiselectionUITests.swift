@@ -436,6 +436,42 @@ final class MultiselectionUITests: XCTestCase {
 		sheet.buttons["Cancel"].click()
 	}
 
+	func testTopicSearchFiltersAndClearsWithoutDismissingSheet() {
+		let app = launchWorkspace()
+		clickEntry(1, in: app)
+		clickEntry(3, in: app, modifiers: .shift)
+		app.buttons["bulk.action.topic"].click()
+
+		let sheet = app.sheets.firstMatch
+		XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+		let search = sheet.searchFields["bulk.topic.search"]
+		XCTAssertTrue(search.exists)
+		let workTopic = sheet.descendants(matching: .any)
+			.matching(identifier: "bulk.topic.fixture-topic").firstMatch
+		let personalTopic = sheet.descendants(matching: .any)
+			.matching(identifier: "bulk.topic.fixture-topic-2").firstMatch
+		XCTAssertTrue(workTopic.exists)
+		XCTAssertTrue(personalTopic.exists)
+
+		search.click()
+		search.typeText("Work")
+		waitUntil { workTopic.exists && !personalTopic.exists }
+		sheet.buttons["Clear Search Topics"].click()
+		waitUntil { search.value as? String == "" && personalTopic.exists }
+		search.typeText("Personal")
+		waitUntil { personalTopic.exists && !workTopic.exists }
+		search.typeKey(.escape, modifierFlags: [])
+		waitUntil { sheet.exists && search.value as? String == "" && workTopic.exists }
+
+		workTopic.click()
+		XCTAssertTrue(sheet.buttons["bulk.topic.move"].isEnabled)
+		let screenshot = XCTAttachment(screenshot: sheet.screenshot())
+		screenshot.name = "Topic picker with shared SearchBox"
+		screenshot.lifetime = .keepAlways
+		add(screenshot)
+		sheet.buttons["Cancel"].click()
+	}
+
 	func testMoveToTopicSheetCancelPreservesSelectionAndMoveSupportsExplicitNoTopic() {
 		let app = launchWorkspace()
 		clickEntry(1, in: app)

@@ -1,12 +1,15 @@
 import AppKit
 import SwiftUI
 
+/// Set `text` to update or clear the query, and `isFocused` to control keyboard focus.
+/// The clear button and Escape clear a nonempty query while keeping focus.
+/// Escape with an empty query releases focus.
 struct SearchBox: View {
 	@Binding var text: String
 	@Binding var isFocused: Bool
-	let resetID: Int
 	let prompt: String
 	let accessibilityLabel: String
+	let accessibilityIdentifier: String
 	@State private var isHovered = false
 
 	var body: some View {
@@ -18,9 +21,9 @@ struct SearchBox: View {
 			SearchTextField(
 				text: $text,
 				isFocused: $isFocused,
-				resetID: resetID,
 				prompt: prompt,
-				accessibilityLabel: accessibilityLabel
+				accessibilityLabel: accessibilityLabel,
+				accessibilityIdentifier: accessibilityIdentifier
 			)
 			.frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -71,9 +74,9 @@ private final class EscapeHandlingSearchField: NSSearchField {
 private struct SearchTextField: NSViewRepresentable {
 	@Binding var text: String
 	@Binding var isFocused: Bool
-	let resetID: Int
 	let prompt: String
 	let accessibilityLabel: String
+	let accessibilityIdentifier: String
 
 	func makeCoordinator() -> Coordinator {
 		Coordinator(self)
@@ -91,7 +94,7 @@ private struct SearchTextField: NSViewRepresentable {
 		field.drawsBackground = false
 		field.focusRingType = .none
 		field.font = .systemFont(ofSize: NSFont.systemFontSize)
-		field.setAccessibilityIdentifier("entry-list.search")
+		field.setAccessibilityIdentifier(accessibilityIdentifier)
 		field.setAccessibilityLabel(accessibilityLabel)
 		if let searchCell = field.cell as? NSSearchFieldCell {
 			searchCell.searchButtonCell = nil
@@ -107,8 +110,8 @@ private struct SearchTextField: NSViewRepresentable {
 	func updateNSView(_ field: EscapeHandlingSearchField, context: Context) {
 		context.coordinator.parent = self
 		field.placeholderString = prompt
+		field.setAccessibilityIdentifier(accessibilityIdentifier)
 		field.setAccessibilityLabel(accessibilityLabel)
-		context.coordinator.applyResetIfNeeded()
 		context.coordinator.applyTextIfNeeded(to: field)
 
 		if isFocused {
@@ -121,11 +124,9 @@ private struct SearchTextField: NSViewRepresentable {
 
 	final class Coordinator: NSObject, NSSearchFieldDelegate {
 		var parent: SearchTextField
-		private var appliedResetID: Int
 
 		init(_ parent: SearchTextField) {
 			self.parent = parent
-			appliedResetID = parent.resetID
 		}
 
 		func controlTextDidBeginEditing(_ notification: Notification) {
@@ -172,11 +173,6 @@ private struct SearchTextField: NSViewRepresentable {
 				parent.text = ""
 				parent.isFocused = true
 			}
-		}
-
-		func applyResetIfNeeded() {
-			guard appliedResetID != parent.resetID else { return }
-			appliedResetID = parent.resetID
 		}
 
 		func applyTextIfNeeded(to field: NSSearchField) {

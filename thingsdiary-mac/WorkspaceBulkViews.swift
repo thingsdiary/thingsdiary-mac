@@ -91,6 +91,7 @@ struct WorkspaceTopicMoveSheet: View {
 	let move: (String?) -> Void
 	let cancel: () -> Void
 	@State private var query = ""
+	@State private var searchIsFocused = false
 	// Outer optional distinguishes no choice from the explicit No Topic destination.
 	@State private var destination: TopicDestination?
 
@@ -115,32 +116,42 @@ struct WorkspaceTopicMoveSheet: View {
 			if currentTopicIDs.count > 1 {
 				Text("Multiple topics").foregroundStyle(.secondary)
 			}
-			TextField("Search topics", text: $query)
-				.textFieldStyle(.roundedBorder)
-				.accessibilityIdentifier("bulk.topic.search")
-			List(selection: $destination) {
-				topicRow {
-					Image(systemName: "tag.slash").foregroundStyle(.secondary)
-						.frame(width: 16)
-					Text("No Topic")
-				}
-				.tag(TopicDestination.none)
-				.accessibilityIdentifier("bulk.topic.none")
-				ForEach(topics.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }) { topic in
+			VStack(spacing: 8) {
+				SearchBox(
+					text: $query,
+					isFocused: $searchIsFocused,
+					prompt: "Search topics",
+					accessibilityLabel: "Search Topics",
+					accessibilityIdentifier: "bulk.topic.search"
+				)
+				List(selection: $destination) {
 					topicRow {
-						Circle().fill(topicColor(topic.color)).frame(width: 10, height: 10)
+						Image(systemName: "tag.slash").foregroundStyle(.secondary)
 							.frame(width: 16)
-						Text(topic.title).lineLimit(1).truncationMode(.tail)
+						Text("No Topic")
 					}
-					.tag(TopicDestination.topic(topic.id))
-					.accessibilityIdentifier("bulk.topic.\(topic.id)")
+					.tag(TopicDestination.none)
+					.accessibilityIdentifier("bulk.topic.none")
+					ForEach(topics.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }) {
+						topic in
+						topicRow {
+							Circle().fill(topicColor(topic.color)).frame(width: 10, height: 10)
+								.frame(width: 16)
+							Text(topic.title).lineLimit(1).truncationMode(.tail)
+						}
+						.tag(TopicDestination.topic(topic.id))
+						.accessibilityIdentifier("bulk.topic.\(topic.id)")
+					}
 				}
+				.listStyle(.inset)
+				.scrollContentBackground(.hidden)
+				.contentMargins(0, for: .scrollContent)
+				.environment(\.defaultMinListRowHeight, 40)
+				// Cancel the native inset list padding so the stack controls spacing.
+				.padding(.horizontal, -10)
+				.padding(.top, -12)
+				.frame(minHeight: 180)
 			}
-			.listStyle(.plain)
-			.scrollContentBackground(.hidden)
-			.contentMargins(.horizontal, 0, for: .scrollContent)
-			.environment(\.defaultMinListRowHeight, 40)
-			.frame(minHeight: 180)
 			HStack {
 				Spacer()
 				Button("Cancel", action: cancel).keyboardShortcut(.cancelAction)
@@ -155,9 +166,8 @@ struct WorkspaceTopicMoveSheet: View {
 	private func topicRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
 		HStack(spacing: 10, content: content)
 			.frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-			.padding(.horizontal, 12)
 			.contentShape(.rect)
-			.listRowInsets(EdgeInsets())
+			.listRowInsets(EdgeInsets(top: 0, leading: 5, bottom: 0, trailing: 5))
 			.listRowSeparator(.hidden)
 	}
 

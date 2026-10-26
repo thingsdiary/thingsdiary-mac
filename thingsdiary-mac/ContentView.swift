@@ -496,7 +496,6 @@ private struct EntriesView: View {
 	let entries: [ThingsDiaryEntry]
 	@State private var query = ""
 	@State private var searchIsFocused = false
-	@State private var searchResetID = 0
 	@State private var selection: DiaryNavigationSelection? = .entries
 	@State private var tabs = BrowserTabsState<WorkspaceTabID>()
 	@State private var listSelection = WorkspaceSelectionState<WorkspaceTabID>()
@@ -795,14 +794,12 @@ private struct EntriesView: View {
 			.onChange(of: selection) {
 				query = ""
 				searchIsFocused = false
-				searchResetID += 1
 				selectActiveBrowserDocument()
 			}
 			.onChange(of: selectionIsEmpty) {
 				guard selectionIsEmpty else { return }
 				query = ""
 				searchIsFocused = false
-				searchResetID += 1
 			}
 			.onChange(of: entries.map(\.id)) { entryIDs in
 				let validTabIDs = Set(
@@ -1667,9 +1664,9 @@ private struct EntriesView: View {
 			SearchBox(
 				text: $query,
 				isFocused: $searchIsFocused,
-				resetID: searchResetID,
 				prompt: "Search templates",
-				accessibilityLabel: "Search Templates"
+				accessibilityLabel: "Search Templates",
+				accessibilityIdentifier: "template-list.search"
 			)
 			.padding(.horizontal, listPaneHorizontalInset)
 			.padding(.vertical, 10)
@@ -3011,9 +3008,9 @@ private struct EntriesView: View {
 		SearchBox(
 			text: $query,
 			isFocused: $searchIsFocused,
-			resetID: searchResetID,
 			prompt: "Search \(selectionTitle.lowercased())",
-			accessibilityLabel: "Search \(selectionTitle)"
+			accessibilityLabel: "Search \(selectionTitle)",
+			accessibilityIdentifier: "entry-list.search"
 		)
 		.padding(.horizontal, listPaneHorizontalInset)
 		.padding(.top, 12)
