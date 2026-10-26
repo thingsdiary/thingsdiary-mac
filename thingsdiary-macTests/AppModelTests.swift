@@ -160,8 +160,8 @@ func registrationContinuesToDiaries() async {
 
 	await model.continueAfterRegistration()
 
-	#expect(model.screen == .entries(diary: diary, entries: []))
-	#expect(model.presentation == .none)
+	#expect(model.screen == .diaries([diary]))
+	#expect(model.presentation == .diaryPicker)
 }
 
 @MainActor
@@ -195,7 +195,8 @@ func successfulLoginLoadsDiaries() async throws {
 
 	await model.submit()
 
-	#expect(model.screen == .entries(diary: diary, entries: []))
+	#expect(model.screen == .diaries([diary]))
+	#expect(model.presentation == .diaryPicker)
 	#expect(model.password.isEmpty)
 	#expect(model.secretKey.isEmpty)
 	#expect(await client.receivedLogin == "person@example.test")
@@ -236,6 +237,7 @@ func logoutClearsSessionAndLocalData() async throws {
 	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
 
 	await model.submit()
+	await model.selectDiary(diary)
 	#expect(model.isAuthenticated)
 	#expect(await store.selectedDiary() == diary)
 	try await store.savePendingEntry(PendingEntryWrite(operation: .update, entry: entry))
@@ -351,7 +353,7 @@ func emptyDiaryListOpensCreation() async {
 }
 
 @MainActor
-@Test("Login routes one diary directly into its workspace")
+@Test("Login routes one diary to the picker")
 func loginSelectsSingleDiary() async {
 	let selectedDiary = diary(id: "diary-1", title: "Personal")
 	let client = StubAppClient(result: .success([selectedDiary]))
@@ -362,8 +364,8 @@ func loginSelectsSingleDiary() async {
 
 	await model.submit()
 
-	#expect(model.screen == .entries(diary: selectedDiary, entries: []))
-	#expect(model.presentation == .none)
+	#expect(model.screen == .diaries([selectedDiary]))
+	#expect(model.presentation == .diaryPicker)
 }
 
 @MainActor
@@ -642,6 +644,7 @@ func updatesDiary() async {
 	model.password = "password"
 	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
 	await model.submit()
+	await model.selectDiary(selectedDiary)
 
 	let saved = await model.updateDiary(
 		selectedDiary,
@@ -1559,6 +1562,7 @@ func realtimeEntryEventUpdatesVisibleDiary() async throws {
 	model.password = "password"
 	model.secretKey = "TDKV1-000G-40R4-0M30-E209-185G-R38E-1W6"
 	await model.submit()
+	await model.selectDiary(selectedDiary)
 
 	#expect(
 		await client.sendRealtimeEvent(

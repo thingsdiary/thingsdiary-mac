@@ -31,6 +31,7 @@ final class AuthenticationUITests: XCTestCase {
 
 	private enum Scenario: String {
 		case loginSuccess = "login-success"
+		case loginWithDiaries = "login-with-diaries"
 		case loginBadRequest = "login-bad-request"
 		case registrationSuccess = "registration-success"
 		case registrationMismatch = "registration-mismatch"
@@ -73,6 +74,45 @@ final class AuthenticationUITests: XCTestCase {
 
 		XCTAssertTrue(app.textFields["diary.title"].firstMatch.waitForExistence(timeout: 3))
 		XCTAssertFalse(app.staticTexts["Something Went Wrong"].firstMatch.exists)
+	}
+
+	func testSuccessfulLoginSelectsFirstDiaryAndReturnOpensIt() {
+		let app = launchAuthentication(scenario: .loginWithDiaries)
+		let auth = authenticationSurface(in: app)
+		enterLoginCredentials(in: auth, app: app)
+
+		auth.buttons["auth.sign-in"].click()
+
+		let sheet = app.sheets.firstMatch
+		XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+		XCTAssertTrue(sheet.buttons["diary.create"].exists)
+		XCTAssertTrue(sheet.buttons["diary.open-selected"].isEnabled)
+		let selectedRows = sheet.descendants(matching: .outlineRow)
+			.matching(NSPredicate(format: "isSelected == YES"))
+		XCTAssertEqual(selectedRows.count, 1)
+
+		sheet.typeKey(.return, modifierFlags: [])
+
+		XCTAssertTrue(app.buttons["sidebar.entries"].waitForExistence(timeout: 3))
+		XCTAssertFalse(app.textFields["diary.title"].firstMatch.exists)
+	}
+
+	func testDiaryPickerEscapeClosesItAndCreateDiaryUsesItsOwnButton() {
+		let app = launchAuthentication(scenario: .loginWithDiaries)
+		let auth = authenticationSurface(in: app)
+		enterLoginCredentials(in: auth, app: app)
+		auth.buttons["auth.sign-in"].click()
+
+		let sheet = app.sheets.firstMatch
+		XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+		sheet.typeKey(.escape, modifierFlags: [])
+		XCTAssertTrue(sheet.waitForNonExistence(timeout: 2))
+
+		app.buttons["Open Diaries"].click()
+		XCTAssertTrue(sheet.waitForExistence(timeout: 2))
+		sheet.buttons["diary.create"].click()
+
+		XCTAssertTrue(app.textFields["diary.title"].firstMatch.waitForExistence(timeout: 2))
 	}
 
 	func testWindowControlsArePositionedOnAuthenticationForms() {

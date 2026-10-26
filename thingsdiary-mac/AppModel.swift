@@ -494,6 +494,7 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 	nonisolated private enum UITestingAuthScenario: String {
 		case workspace
 		case loginSuccess = "login-success"
+		case loginWithDiaries = "login-with-diaries"
 		case loginBadRequest = "login-bad-request"
 		case registrationSuccess = "registration-success"
 		case registrationMismatch = "registration-mismatch"
@@ -543,7 +544,27 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 			)
 		}
 
-		func diaries() async throws -> [ThingsDiaryDiary] { [] }
+		func diaries() async throws -> [ThingsDiaryDiary] {
+			guard scenario == .loginWithDiaries else { return [] }
+			return [
+				ThingsDiaryDiary(
+					id: "diary-personal",
+					title: "Personal",
+					description: "Daily notes",
+					createdAt: Date(timeIntervalSince1970: 1),
+					updatedAt: Date(timeIntervalSince1970: 3),
+					version: 1
+				),
+				ThingsDiaryDiary(
+					id: "diary-work",
+					title: "Work",
+					description: "Project notes",
+					createdAt: Date(timeIntervalSince1970: 2),
+					updatedAt: Date(timeIntervalSince1970: 4),
+					version: 1
+				),
+			]
+		}
 
 		func updateDiary(
 			_ diary: ThingsDiaryDiary,
@@ -815,7 +836,7 @@ final class ThingsDiaryAppModel {
 			switch scenario {
 			case .workspace:
 				break
-			case .loginSuccess, .loginBadRequest:
+			case .loginSuccess, .loginWithDiaries, .loginBadRequest:
 				break
 			case .registrationSuccess, .registrationMismatch, .registrationDuplicate,
 				.registrationBadRequest:
@@ -2508,13 +2529,9 @@ final class ThingsDiaryAppModel {
 	private func routeToDiaries(_ diaries: [ThingsDiaryDiary]) async {
 		loadedDiaries = diaries
 		screen = .diaries(diaries)
-		switch diaries.count {
-		case 0:
+		if diaries.isEmpty {
 			showDiaryCreation()
-		case 1:
-			presentation = .none
-			await selectDiary(diaries[0])
-		default:
+		} else {
 			presentation = .diaryPicker
 		}
 	}

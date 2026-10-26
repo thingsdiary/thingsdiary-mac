@@ -360,14 +360,23 @@ private struct DiariesView: View {
 
 private struct DiaryPickerView: View {
 	@Bindable var model: ThingsDiaryAppModel
+	@State private var selectedDiaryID: String?
+	@FocusState private var listIsFocused: Bool
+
+	init(model: ThingsDiaryAppModel) {
+		self.model = model
+		_selectedDiaryID = State(initialValue: model.availableDiaries.first?.id)
+	}
+
+	private var selectedDiary: ThingsDiaryDiary? {
+		guard let selectedDiaryID else { return nil }
+		return model.availableDiaries.first { $0.id == selectedDiaryID }
+	}
 
 	var body: some View {
 		NavigationStack {
-			List(model.availableDiaries) { diary in
-				Button {
-					model.cancelDiaryPicker()
-					Task { await model.selectDiary(diary) }
-				} label: {
+			List(selection: $selectedDiaryID) {
+				ForEach(model.availableDiaries) { diary in
 					VStack(alignment: .leading, spacing: 4) {
 						Text(diary.title)
 							.font(.headline)
@@ -381,11 +390,14 @@ private struct DiaryPickerView: View {
 					}
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.contentShape(.rect)
+					.tag(diary.id)
+					.accessibilityElement(children: .combine)
+					.accessibilityIdentifier("diary.open.\(diary.id)")
+					.accessibilityAddTraits(.isButton)
+					.padding(.vertical, 4)
 				}
-				.buttonStyle(.plain)
-				.accessibilityIdentifier("diary.open.\(diary.id)")
-				.padding(.vertical, 4)
 			}
+			.focused($listIsFocused)
 			.accessibilityIdentifier("diary.picker")
 			.navigationTitle("Diaries")
 			.toolbar {
@@ -393,13 +405,40 @@ private struct DiaryPickerView: View {
 					Button("Cancel", action: model.cancelDiaryPicker)
 						.accessibilityIdentifier("diary.cancel")
 				}
-				ToolbarItem(placement: .confirmationAction) {
+				ToolbarItem(placement: .automatic) {
 					Button("Create Diary", systemImage: "plus", action: model.showDiaryCreation)
 						.accessibilityIdentifier("diary.create")
+				}
+				ToolbarItem(placement: .confirmationAction) {
+					Button("Open Diary", action: openSelectedDiary)
+						.keyboardShortcut(.defaultAction)
+						.disabled(selectedDiary == nil)
+						.accessibilityIdentifier("diary.open-selected")
 				}
 			}
 		}
 		.frame(minWidth: 520, minHeight: 420)
+		.task {
+			selectFirstDiaryIfNeeded()
+			await Task.yield()
+			listIsFocused = true
+		}
+		.onChange(of: model.availableDiaries.map(\.id)) { _, _ in
+			selectFirstDiaryIfNeeded()
+		}
+	}
+
+	private func selectFirstDiaryIfNeeded() {
+		guard !model.availableDiaries.contains(where: { $0.id == selectedDiaryID }) else {
+			return
+		}
+		selectedDiaryID = model.availableDiaries.first?.id
+	}
+
+	private func openSelectedDiary() {
+		guard let selectedDiary else { return }
+		model.cancelDiaryPicker()
+		Task { await model.selectDiary(selectedDiary) }
 	}
 }
 
