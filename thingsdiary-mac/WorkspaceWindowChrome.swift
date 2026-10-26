@@ -166,12 +166,24 @@ final class WorkspaceTabContextMenuAreaView: NSView {
 	var items: [WorkspaceTabMenuItem] = []
 
 	override func hitTest(_ point: NSPoint) -> NSView? {
-		guard let event = NSApplication.shared.currentEvent else { return nil }
+		guard bounds.contains(convert(point, from: superview)),
+			let event = NSApplication.shared.currentEvent
+		else { return nil }
 		switch event.type {
 		case .rightMouseDown, .rightMouseUp:
-			return bounds.contains(point) ? self : nil
+			return self
+		case .leftMouseDown where event.modifierFlags.contains(.control):
+			return self
 		default:
 			return nil
+		}
+	}
+
+	override func mouseDown(with event: NSEvent) {
+		if event.modifierFlags.contains(.control) {
+			NSMenu.popUpContextMenu(makeMenu(), with: event, for: self)
+		} else {
+			super.mouseDown(with: event)
 		}
 	}
 

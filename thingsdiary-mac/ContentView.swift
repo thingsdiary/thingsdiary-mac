@@ -1685,6 +1685,7 @@ private struct EntriesView: View {
 				List(selection: workspaceListSelection) {
 					ForEach(filteredTemplates) { template in
 						templateRow(template)
+							.overlay { listContextMenuArea(for: .template(template.id)) }
 							.tag(WorkspaceTabID.template(template.id))
 							.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
 							.listRowSeparator(.visible)
@@ -1692,8 +1693,9 @@ private struct EntriesView: View {
 				}
 				.listStyle(.inset)
 				.focused($listIsFocused)
-				.contextMenu(forSelectionType: WorkspaceTabID.self) { ids in
-					workspaceContextMenu(for: ids)
+				// Row overlays provide AppKit menus; keep List’s native double-click action.
+				.contextMenu(forSelectionType: WorkspaceTabID.self) { _ in
+					EmptyView()
 				} primaryAction: { ids in
 					openPrimarySelection(ids)
 				}
@@ -1986,98 +1988,87 @@ private struct EntriesView: View {
 		topicMoveRequest = WorkspaceTopicMoveRequest(ids: entryIDs)
 	}
 
-	@ViewBuilder private func bulkCommands(for proposedIDs: Set<WorkspaceTabID>) -> some View {
+	private func listContextMenuArea(for tabID: WorkspaceTabID) -> some View {
+		let ids: Set<WorkspaceTabID> =
+			listSelection.selectedIDs.contains(tabID) ? listSelection.selectedIDs : [tabID]
+		return WorkspaceTabContextMenuArea(items: workspaceContextMenuItems(for: ids))
+			.accessibilityHidden(true)
+	}
+
+	private func bulkMenuItem(_ action: WorkspaceBulkAction, ids: Set<WorkspaceTabID>) -> WorkspaceTabMenuItem {
+		WorkspaceTabMenuItem(
+			title: action.title, isEnabled: !bulkRunning, isDestructive: action.isDestructive,
+			action: { requestBulkAction(action, ids: ids) })
+	}
+
+	private func workspaceContextMenuItems(for proposedIDs: Set<WorkspaceTabID>) -> [WorkspaceTabMenuItem] {
 		let ids = proposedIDs.intersection(validTabIDs)
+		guard !ids.isEmpty else { return [] }
+		if ids.count == 1, !listSelection.isMultiple, let tabID = ids.first {
+			switch tabID {
+			case .template(let id):
+				guard let template = model.templates.first(where: { $0.id == id }) else { return [] }
+				return [
+					bulkMenuItem(.duplicate, ids: ids),
+					WorkspaceTabMenuItem(
+						title: "Delete", isDestructive: true, action: { templatePendingDeletion = template }),
+				]
+			case .entry(let id):
+				guard let entry = entries.first(where: { $0.id == id }) else { return [] }
+				return singleEntryContextMenuItems(entry)
+			}
+		}
 		let entryIDs = Set(
 			ids.compactMap { id -> String? in
 				if case .entry(let value) = id { return value }
 				return nil
 			})
-		let chosenEntries = entries.filter { entryIDs.contains($0.id) }
-		if !ids.isEmpty {
-			if entryIDs.isEmpty {
-				bulkButton(.duplicate, ids: ids)
-				Divider()
-				bulkButton(.deleteTemplates, ids: ids)
-			} else if chosenEntries.allSatisfy({ $0.deletedAt != nil }) {
-				bulkButton(.restore, ids: ids)
-				bulkButton(.deletePermanently, ids: ids)
-			} else {
-				bulkButton(.bookmark(!chosenEntries.allSatisfy(\.bookmarked)), ids: ids)
-				let previewAllowed = !chosenEntries.contains { entry in
-					model.topics.contains { $0.id == entry.topicID && !$0.entryPreviewable }
-				}
-				bulkButton(.previewHidden(!chosenEntries.allSatisfy(\.previewHidden)), ids: ids)
-					.disabled(!previewAllowed)
-				bulkButton(.duplicate, ids: ids)
-				bulkButton(.saveAsTemplate, ids: ids)
-				Button("Move to Topic…", systemImage: "tag") {
-					presentBulkTopicPicker(ids: ids)
-				}.accessibilityIdentifier("bulk.action.topic")
-				Divider()
-				bulkButton(.archive(!chosenEntries.allSatisfy(\.archived)), ids: ids)
-				bulkButton(.moveToTrash, ids: ids)
-			}
+		let chosen = entries.filter { entryIDs.contains($0.id) }
+		if entryIDs.isEmpty {
+			return [bulkMenuItem(.duplicate, ids: ids), .separator, bulkMenuItem(.deleteTemplates, ids: ids)]
 		}
+		if chosen.allSatisfy({ $0.deletedAt != nil }) {
+			return [bulkMenuItem(.restore, ids: ids), bulkMenuItem(.deletePermanently, ids: ids)]
+		}
+		let previewAllowed = !chosen.contains { entry in
+			model.topics.contains { $0.id == entry.topicID && !$0.entryPreviewable }
+		}
+		var preview = bulkMenuItem(.previewHidden(!chosen.allSatisfy(\.previewHidden)), ids: ids)
+		preview.isEnabled = preview.isEnabled && previewAllowed
+		return [
+			bulkMenuItem(.bookmark(!chosen.allSatisfy(\.bookmarked)), ids: ids),
+			preview,
+			bulkMenuItem(.duplicate, ids: ids),
+			bulkMenuItem(.saveAsTemplate, ids: ids),
+			WorkspaceTabMenuItem(
+				title: "Move to Topic…", isEnabled: !bulkRunning, action: { presentBulkTopicPicker(ids: ids) }),
+			.separator,
+			bulkMenuItem(.archive(!chosen.allSatisfy(\.archived)), ids: ids),
+			bulkMenuItem(.moveToTrash, ids: ids),
+		]
 	}
 
-	@ViewBuilder private func workspaceContextMenu(for ids: Set<WorkspaceTabID>) -> some View {
-		if ids.count == 1, !listSelection.isMultiple, let tabID = ids.first {
-			switch tabID {
-			case .template(let id):
-				bulkButton(.duplicate, ids: ids)
-				if let template = model.templates.first(where: { $0.id == id }) {
-					Button("Delete", role: .destructive) { templatePendingDeletion = template }
-				}
-			case .entry(let id):
-				if let entry = entries.first(where: { $0.id == id }) { singleEntryContextMenu(entry) }
-			}
-		} else {
-			bulkCommands(for: ids)
-		}
-	}
-
-	@ViewBuilder private func singleEntryContextMenu(_ entry: ThingsDiaryEntry) -> some View {
+	private func singleEntryContextMenuItems(_ entry: ThingsDiaryEntry) -> [WorkspaceTabMenuItem] {
 		if entry.deletedAt != nil {
-			Button("Restore") { perform(.restore, on: entry, topicID: nil) }
-			Button("Delete Permanently", role: .destructive) { perform(.deletePermanently, on: entry, topicID: nil) }
-		} else {
-			let ephemeral = model.entryDraftIDs.contains(entry.id)
-			let topic = model.topics.first { $0.id == entry.topicID }
-			let preview = EntryPreviewMenuState(
-				entryHidesPreview: entry.previewHidden,
-				topicHidesPreview: topic?.entryPreviewable == false)
-			Button(entry.bookmarked ? "Remove Bookmark" : "Add Bookmark") {
-				perform(.toggleBookmark, on: entry, topicID: nil)
-			}
-			Button(preview.title) { toggleEntryPreview(entry) }
-				.disabled(ephemeral || preview.topicHidesPreview)
-			if preview.topicHidesPreview, let topic {
-				Button("Topic Settings…") { beginEditing(topic) }
-			}
-			Button("Duplicate") { perform(.duplicate, on: entry, topicID: nil) }.disabled(ephemeral)
-			Button("Save as Template") { perform(.saveAsTemplate, on: entry, topicID: nil) }
-			if shouldShowTopicAssignmentMenu(topicCount: model.topics.count, currentTopicID: entry.topicID) {
-				Menu("Move to Topic") {
-					Button("No Topic") { if entry.topicID != nil { perform(.moveToTopic, on: entry, topicID: nil) } }
-					ForEach(model.topics) { topic in
-						Button(topic.title) {
-							if entry.topicID != topic.id { perform(.moveToTopic, on: entry, topicID: topic.id) }
-						}
-					}
-				}
-			}
-			Divider()
-			Button(entry.archived ? "Restore from Archive" : "Archive") {
-				perform(.toggleArchive, on: entry, topicID: nil)
-			}.disabled(ephemeral)
-			Button("Move to Trash", role: .destructive) { perform(.moveToTrash, on: entry, topicID: nil) }
-				.disabled(ephemeral)
+			return [
+				WorkspaceTabMenuItem(title: "Restore", action: { perform(.restore, on: entry, topicID: nil) }),
+				WorkspaceTabMenuItem(
+					title: "Delete Permanently", isDestructive: true,
+					action: { perform(.deletePermanently, on: entry, topicID: nil) }),
+			]
 		}
+		var items = entryTabDocumentActions(entry)
+		if let duplicate = items.firstIndex(where: { $0.title == "Duplicate" }) {
+			items.insert(
+				WorkspaceTabMenuItem(
+					title: "Save as Template", action: { perform(.saveAsTemplate, on: entry, topicID: nil) }),
+				at: duplicate + 1)
+		}
+		return items
 	}
 
 	private func bulkButton(_ action: WorkspaceBulkAction, ids: Set<WorkspaceTabID>) -> some View {
-		Button(action.title, systemImage: action.symbol, role: action.isDestructive ? .destructive : nil) {
+		Button(action.title, role: action.isDestructive ? .destructive : nil) {
 			requestBulkAction(action, ids: ids)
 		}.accessibilityIdentifier("bulk.action.\(action.accessibilityID)")
 	}
@@ -2209,7 +2200,7 @@ private struct EntriesView: View {
 						identifier: "sidebar.entries"
 					)
 					.contextMenu {
-						Button("New", systemImage: "square.and.pencil") {
+						Button("New") {
 							selection = .entries
 							beginCreatingEntry()
 						}
@@ -2222,7 +2213,7 @@ private struct EntriesView: View {
 						dropDestination: .bookmarks
 					)
 					.contextMenu {
-						Button("New", systemImage: "square.and.pencil") {
+						Button("New") {
 							selection = .bookmarks
 							beginCreatingEntry()
 						}
@@ -2432,7 +2423,7 @@ private struct EntriesView: View {
 		.anchorPreference(key: DiarySwitcherAnchorKey.self, value: .bounds) { $0 }
 		.accessibilityIdentifier("diary.switcher")
 		.contextMenu {
-			Button("Edit", systemImage: "square.and.pencil") {
+			Button("Edit") {
 				beginEditingDiary()
 			}
 			.accessibilityIdentifier("diary.edit.current")
@@ -3082,6 +3073,7 @@ private struct EntriesView: View {
 							preview: { entryListRow(entry).padding(12).frame(width: 280).background(.regularMaterial) }
 						)
 					)
+					.overlay { listContextMenuArea(for: .entry(entry.id)) }
 					.tag(WorkspaceTabID.entry(entry.id))
 					.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
 					.listRowSeparator(.visible)
@@ -3089,8 +3081,9 @@ private struct EntriesView: View {
 		}
 		.listStyle(.inset)
 		.focused($listIsFocused)
-		.contextMenu(forSelectionType: WorkspaceTabID.self) { ids in
-			workspaceContextMenu(for: ids)
+		// Row overlays provide AppKit menus; keep List’s native double-click action.
+		.contextMenu(forSelectionType: WorkspaceTabID.self) { _ in
+			EmptyView()
 		} primaryAction: { ids in
 			openPrimarySelection(ids)
 		}
