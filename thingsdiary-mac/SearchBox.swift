@@ -32,6 +32,7 @@ struct SearchBox: View {
 					text = ""
 					isFocused = true
 				}
+				.foregroundStyle(.secondary)
 				.accessibilityLabel("Clear \(accessibilityLabel)")
 				.help("Clear search")
 			}
