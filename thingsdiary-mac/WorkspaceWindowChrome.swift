@@ -291,19 +291,21 @@ final class WorkspaceEntryContextMenuAreaView: NSView {
 			)
 		}
 
-		let topic = topics.first { $0.id == entry.topicID }
-		let preview = EntryPreviewMenuState(
-			entryHidesPreview: entry.previewHidden,
-			topicHidesPreview: topic?.entryPreviewable == false
-		)
-		let previewItem = menuItem(
-			title: preview.title,
-			action: #selector(performTogglePreviewAction)
-		)
-		previewItem.isEnabled = !preview.topicHidesPreview && !isEphemeral && entry.deletedAt == nil
-		menu.addItem(previewItem)
-		if preview.topicHidesPreview {
-			menu.addItem(menuItem(title: "Topic Settings…", action: #selector(performEditTopicAction)))
+		if entryShowsMetadataIndicators(entry) {
+			let topic = topics.first { $0.id == entry.topicID }
+			let preview = EntryPreviewMenuState(
+				entryHidesPreview: entry.previewHidden,
+				topicHidesPreview: topic?.entryPreviewable == false
+			)
+			let previewItem = menuItem(
+				title: preview.title,
+				action: #selector(performTogglePreviewAction)
+			)
+			previewItem.isEnabled = !preview.topicHidesPreview && !isEphemeral && entry.deletedAt == nil
+			menu.addItem(previewItem)
+			if preview.topicHidesPreview {
+				menu.addItem(menuItem(title: "Topic Settings…", action: #selector(performEditTopicAction)))
+			}
 		}
 
 		if actions.contains(.duplicate) {

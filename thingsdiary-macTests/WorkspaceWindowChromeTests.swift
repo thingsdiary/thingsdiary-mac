@@ -86,6 +86,28 @@ final class WorkspaceWindowChromeMenuTests: XCTestCase {
 		}
 	}
 
+	func testInactiveEntryMenusContainOnlyRestoreAndDelete() {
+		for archived in [false, true] {
+			for deleted in [false, true] where archived || deleted {
+				let view = WorkspaceEntryContextMenuAreaView()
+				view.entry = ThingsDiaryEntry(
+					id: "entry-1", diaryID: "diary-1", content: "Entry", topicID: "topic-1",
+					archived: archived, bookmarked: true,
+					createdAt: .now, updatedAt: .now, deletedAt: deleted ? .now : nil, version: 1
+				)
+				view.topics = [
+					ThingsDiaryTopic(
+						id: "topic-1", diaryID: "diary-1", title: "Private", description: "", color: "blue",
+						entryPreviewable: false, createdAt: .now, updatedAt: .now, version: 1
+					)
+				]
+				let titles = view.makeMenu().items.filter { !$0.isSeparatorItem }.map(\.title)
+				XCTAssertEqual(
+					titles, deleted ? ["Restore", "Delete Permanently"] : ["Restore from Archive", "Move to Trash"])
+			}
+		}
+	}
+
 	func testEntryPreviewMenuRespectsTopicAndEntrySettings() {
 		for topicHidden in [false, true] {
 			for entryHidden in [false, true] {

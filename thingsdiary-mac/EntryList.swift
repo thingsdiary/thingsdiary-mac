@@ -541,9 +541,16 @@ nonisolated func entryActionRequiresConfirmation(_ action: EntryAction, content:
 	}
 }
 
+nonisolated func entryShowsMetadataIndicators(_ entry: ThingsDiaryEntry) -> Bool {
+	!entry.archived && entry.deletedAt == nil
+}
+
 nonisolated func availableEntryActions(for entry: ThingsDiaryEntry) -> [EntryAction] {
 	if entry.deletedAt != nil {
 		return [.restore, .deletePermanently]
+	}
+	if entry.archived {
+		return [.toggleArchive, .moveToTrash]
 	}
 	return [
 		.toggleBookmark,

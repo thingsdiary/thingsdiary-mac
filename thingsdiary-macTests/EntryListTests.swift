@@ -89,6 +89,21 @@ func entryActionsMatchLifecycleState() {
 		])
 }
 
+@Test("Archived and deleted entries hide topic and bookmark indicators and restrict actions")
+func inactiveEntryPresentation() {
+	let active = listEntry(id: "active", content: "Active", bookmarked: true, topicID: "topic-1", updatedAt: 1)
+	let archived = listEntry(
+		id: "archived", content: "Archived", archived: true, bookmarked: true, topicID: "topic-1", updatedAt: 1)
+	let deleted = listEntry(
+		id: "deleted", content: "Deleted", archived: true, bookmarked: true, topicID: "topic-1", deletedAt: 2,
+		updatedAt: 2)
+	#expect(entryShowsMetadataIndicators(active))
+	#expect(!entryShowsMetadataIndicators(archived))
+	#expect(!entryShowsMetadataIndicators(deleted))
+	#expect(availableEntryActions(for: archived) == [.toggleArchive, .moveToTrash])
+	#expect(availableEntryActions(for: deleted) == [.restore, .deletePermanently])
+}
+
 @Test("Entry drop destinations resolve only valid moves")
 func resolvesEntryDropDestinations() {
 	let active = listEntry(id: "active", content: "Active", topicID: "topic-1", updatedAt: 2)

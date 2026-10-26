@@ -43,6 +43,34 @@ final class MultiselectionUITests: XCTestCase {
 		return app
 	}
 
+	func testArchiveAndTrashMenusOnlyOfferRestoreAndDelete() {
+		let app = launchWorkspace()
+		for (section, entryID, restore, delete) in [
+			("archive", "fixture-archived-entry", "Restore from Archive", "Move to Trash"),
+			("trash", "fixture-deleted-entry", "Restore", "Delete Permanently"),
+		] {
+			app.buttons["sidebar.\(section)"].click()
+			showList(in: app)
+			let row = element("entry.\(entryID)", in: app)
+			XCTAssertTrue(row.waitForExistence(timeout: 5))
+			row.click()
+			for fromTab in [false, true] {
+				if !fromTab { showList(in: app) }
+				let target = fromTab ? app.buttons["entry-tab.\(entryID)"] : row
+				target.rightClick()
+				XCTAssertTrue(app.menuItems[restore].waitForExistence(timeout: 5))
+				XCTAssertTrue(app.menuItems[delete].exists)
+				for title in [
+					"Add Bookmark", "Remove Bookmark", "Show Preview", "Hide Preview", "Move to Topic", "Duplicate",
+					"Save as Template", "Topic Settings…",
+				] {
+					XCTAssertFalse(app.menuItems[title].exists, "Unexpected \(title) in \(section) menu")
+				}
+				app.typeKey(.escape, modifierFlags: [])
+			}
+		}
+	}
+
 	private func element(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
 		app.descendants(matching: .any).matching(identifier: identifier).firstMatch
 	}
@@ -607,8 +635,10 @@ final class MultiselectionUITests: XCTestCase {
 		clickEntry(1, in: app)
 		clickEntry(3, in: app, modifiers: .shift)
 		assertBulkCount(3, in: app)
-		app.popUpButtons["bulk.action.more"].click()
-		let unarchive = app.menuItems["Restore from Archive"]
+		let unarchive = app.buttons["bulk.action.archive"]
+		XCTAssertFalse(app.buttons["bulk.action.bookmark"].exists)
+		XCTAssertFalse(app.buttons["bulk.action.topic"].exists)
+		XCTAssertFalse(app.popUpButtons["bulk.action.more"].exists)
 		XCTAssertTrue(unarchive.waitForExistence(timeout: 5))
 		unarchive.click()
 		showList(in: app)

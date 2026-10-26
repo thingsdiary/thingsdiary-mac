@@ -1941,6 +1941,9 @@ private struct EntriesView: View {
 		} else if activeSelection == .trash {
 			bulkOverviewButton(.restore, ids: ids)
 			bulkOverviewButton(.deletePermanently, ids: ids)
+		} else if activeSelection == .archive {
+			bulkOverviewButton(.archive(false), ids: ids)
+			bulkOverviewButton(.moveToTrash, ids: ids)
 		} else {
 			bulkOverviewButton(.bookmark(!chosen.allSatisfy(\.bookmarked)), ids: ids)
 			Button {
@@ -2027,6 +2030,9 @@ private struct EntriesView: View {
 		if chosen.allSatisfy({ $0.deletedAt != nil }) {
 			return [bulkMenuItem(.restore, ids: ids), bulkMenuItem(.deletePermanently, ids: ids)]
 		}
+		if chosen.allSatisfy({ $0.archived }) {
+			return [bulkMenuItem(.archive(false), ids: ids), bulkMenuItem(.moveToTrash, ids: ids)]
+		}
 		let previewAllowed = !chosen.contains { entry in
 			model.topics.contains { $0.id == entry.topicID && !$0.entryPreviewable }
 		}
@@ -2062,14 +2068,6 @@ private struct EntriesView: View {
 	}
 
 	private func singleEntryContextMenuItems(_ entry: ThingsDiaryEntry) -> [WorkspaceTabMenuItem] {
-		if entry.deletedAt != nil {
-			return [
-				WorkspaceTabMenuItem(title: "Restore", action: { perform(.restore, on: entry, topicID: nil) }),
-				WorkspaceTabMenuItem(
-					title: "Delete Permanently", isDestructive: true,
-					action: { perform(.deletePermanently, on: entry, topicID: nil) }),
-			]
-		}
 		var items = entryTabDocumentActions(entry)
 		if let duplicate = items.firstIndex(where: { $0.title == "Duplicate" }) {
 			items.insert(
@@ -2803,6 +2801,23 @@ private struct EntriesView: View {
 	}
 
 	private func entryTabDocumentActions(_ entry: ThingsDiaryEntry) -> [WorkspaceTabMenuItem] {
+		if entry.deletedAt != nil {
+			return [
+				WorkspaceTabMenuItem(title: "Restore", action: { perform(.restore, on: entry, topicID: nil) }),
+				WorkspaceTabMenuItem(
+					title: "Delete Permanently", isDestructive: true,
+					action: { perform(.deletePermanently, on: entry, topicID: nil) }),
+			]
+		}
+		if entry.archived {
+			return [
+				WorkspaceTabMenuItem(
+					title: "Restore from Archive", action: { perform(.toggleArchive, on: entry, topicID: nil) }),
+				WorkspaceTabMenuItem(
+					title: "Move to Trash", isDestructive: true,
+					action: { perform(.moveToTrash, on: entry, topicID: nil) }),
+			]
+		}
 		let isEphemeral = model.entryDraftIDs.contains(entry.id)
 		let isDeleted = entry.deletedAt != nil
 		let topic = model.topics.first { $0.id == entry.topicID }
@@ -3414,7 +3429,7 @@ private struct EntriesView: View {
 		let preview = presentation.preview
 		VStack(alignment: .leading, spacing: 6) {
 			HStack(spacing: 7) {
-				if let topic {
+				if entryShowsMetadataIndicators(entry), let topic {
 					Circle()
 						.fill(topicColorValue(topic.color))
 						.frame(width: 8, height: 8)
@@ -3429,7 +3444,7 @@ private struct EntriesView: View {
 					.accessibilityElement(children: .ignore)
 					.accessibilityLabel(previewIsHidden ? "Hidden entry" : title)
 				Spacer(minLength: 8)
-				if entry.bookmarked {
+				if entryShowsMetadataIndicators(entry), entry.bookmarked {
 					Image(systemName: "bookmark.fill")
 						.foregroundStyle(.tint)
 						.fixedSize()
