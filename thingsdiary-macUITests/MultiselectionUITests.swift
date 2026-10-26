@@ -416,24 +416,36 @@ final class MultiselectionUITests: XCTestCase {
 		for index in 7...9 { assertSelectedEntry(index, in: app) }
 	}
 
-	func testTopicSheetContextMenuCountUsesCurrentSelectionAfterCancel() {
+	func testTopicContextSubmenuMovesSelectionAndClearsTopicWithoutSheet() {
 		let app = launchWorkspace()
 		clickEntry(1, in: app)
 		clickEntry(3, in: app, modifiers: .shift)
 		showList(in: app)
 		entry(2, in: app).rightClick()
-		app.menuItems["Move to Topic…"].click()
-		let sheet = app.sheets.firstMatch
-		XCTAssertTrue(sheet.waitForExistence(timeout: 5))
-		XCTAssertTrue(sheet.staticTexts["Move 3 Entries to Topic"].exists)
-		sheet.buttons["Cancel"].click()
-		waitUntil { !sheet.exists }
-		clickEntry(3, in: app, modifiers: .command)
-		assertBulkCount(2, in: app)
-		app.buttons["bulk.action.topic"].click()
-		XCTAssertTrue(sheet.waitForExistence(timeout: 5))
-		XCTAssertTrue(sheet.staticTexts["Move 2 Entries to Topic"].exists)
-		sheet.buttons["Cancel"].click()
+		app.menuItems["Move to Topic"].hover()
+		let topic = app.menuItems["Work Topic"]
+		XCTAssertTrue(topic.waitForExistence(timeout: 3))
+		XCTAssertTrue(app.menuItems["No Topic"].exists)
+		topic.click()
+		XCTAssertFalse(app.sheets.firstMatch.exists)
+
+		app.buttons["sidebar.topic.fixture-topic"].click()
+		showList(in: app)
+		for index in 1...3 { XCTAssertTrue(entry(index, in: app).waitForExistence(timeout: 5)) }
+		XCTAssertFalse(entry(4, in: app).exists)
+		clickEntry(1, in: app)
+		clickEntry(3, in: app, modifiers: .shift)
+		showList(in: app)
+		entry(2, in: app).rightClick()
+		app.menuItems["Move to Topic"].hover()
+		let noTopic = app.menuItems["No Topic"]
+		XCTAssertTrue(noTopic.waitForExistence(timeout: 3))
+		noTopic.click()
+		XCTAssertFalse(app.sheets.firstMatch.exists)
+		for index in 1...3 { waitUntil { !self.entry(index, in: app).exists } }
+		app.buttons["sidebar.entries"].click()
+		showList(in: app)
+		for index in 1...3 { XCTAssertTrue(entry(index, in: app).waitForExistence(timeout: 5)) }
 	}
 
 	func testTopicSearchFiltersAndClearsWithoutDismissingSheet() {

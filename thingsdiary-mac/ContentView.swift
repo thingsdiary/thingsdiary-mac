@@ -2037,12 +2037,28 @@ private struct EntriesView: View {
 			preview,
 			bulkMenuItem(.duplicate, ids: ids),
 			bulkMenuItem(.saveAsTemplate, ids: ids),
-			WorkspaceTabMenuItem(
-				title: "Move to Topic…", isEnabled: !bulkRunning, action: { presentBulkTopicPicker(ids: ids) }),
+			bulkTopicMenuItem(for: chosen, ids: ids),
 			.separator,
 			bulkMenuItem(.archive(!chosen.allSatisfy(\.archived)), ids: ids),
 			bulkMenuItem(.moveToTrash, ids: ids),
 		]
+	}
+
+	private func bulkTopicMenuItem(
+		for entries: [ThingsDiaryEntry], ids: Set<WorkspaceTabID>
+	) -> WorkspaceTabMenuItem {
+		func topicItem(title: String, topicID: String?) -> WorkspaceTabMenuItem {
+			let isSelected = entries.allSatisfy { $0.topicID == topicID }
+			return WorkspaceTabMenuItem(
+				title: title, isSelected: isSelected,
+				action: {
+					if !isSelected { requestBulkAction(.moveToTopic(topicID), ids: ids) }
+				})
+		}
+		var topics = [topicItem(title: "No Topic", topicID: nil)]
+		if !model.topics.isEmpty { topics.append(.separator) }
+		topics += model.topics.map { topicItem(title: $0.title, topicID: $0.id) }
+		return WorkspaceTabMenuItem(title: "Move to Topic", isEnabled: !bulkRunning, children: topics)
 	}
 
 	private func singleEntryContextMenuItems(_ entry: ThingsDiaryEntry) -> [WorkspaceTabMenuItem] {
