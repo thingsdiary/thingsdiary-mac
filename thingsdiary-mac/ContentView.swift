@@ -2490,13 +2490,17 @@ private struct EntriesView: View {
 					}
 					Text(candidate.title)
 						.lineLimit(1)
-					Spacer()
+						.truncationMode(.tail)
+						.frame(maxWidth: .infinity, alignment: .leading)
+						.layoutPriority(1)
 				}
 				.padding(.horizontal, 7)
 				.frame(maxWidth: .infinity, minHeight: 28)
 				.contentShape(.rect)
 			}
 			.buttonStyle(.plain)
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.layoutPriority(1)
 			.accessibilityIdentifier("diary.switch.\(candidate.id)")
 			.accessibilityValue(isSelected ? "Selected" : "")
 
@@ -2509,6 +2513,7 @@ private struct EntriesView: View {
 					.contentShape(.rect)
 			}
 			.buttonStyle(.plain)
+			.fixedSize()
 			.foregroundStyle(.secondary)
 			.opacity(editControlVisible ? 1 : 0)
 			.allowsHitTesting(editControlVisible)
