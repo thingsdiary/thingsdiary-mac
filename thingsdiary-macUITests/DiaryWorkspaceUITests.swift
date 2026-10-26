@@ -527,7 +527,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		assertSearchIsCleared(search, restoredEntry: hiddenEntry)
 	}
 
-	func testOverviewColumnStaysHiddenInCompactWorkspace() {
+	func testOverviewStaysVisibleWhenSidebarIsWidened() {
 		let app = launchWorkspace()
 		let window = app.windows.firstMatch
 		let overview = app.descendants(matching: .any)["diary.overview"]
@@ -539,16 +539,16 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let end = start.withOffset(CGVector(dx: 500, dy: 0))
 		start.press(forDuration: 0.1, thenDragTo: end)
 
-		XCTAssertFalse(overview.waitForExistence(timeout: 1))
+		XCTAssertTrue(overview.waitForExistence(timeout: 2))
 		XCTAssertEqual(sidebarDivider.frame.midX - window.frame.minX, 300, accuracy: 2)
 		XCTAssertEqual(window.frame.origin.x, originalWindowOrigin.x, accuracy: 1)
 		XCTAssertEqual(window.frame.origin.y, originalWindowOrigin.y, accuracy: 1)
 
 		app.buttons["sidebar.bookmarks"].click()
-		XCTAssertFalse(overview.waitForExistence(timeout: 1))
+		XCTAssertTrue(overview.waitForExistence(timeout: 2))
 		XCTAssertTrue(sidebarDivider.exists)
 		app.buttons["sidebar.archive"].click()
-		XCTAssertFalse(overview.waitForExistence(timeout: 1))
+		XCTAssertTrue(overview.waitForExistence(timeout: 2))
 		XCTAssertTrue(sidebarDivider.exists)
 	}
 
@@ -670,7 +670,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(editor.exists)
 	}
 
-	func testEditorPriorityAndEntryListToggle() {
+	func testWorkspaceKeepsColumnsUntilEntryListIsManuallyHidden() {
 		let app = launchWorkspace()
 		let entryList = app.descendants(matching: .any)["entry-list.scroll"]
 		let editor = app.descendants(matching: .any)["entry.editor"]
@@ -678,32 +678,26 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 		app.buttons["entry.fixture-entry"].click()
 		XCTAssertTrue(editor.waitForExistence(timeout: 2))
-		XCTAssertFalse(entryList.exists)
-
-		app.buttons["workspace.show-entry-list"].firstMatch.click()
-		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
-		XCTAssertFalse(editor.exists)
-		app.buttons["workspace.show-editor"].firstMatch.click()
-		XCTAssertTrue(editor.waitForExistence(timeout: 2))
+		XCTAssertTrue(entryList.exists)
+		XCTAssertFalse(app.buttons["workspace.show-editor"].exists)
 
 		app.buttons["Hide Sidebar"].firstMatch.click()
-		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
+		XCTAssertTrue(entryList.exists)
 		XCTAssertTrue(editor.exists)
-		XCTAssertTrue(sectionTitle.waitForExistence(timeout: 2))
-		XCTAssertEqual(sectionTitle.value as? String, "Entries")
+		XCTAssertTrue(sectionTitle.exists)
 
 		app.buttons["workspace.hide-entry-list"].firstMatch.click()
-		XCTAssertFalse(entryList.waitForExistence(timeout: 1))
+		XCTAssertTrue(entryList.waitForNonExistence(timeout: 2))
 		XCTAssertTrue(editor.exists)
 		XCTAssertTrue(sectionTitle.waitForNonExistence(timeout: 2))
 		app.buttons["workspace.show-entry-list"].firstMatch.click()
 		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
 		XCTAssertTrue(editor.exists)
-		XCTAssertTrue(sectionTitle.waitForExistence(timeout: 2))
+		XCTAssertTrue(sectionTitle.exists)
 
 		app.buttons["Show Sidebar"].firstMatch.click()
-		XCTAssertTrue(entryList.waitForExistence(timeout: 2))
-		XCTAssertFalse(editor.exists)
+		XCTAssertTrue(entryList.exists)
+		XCTAssertTrue(editor.exists)
 	}
 
 	func testClosingLastDraftKeepsSidebarAndEntryListCollapsed() {

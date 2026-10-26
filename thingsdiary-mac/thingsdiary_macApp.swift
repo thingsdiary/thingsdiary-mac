@@ -312,6 +312,7 @@ struct ThingsDiaryApp: App {
 			#endif
 		}
 		.windowStyle(.hiddenTitleBar)
+		.windowResizability(.contentMinSize)
 		.commands {
 			AuthenticationCommands()
 			EntryCommands()

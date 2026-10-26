@@ -147,6 +147,11 @@ private struct AuthenticationSessionModifier: ViewModifier {
 struct ContentView: View {
 	@Bindable var model: ThingsDiaryAppModel
 
+	private var minimumContentWidth: CGFloat? {
+		if case .entries = model.screen { return nil }
+		return 520
+	}
+
 	var body: some View {
 		Group {
 			switch model.screen {
@@ -166,7 +171,7 @@ struct ContentView: View {
 				ErrorView(message: message, retry: model.retry)
 			}
 		}
-		.frame(minWidth: 520, minHeight: 420)
+		.frame(minWidth: minimumContentWidth, minHeight: 420)
 		.sheet(
 			isPresented: Binding(
 				get: { model.presentation != .none },
@@ -537,9 +542,6 @@ private struct EntriesView: View {
 	@State private var templateDraftsByID: [String: String] = [:]
 	@State private var templatePendingDeletion: ThingsDiaryTemplate?
 	@State private var isEntryListCollapsed = false
-	@State private var isEditorWorkspaceCompact = false
-	@State private var compactWorkspacePane: CompactWorkspacePane = .editor
-	@State private var currentWorkspaceLayout = EntryWorkspaceLayout.listOnly
 	@State private var availableWorkspaceWidth: CGFloat = 0
 	@State private var dragStartEntryListWidth: CGFloat?
 	@State private var dragStartSidebarWidth: CGFloat?
@@ -575,8 +577,8 @@ private struct EntriesView: View {
 
 	private var isMultipleSelection: Bool { listSelection.isMultiple || bulkRunning }
 
-	private var hasWorkspaceDetail: Bool {
-		isMultipleSelection || (tabs.activeTabID != nil && !showsEmptySelection)
+	private var currentWorkspaceLayout: EntryWorkspaceLayout {
+		entryWorkspaceLayout(isEntryListCollapsed: isEntryListCollapsed)
 	}
 
 	private var workspaceListSelection: Binding<Set<WorkspaceTabID>> {
@@ -602,7 +604,6 @@ private struct EntriesView: View {
 		case .multiple:
 			showsEmptySelection = false
 			editorIsFocused = false
-			compactWorkspacePane = .list
 		case .single(let tabID):
 			showsEmptySelection = false
 			if preservingTabs {
@@ -620,8 +621,6 @@ private struct EntriesView: View {
 					if let template = model.templates.first(where: { $0.id == id }) { previewTemplate(template) }
 				}
 			}
-			// Keep the list available for subsequent Shift/Command clicks in a narrow window.
-			if listIsFocused && !preservingTabs { compactWorkspacePane = .list }
 		}
 	}
 
@@ -643,7 +642,6 @@ private struct EntriesView: View {
 		if let activeID = tabs.activeTabID, validTabIDs.contains(activeID) {
 			// Escape returns to the existing document without promoting its preview tab.
 			selectActiveBrowserDocument()
-			compactWorkspacePane = .editor
 		} else {
 			workspaceListSelection.wrappedValue = []
 			showsEmptySelection = true
@@ -969,6 +967,12 @@ private struct EntriesView: View {
 			entryWorkspace
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 		}
+		.frame(
+			minWidth: max(
+				520,
+				(sidebarToggleInSidebar ? effectiveSidebarWidth + 1 : 0)
+					+ (isEntryListCollapsed ? minimumEntryEditorWidth : minimumSplitWorkspaceWidth))
+		)
 		.animation(.easeInOut(duration: 0.24), value: sidebarToggleInSidebar)
 		.animation(.easeInOut(duration: 0.24), value: isEntryListCollapsed)
 		.background {
@@ -1120,7 +1124,7 @@ private struct EntriesView: View {
 		VStack(spacing: 0) {
 			workspaceHeader
 			Divider()
-			adaptiveWorkspace
+			workspaceContent
 		}
 		.ignoresSafeArea(.container, edges: .top)
 		.background(.background)
@@ -1133,13 +1137,7 @@ private struct EntriesView: View {
 				preferredWidth: CGFloat(preferredEntryListWidth),
 				availableWidth: availableWidth
 			)
-			let layout = entryWorkspaceLayout(
-				hasSelectedEntry: hasWorkspaceDetail,
-				availableWidth: availableWidth,
-				isEntryListCollapsed: isEntryListCollapsed,
-				isCompact: isEditorWorkspaceCompact,
-				compactPane: compactWorkspacePane
-			)
+			let layout = currentWorkspaceLayout
 			let browserLeadingInset =
 				!sidebarToggleInSidebar && layout == .editorOnly
 				? workspaceHeaderNavigationChromeWidth : 0
@@ -1159,7 +1157,7 @@ private struct EntriesView: View {
 							HStack(spacing: 0) {
 								entryListTitlebar
 									.frame(
-										width: layout == .listOnly ? availableWidth : listWidth
+										width: listWidth
 									)
 								if layout == .split {
 									entryListDivider(
@@ -1190,8 +1188,6 @@ private struct EntriesView: View {
 					}
 				}
 				.clipped()
-				.allowsHitTesting(layout != .listOnly)
-				.accessibilityHidden(layout == .listOnly)
 				.zIndex(1)
 			}
 			.animation(.easeInOut(duration: 0.24), value: layout)
@@ -1223,18 +1219,6 @@ private struct EntriesView: View {
 				.accessibilityIdentifier("entry-list.section-title")
 
 			Spacer(minLength: 8)
-
-			if currentWorkspaceLayout == .listOnly, hasWorkspaceDetail {
-				Button {
-					compactWorkspacePane = .editor
-				} label: {
-					Image(systemName: "doc.text")
-				}
-				.frame(width: 28, height: 28)
-				.accessibilityIdentifier("workspace.show-editor")
-				.accessibilityLabel("Show Editor")
-				.help("Show Editor")
-			}
 
 			if sidebarToggleInSidebar {
 				entryListTitlebarAction
@@ -1593,39 +1577,12 @@ private struct EntriesView: View {
 			.accessibilityIdentifier("entry-tab.placeholder")
 	}
 
-	private var adaptiveWorkspace: some View {
+	private var workspaceContent: some View {
 		GeometryReader { proxy in
 			let availableWidth = max(proxy.size.width, 0)
-			let compact = updatedEditorWorkspaceCompactState(
-				isCompact: isEditorWorkspaceCompact,
-				hasSelectedEntry: hasWorkspaceDetail,
-				availableWidth: availableWidth,
-				isDragging: false
-			)
-			let layout = entryWorkspaceLayout(
-				hasSelectedEntry: hasWorkspaceDetail,
-				availableWidth: availableWidth,
-				isEntryListCollapsed: isEntryListCollapsed,
-				isCompact: compact,
-				compactPane: compactWorkspacePane
-			)
-
-			workspace(layout: layout, availableWidth: availableWidth)
-				.onAppear {
-					currentWorkspaceLayout = layout
-					availableWorkspaceWidth = availableWidth
-					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
-				}
-				.onChange(of: availableWidth) {
-					availableWorkspaceWidth = availableWidth
-					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
-				}
-				.onChange(of: layout) {
-					currentWorkspaceLayout = layout
-				}
-				.onChange(of: tabs.activeTabID) {
-					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
-				}
+			workspace(layout: currentWorkspaceLayout, availableWidth: availableWidth)
+				.onAppear { availableWorkspaceWidth = availableWidth }
+				.onChange(of: availableWidth) { availableWorkspaceWidth = availableWidth }
 		}
 	}
 
@@ -1747,7 +1704,6 @@ private struct EntriesView: View {
 		)
 		let browserWidth: CGFloat =
 			switch layout {
-			case .listOnly: 0
 			case .split: max(availableWidth - listWidth - entryListDividerWidth, 0)
 			case .editorOnly: availableWidth
 			}
@@ -1755,9 +1711,9 @@ private struct EntriesView: View {
 		ZStack(alignment: .trailing) {
 			HStack(spacing: 0) {
 				entryListPane()
-					.frame(width: layout == .listOnly ? availableWidth : listWidth)
+					.frame(width: listWidth)
 					.opacity(layout == .editorOnly ? 0 : 1)
-				if layout != .listOnly {
+				if layout == .split {
 					entryListDivider(
 						isInteractive: layout == .split,
 						accessibilityIdentifier: "workspace.entry-list-divider.content"
@@ -1776,8 +1732,6 @@ private struct EntriesView: View {
 			.frame(maxHeight: .infinity)
 			.background(.background)
 			.clipped()
-			.allowsHitTesting(layout != .listOnly)
-			.accessibilityHidden(layout == .listOnly)
 			.zIndex(1)
 			.accessibilityElement(children: .contain)
 			.accessibilityIdentifier(layout == .split ? "workspace.split" : "workspace.editor")
@@ -1826,15 +1780,6 @@ private struct EntriesView: View {
 			.contentShape(.rect)
 			.accessibilityIdentifier(accessibilityIdentifier)
 		}
-	}
-
-	private func updateEditorWorkspaceCompactState(availableWidth: CGFloat) {
-		isEditorWorkspaceCompact = updatedEditorWorkspaceCompactState(
-			isCompact: isEditorWorkspaceCompact,
-			hasSelectedEntry: hasWorkspaceDetail,
-			availableWidth: availableWidth,
-			isDragging: false
-		)
 	}
 
 	private func entryListPane() -> some View {
@@ -2093,7 +2038,6 @@ private struct EntriesView: View {
 		case .template(let id):
 			if let template = model.templates.first(where: { $0.id == id }) { openTemplate(template) }
 		}
-		compactWorkspacePane = .editor
 	}
 
 	private func requestBulkAction(_ action: WorkspaceBulkAction, ids proposedIDs: Set<WorkspaceTabID>) {
@@ -2640,20 +2584,13 @@ private struct EntriesView: View {
 
 	private func toggleEntryList() {
 		withAnimation(.easeInOut(duration: 0.24)) {
-			if currentWorkspaceLayout == .editorOnly {
-				isEntryListCollapsed = false
-				compactWorkspacePane = .list
-			} else {
-				isEntryListCollapsed = true
-				compactWorkspacePane = .editor
-			}
+			isEntryListCollapsed.toggle()
 		}
 	}
 
 	private func collapseEntryList() {
 		withAnimation(.easeInOut(duration: 0.24)) {
 			isEntryListCollapsed = true
-			compactWorkspacePane = .editor
 		}
 	}
 
@@ -2670,7 +2607,6 @@ private struct EntriesView: View {
 			draftsByEntryID[entry.id] = entry.content
 		}
 		selectActiveBrowserDocument()
-		compactWorkspacePane = .editor
 	}
 
 	private func previewTemplate(_ template: ThingsDiaryTemplate) {
@@ -2686,7 +2622,6 @@ private struct EntriesView: View {
 			templateDraftsByID[template.id] = template.content
 		}
 		selectActiveBrowserDocument()
-		compactWorkspacePane = .editor
 	}
 
 	private func previewTab(_ tabID: WorkspaceTabID) {
@@ -2696,21 +2631,18 @@ private struct EntriesView: View {
 			discardDraft(for: replacedPreviewTabID)
 		}
 		selectActiveBrowserDocument()
-		compactWorkspacePane = .editor
 	}
 
 	private func activateBrowserTab(_ tabID: WorkspaceTabID) {
 		guard !bulkRunning, tabs.openTabIDs.contains(tabID) else { return }
 		tabs.activeTabID = tabID
 		selectActiveBrowserDocument()
-		compactWorkspacePane = .editor
 	}
 
 	private func selectBrowserTab(offset: Int) {
 		guard !bulkRunning else { return }
 		tabs.selectTab(offset: offset)
 		selectActiveBrowserDocument()
-		compactWorkspacePane = .editor
 	}
 
 	private func beginReorderingBrowserTab(_ tabID: WorkspaceTabID) {

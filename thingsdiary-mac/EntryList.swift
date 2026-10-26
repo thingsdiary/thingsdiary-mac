@@ -53,10 +53,8 @@ nonisolated let browserTabLeadingPadding = workspaceTitlebarHorizontalInset
 nonisolated let browserTabCreateButtonWidth: CGFloat = 30
 nonisolated let browserTabCreateButtonSpacing: CGFloat = 8
 nonisolated let workspaceTitlebarHeight: CGFloat = 46
-nonisolated let editorWorkspaceFocusHysteresis: CGFloat = 60
 nonisolated let minimumSplitWorkspaceWidth =
 	minimumEntryListWidth + entryListDividerWidth + minimumEntryEditorWidth
-nonisolated let minimumDiaryOverviewWidth: CGFloat = 620
 
 nonisolated func diaryEditControlVisible(
 	for diaryID: String,
@@ -399,46 +397,13 @@ nonisolated func browserTabReorderDestination(
 	return min(max(startIndex + displacedTabs, 0), tabCount - 1)
 }
 
-nonisolated enum CompactWorkspacePane: Equatable {
-	case list
-	case editor
-}
-
 nonisolated enum EntryWorkspaceLayout: Equatable {
-	case listOnly
 	case split
 	case editorOnly
 }
 
-nonisolated func updatedEditorWorkspaceCompactState(
-	isCompact: Bool,
-	hasSelectedEntry: Bool,
-	availableWidth: CGFloat,
-	isDragging: Bool
-) -> Bool {
-	guard hasSelectedEntry else { return false }
-	guard !isDragging else { return isCompact }
-	if isCompact {
-		return availableWidth < minimumSplitWorkspaceWidth + editorWorkspaceFocusHysteresis
-	}
-	return availableWidth < minimumSplitWorkspaceWidth
-}
-
-nonisolated func entryWorkspaceLayout(
-	hasSelectedEntry: Bool,
-	availableWidth: CGFloat,
-	isEntryListCollapsed: Bool,
-	isCompact: Bool,
-	compactPane: CompactWorkspacePane
-) -> EntryWorkspaceLayout {
-	if isEntryListCollapsed { return .editorOnly }
-	if hasSelectedEntry {
-		guard !isCompact else {
-			return compactPane == .editor ? .editorOnly : .listOnly
-		}
-		return .split
-	}
-	return availableWidth >= minimumDiaryOverviewWidth ? .split : .listOnly
+nonisolated func entryWorkspaceLayout(isEntryListCollapsed: Bool) -> EntryWorkspaceLayout {
+	isEntryListCollapsed ? .editorOnly : .split
 }
 
 nonisolated func workspaceHeaderBrowserWidth(
@@ -448,8 +413,6 @@ nonisolated func workspaceHeaderBrowserWidth(
 	navigationChromeWidth: CGFloat
 ) -> CGFloat {
 	switch layout {
-	case .listOnly:
-		return 0
 	case .split:
 		return max(availableWidth - listWidth - entryListDividerWidth, 0)
 	case .editorOnly:
