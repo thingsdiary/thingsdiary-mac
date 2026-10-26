@@ -1762,8 +1762,7 @@ private actor StubAppClient: ThingsDiaryAppClient {
 	private(set) var receivedUpdateTemplateParams: ThingsDiaryTemplateParams?
 	private(set) var callOrder: [Call] = []
 	private let realtimeStream: AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error>
-	private let realtimeContinuation:
-		AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error>.Continuation
+	private let realtimeContinuation: AsyncThrowingStream<ThingsDiaryRealtimeEvent, Error>.Continuation
 
 	init(
 		result: Result<[ThingsDiaryDiary], Error>,

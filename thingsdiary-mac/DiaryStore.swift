@@ -216,22 +216,26 @@ actor DiaryStore {
 		var nextState = state
 		switch event.update {
 		case .upsertDiary(let diary):
-			guard realtimeAccepts(
-				key: realtimeKey("diary", diary.id),
-				version: diary.version,
-				currentVersion: nextState.selectedDiary?.id == diary.id
-					? nextState.selectedDiary?.version : nil
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: realtimeKey("diary", diary.id),
+					version: diary.version,
+					currentVersion: nextState.selectedDiary?.id == diary.id
+						? nextState.selectedDiary?.version : nil
+				)
+			else { return snapshot() }
 			if nextState.selectedDiary?.id == diary.id {
 				nextState.selectedDiary = StoredDiary(diary)
 			}
 		case .removeDiary(let id, let version):
-			guard realtimeAccepts(
-				key: realtimeKey("diary", id),
-				version: version,
-				currentVersion: nextState.selectedDiary?.id == id
-					? nextState.selectedDiary?.version : nil
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: realtimeKey("diary", id),
+					version: version,
+					currentVersion: nextState.selectedDiary?.id == id
+						? nextState.selectedDiary?.version : nil
+				)
+			else { return snapshot() }
 			realtimeRemovalVersions[realtimeKey("diary", id)] = version
 			if nextState.selectedDiary?.id == id {
 				nextState.selectedDiary = nil
@@ -250,11 +254,13 @@ actor DiaryStore {
 				return snapshot()
 			}
 			let currentVersion = nextState.entries.first { $0.id == entry.id }?.version
-			guard realtimeAccepts(
-				key: realtimeKey("entry", entry.id),
-				version: entry.version,
-				currentVersion: currentVersion
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: realtimeKey("entry", entry.id),
+					version: entry.version,
+					currentVersion: currentVersion
+				)
+			else { return snapshot() }
 			nextState.entries.removeAll { $0.id == entry.id }
 			nextState.entries.append(StoredEntry(entry))
 		case .removeEntry(let diaryID, let id, let version):
@@ -267,11 +273,13 @@ actor DiaryStore {
 				return snapshot()
 			}
 			let key = realtimeKey("entry", id)
-			guard realtimeAccepts(
-				key: key,
-				version: version,
-				currentVersion: nextState.entries.first { $0.id == id }?.version
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: key,
+					version: version,
+					currentVersion: nextState.entries.first { $0.id == id }?.version
+				)
+			else { return snapshot() }
 			realtimeRemovalVersions[key] = version
 			nextState.entries.removeAll { $0.id == id }
 		case .upsertTopic(let topic):
@@ -279,11 +287,13 @@ actor DiaryStore {
 				deferRealtimeEvent(event)
 				return snapshot()
 			}
-			guard realtimeAccepts(
-				key: realtimeKey("topic", topic.id),
-				version: topic.version,
-				currentVersion: nextState.topics.first { $0.id == topic.id }?.version
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: realtimeKey("topic", topic.id),
+					version: topic.version,
+					currentVersion: nextState.topics.first { $0.id == topic.id }?.version
+				)
+			else { return snapshot() }
 			nextState.topics.removeAll { $0.id == topic.id }
 			nextState.topics.append(StoredTopic(topic))
 		case .removeTopic(let diaryID, let id, let version):
@@ -292,11 +302,13 @@ actor DiaryStore {
 				return snapshot()
 			}
 			let key = realtimeKey("topic", id)
-			guard realtimeAccepts(
-				key: key,
-				version: version,
-				currentVersion: nextState.topics.first { $0.id == id }?.version
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: key,
+					version: version,
+					currentVersion: nextState.topics.first { $0.id == id }?.version
+				)
+			else { return snapshot() }
 			realtimeRemovalVersions[key] = version
 			nextState.topics.removeAll { $0.id == id }
 		case .upsertTemplate(let template):
@@ -304,11 +316,13 @@ actor DiaryStore {
 				deferRealtimeEvent(event)
 				return snapshot()
 			}
-			guard realtimeAccepts(
-				key: realtimeKey("template", template.id),
-				version: template.version,
-				currentVersion: nextState.templates.first { $0.id == template.id }?.version
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: realtimeKey("template", template.id),
+					version: template.version,
+					currentVersion: nextState.templates.first { $0.id == template.id }?.version
+				)
+			else { return snapshot() }
 			nextState.templates.removeAll { $0.id == template.id }
 			nextState.templates.append(StoredTemplate(template))
 		case .removeTemplate(let diaryID, let id, let version):
@@ -317,11 +331,13 @@ actor DiaryStore {
 				return snapshot()
 			}
 			let key = realtimeKey("template", id)
-			guard realtimeAccepts(
-				key: key,
-				version: version,
-				currentVersion: nextState.templates.first { $0.id == id }?.version
-			) else { return snapshot() }
+			guard
+				realtimeAccepts(
+					key: key,
+					version: version,
+					currentVersion: nextState.templates.first { $0.id == id }?.version
+				)
+			else { return snapshot() }
 			realtimeRemovalVersions[key] = version
 			nextState.templates.removeAll { $0.id == id }
 		}
@@ -357,8 +373,9 @@ actor DiaryStore {
 	}
 
 	private func deferRealtimeEvent(_ event: ThingsDiaryRealtimeEvent) {
-		guard event.eventID.isEmpty
-			|| !deferredRealtimeEvents.contains(where: { $0.eventID == event.eventID })
+		guard
+			event.eventID.isEmpty
+				|| !deferredRealtimeEvents.contains(where: { $0.eventID == event.eventID })
 		else {
 			return
 		}

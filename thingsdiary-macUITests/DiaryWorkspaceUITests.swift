@@ -1016,7 +1016,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(entry.waitForExistence(timeout: 2))
 	}
 
-	func testEntryPreviewIsReusedAndPromotedOnSecondClick() {
+	func testEntryPreviewIsReusedAndPromotedOnDoubleClick() {
 		let app = launchWorkspace()
 
 		app.buttons["entry.fixture-entry"].click()
@@ -1037,7 +1037,7 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		if showEntryList.exists {
 			showEntryList.click()
 		}
-		app.buttons["entry.fixture-entry-2"].click()
+		app.buttons["entry.fixture-entry-2"].doubleClick()
 		XCTAssertEqual(secondTab.value as? String, "Saved")
 	}
 
@@ -1096,14 +1096,14 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let firstTab = app.buttons["entry-tab.fixture-entry"]
 		XCTAssertTrue(firstTab.waitForExistence(timeout: 2))
 		showEntryListIfNeeded(in: app)
-		app.buttons["entry.fixture-entry"].click()
+		app.buttons["entry.fixture-entry"].doubleClick()
 		XCTAssertTrue(firstTab.waitForValue("Saved", timeout: 2))
 		showEntryListIfNeeded(in: app)
 		app.buttons["entry.fixture-entry-2"].click()
 		let secondTab = app.buttons["entry-tab.fixture-entry-2"]
 		XCTAssertTrue(secondTab.waitForExistence(timeout: 2))
 		showEntryListIfNeeded(in: app)
-		app.buttons["entry.fixture-entry-2"].click()
+		app.buttons["entry.fixture-entry-2"].doubleClick()
 		XCTAssertTrue(secondTab.waitForValue("Saved", timeout: 2))
 
 		XCTAssertTrue(firstTab.exists)
@@ -1162,14 +1162,14 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		let firstTab = app.buttons["entry-tab.fixture-entry"]
 		XCTAssertTrue(firstTab.waitForExistence(timeout: 2))
 		showEntryListIfNeeded(in: app)
-		app.buttons["entry.fixture-entry"].click()
+		app.buttons["entry.fixture-entry"].doubleClick()
 		XCTAssertTrue(firstTab.waitForValue("Saved", timeout: 2))
 		showEntryListIfNeeded(in: app)
 		app.buttons["entry.fixture-entry-2"].click()
 		let secondTab = app.buttons["entry-tab.fixture-entry-2"]
 		XCTAssertTrue(secondTab.waitForExistence(timeout: 2))
 		showEntryListIfNeeded(in: app)
-		app.buttons["entry.fixture-entry-2"].click()
+		app.buttons["entry.fixture-entry-2"].doubleClick()
 		XCTAssertTrue(secondTab.waitForValue("Saved", timeout: 2))
 		let editor = app.textViews["entry.editor"]
 		XCTAssertTrue(editor.waitForValue("Fixture Entry 2", timeout: 2))

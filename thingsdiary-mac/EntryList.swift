@@ -497,7 +497,7 @@ nonisolated enum EntryActionRequest: Equatable {
 	case moveToTrash
 }
 
-nonisolated struct EntryDragPayload {
+nonisolated struct EntryDragPayload: Codable {
 	let diaryID: String
 	let entryID: String
 }
@@ -629,14 +629,14 @@ nonisolated func hiddenEntryListPlaceholder(for entryID: String) -> EntryListPre
 		"another", "day", "looking", "back", "ideas", "space", "plans", "tomorrow",
 	]
 	// Stable seed and SplitMix64 keep similar IDs visually distinct without changing on redraw.
-	var state = entryID.utf8.reduce(UInt64(0xcbf29ce484222325)) {
-		($0 ^ UInt64($1)) &* 0x100000001b3
+	var state = entryID.utf8.reduce(UInt64(0xcbf2_9ce4_8422_2325)) {
+		($0 ^ UInt64($1)) &* 0x100_0000_01b3
 	}
 	func next(_ range: ClosedRange<Int>) -> Int {
-		state &+= 0x9e3779b97f4a7c15
+		state &+= 0x9e37_79b9_7f4a_7c15
 		var value = state
-		value = (value ^ (value >> 30)) &* 0xbf58476d1ce4e5b9
-		value = (value ^ (value >> 27)) &* 0x94d049bb133111eb
+		value = (value ^ (value >> 30)) &* 0xbf58_476d_1ce4_e5b9
+		value = (value ^ (value >> 27)) &* 0x94d0_49bb_1331_11eb
 		value ^= value >> 31
 		return range.lowerBound + Int(value % UInt64(range.count))
 	}

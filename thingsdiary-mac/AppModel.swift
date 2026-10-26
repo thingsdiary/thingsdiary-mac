@@ -501,11 +501,13 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 		case registrationBadRequest = "registration-bad-request"
 	}
 
-	nonisolated private struct UITestingAppClient: ThingsDiaryAppClient {
+	private actor UITestingAppClient: ThingsDiaryAppClient {
 		let scenario: UITestingAuthScenario
+		private var storedEntries: [String: ThingsDiaryEntry]
 
-		init(scenario: UITestingAuthScenario = .workspace) {
+		init(scenario: UITestingAuthScenario = .workspace, entries: [ThingsDiaryEntry] = []) {
 			self.scenario = scenario
+			storedEntries = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
 		}
 
 		func register(
@@ -558,7 +560,9 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 			)
 		}
 
-		func entries(diaryID: String) async throws -> [ThingsDiaryEntry] { [] }
+		func entries(diaryID: String) async throws -> [ThingsDiaryEntry] {
+			storedEntries.values.filter { $0.diaryID == diaryID }
+		}
 
 		func createEntry(
 			diaryID: String,
@@ -577,7 +581,7 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 			params: ThingsDiaryEntryParams
 		) async throws -> ThingsDiaryEntry {
 			let now = Date()
-			return ThingsDiaryEntry(
+			let created = ThingsDiaryEntry(
 				id: entryID,
 				diaryID: diaryID,
 				content: params.content,
@@ -589,6 +593,8 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 				updatedAt: now,
 				version: UInt64(now.timeIntervalSince1970 * 1_000)
 			)
+			storedEntries[created.id] = created
+			return created
 		}
 
 		func updateEntry(
@@ -596,7 +602,7 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 			params: ThingsDiaryEntryParams
 		) async throws -> ThingsDiaryEntry {
 			let now = Date()
-			return ThingsDiaryEntry(
+			let updated = ThingsDiaryEntry(
 				id: entry.id,
 				diaryID: entry.diaryID,
 				content: params.content,
@@ -607,6 +613,41 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 				createdAt: entry.createdAt,
 				updatedAt: now,
 				deletedAt: entry.deletedAt,
+				version: max(entry.version + 1, UInt64(now.timeIntervalSince1970 * 1_000))
+			)
+			storedEntries[updated.id] = updated
+			return updated
+		}
+
+		func getEntry(diaryID: String, entryID: String) async throws -> ThingsDiaryEntry {
+			guard let entry = storedEntries[entryID], entry.diaryID == diaryID else {
+				throw DiaryStoreError.unsupportedRemoteEntry
+			}
+			return entry
+		}
+
+		func deleteEntry(diaryID: String, entryID: String, soft: Bool?) async throws {
+			let entry = try await getEntry(diaryID: diaryID, entryID: entryID)
+			if soft == true {
+				storedEntries[entryID] = entryChangingDeletion(entry, deletedAt: .now)
+			} else {
+				storedEntries.removeValue(forKey: entryID)
+			}
+		}
+
+		func restoreEntry(diaryID: String, entryID: String) async throws -> ThingsDiaryEntry {
+			let entry = try await getEntry(diaryID: diaryID, entryID: entryID)
+			let restored = entryChangingDeletion(entry, deletedAt: nil)
+			storedEntries[entryID] = restored
+			return restored
+		}
+
+		private func entryChangingDeletion(_ entry: ThingsDiaryEntry, deletedAt: Date?) -> ThingsDiaryEntry {
+			let now = Date()
+			return ThingsDiaryEntry(
+				id: entry.id, diaryID: entry.diaryID, content: entry.content, topicID: entry.topicID,
+				archived: entry.archived, bookmarked: entry.bookmarked, previewHidden: entry.previewHidden,
+				createdAt: entry.createdAt, updatedAt: now, deletedAt: deletedAt,
 				version: max(entry.version + 1, UInt64(now.timeIntervalSince1970 * 1_000))
 			)
 		}
@@ -690,6 +731,7 @@ nonisolated struct LiveThingsDiaryAppClient: ThingsDiaryAppClient {
 
 		func deleteTemplate(diaryID: String, templateID: String, soft: Bool?) async throws {}
 	}
+
 #endif
 
 enum ThingsDiaryAppScreen: Equatable {
@@ -786,6 +828,7 @@ final class ThingsDiaryAppModel {
 		static func uiTestingWorkspace(
 			includesDeletedEntry: Bool = true,
 			includesTemplate: Bool = false,
+			includesMultipleTemplates: Bool = false,
 			includesMultipleDiaries: Bool = false,
 			includesHiddenPreviews: Bool = false
 		) -> ThingsDiaryAppModel {
@@ -804,9 +847,11 @@ final class ThingsDiaryAppModel {
 				if includesHiddenPreviews && (3...4).contains(index) {
 					content = ""
 				} else if includesHiddenPreviews && index == 5 {
-					content = "Мысли о сегодняшнем дне\nНесколько наблюдений, которые хочется сохранить. Прогулка, новые идеи и планы на следующую неделю. Ещё одна строка для проверки длинного превью. 🙂"
+					content =
+						"Мысли о сегодняшнем дне\nНесколько наблюдений, которые хочется сохранить. Прогулка, новые идеи и планы на следующую неделю. Ещё одна строка для проверки длинного превью. 🙂"
 				} else {
-					content = index == 1
+					content =
+						index == 1
 						? "Fixture Entry\nA useful preview for UI testing."
 						: index == 2
 							? "Fixture Entry 2"
@@ -863,7 +908,8 @@ final class ThingsDiaryAppModel {
 				updatedAt: now,
 				version: 1
 			)
-			let model = ThingsDiaryAppModel(client: UITestingAppClient())
+			let initialEntries = entries + [archivedEntry] + (includesDeletedEntry ? [deletedEntry] : [])
+			let model = ThingsDiaryAppModel(client: UITestingAppClient(entries: initialEntries))
 			model.isAuthenticated = true
 			let secondDiary = ThingsDiaryDiary(
 				id: "fixture-diary-2",
@@ -875,7 +921,7 @@ final class ThingsDiaryAppModel {
 			)
 			model.loadedDiaries = includesMultipleDiaries ? [diary, secondDiary] : [diary]
 			model.topics = [topic, secondTopic]
-			if includesTemplate {
+			if includesTemplate || includesMultipleTemplates {
 				model.templates = [
 					ThingsDiaryTemplate(
 						id: "fixture-template",
@@ -887,9 +933,20 @@ final class ThingsDiaryAppModel {
 					)
 				]
 			}
+			if includesMultipleTemplates {
+				model.templates += (2...4).map { index in
+					ThingsDiaryTemplate(
+						id: "fixture-template-\(index)", diaryID: diary.id,
+						content: "Fixture Template \(index)",
+						createdAt: now.addingTimeInterval(TimeInterval(-index * 60)),
+						updatedAt: now, version: 1
+					)
+				}
+			}
+
 			model.screen = .entries(
 				diary: diary,
-				entries: entries + [archivedEntry] + (includesDeletedEntry ? [deletedEntry] : [])
+				entries: initialEntries
 			)
 			return model
 		}
@@ -1792,6 +1849,281 @@ final class ThingsDiaryAppModel {
 		guard case .entries(_, let entries) = screen else { return }
 		for entry in entries where entry.deletedAt != nil {
 			await deleteEntryPermanently(entry)
+		}
+	}
+
+	/// Runs against a fixed diary and refreshes each source before acting on it.
+	/// An accepted local write succeeds even when synchronization must wait for a connection.
+	func performBulkAction(
+		_ action: WorkspaceBulkAction,
+		ids: [String],
+		templates templateSelection: Bool = false,
+		contentsByID: [String: String] = [:]
+	) async -> WorkspaceBulkResult {
+		var result = WorkspaceBulkResult()
+		guard case .entries(let diary, _) = screen else {
+			result.failedIDs = Set(ids)
+			return result
+		}
+		let selectionID = diarySelectionID
+		var seen: Set<String> = []
+		var queuedSources: [String: String] = [:]
+		for id in ids where seen.insert(id).inserted {
+			do {
+				guard bulkDiaryIsCurrent(diary.id, selectionID: selectionID) else {
+					throw BulkOperationError.unavailable
+				}
+				if templateSelection {
+					try await performBulkTemplateAction(
+						action, id: id, diaryID: diary.id, selectionID: selectionID,
+						content: contentsByID[id]
+					)
+				} else {
+					let queuedID = try await performBulkEntryAction(
+						action, id: id, diaryID: diary.id, selectionID: selectionID,
+						content: contentsByID[id]
+					)
+					if let queuedID { queuedSources[id] = queuedID }
+				}
+				result.succeededIDs.insert(id)
+			} catch {
+				result.failedIDs.insert(id)
+				result.errorsByID[id] = error.localizedDescription
+			}
+		}
+		if let store, !queuedSources.isEmpty {
+			try? await store.synchronize(with: client)
+			let pending = Set(await store.pendingEntryWrites().map(\.id))
+			if bulkDiaryIsCurrent(diary.id, selectionID: selectionID) {
+				entryPendingCreationIDs.subtract(Set(queuedSources.values).subtracting(pending))
+			}
+			for (sourceID, writeID) in queuedSources where pending.contains(writeID) {
+				result.queuedIDs.insert(sourceID)
+			}
+			if bulkDiaryIsCurrent(diary.id, selectionID: selectionID) {
+				await refreshEntriesFromStore(store, diaryID: diary.id)
+			}
+		}
+		return result
+	}
+
+	nonisolated private enum BulkOperationError: LocalizedError {
+		case unavailable
+		case pendingCreation
+		var errorDescription: String? {
+			switch self {
+			case .unavailable: "This action is no longer available for the selected item."
+			case .pendingCreation:
+				"This entry must finish syncing before it can be moved to Trash, restored, or permanently deleted."
+			}
+		}
+	}
+
+	private func bulkDiaryIsCurrent(_ diaryID: String, selectionID: UUID?) -> Bool {
+		guard case .entries(let diary, _) = screen else { return false }
+		return diary.id == diaryID && diarySelectionID == selectionID
+	}
+
+	private func mergeBulkEntry(
+		_ updated: ThingsDiaryEntry, removing: Bool = false, selectionID: UUID?
+	) {
+		guard bulkDiaryIsCurrent(updated.diaryID, selectionID: selectionID),
+			case .entries(let diary, var entries) = screen
+		else { return }
+		if removing {
+			entries.removeAll { $0.id == updated.id }
+		} else if let index = entries.firstIndex(where: { $0.id == updated.id }) {
+			entries[index] = updated
+		} else {
+			entries.append(updated)
+		}
+		screen = .entries(diary: diary, entries: entries)
+	}
+
+	private func performBulkEntryAction(
+		_ action: WorkspaceBulkAction, id: String, diaryID: String,
+		selectionID: UUID?, content: String?
+	) async throws -> String? {
+		let hasPendingCreate: Bool
+		if let store {
+			hasPendingCreate = await store.pendingEntryWrites().contains {
+				$0.id == id && $0.operation == .create
+			}
+		} else {
+			hasPendingCreate = false
+		}
+		guard bulkDiaryIsCurrent(diaryID, selectionID: selectionID),
+			case .entries(_, let entries) = screen,
+			let entry = entries.first(where: { $0.id == id && $0.diaryID == diaryID }),
+			!entryDraftIDs.contains(id) || action == .saveContents || action == .duplicate || action == .saveAsTemplate
+		else { throw BulkOperationError.unavailable }
+		if hasPendingCreate || entryPendingCreationIDs.contains(id),
+			action == .moveToTrash || action == .restore || action == .deletePermanently
+		{
+			throw BulkOperationError.pendingCreation
+		}
+		let isDeleted = entry.deletedAt != nil
+		if isDeleted {
+			guard action == .restore || action == .deletePermanently else {
+				throw BulkOperationError.unavailable
+			}
+		} else if action == .restore || action == .deletePermanently || action == .deleteTemplates {
+			throw BulkOperationError.unavailable
+		}
+		if action == .saveAsTemplate {
+			let created = try await client.createTemplate(
+				diaryID: diaryID, params: ThingsDiaryTemplateParams(content: content ?? entry.content)
+			)
+			try await store?.upsertTemplate(created)
+			if bulkDiaryIsCurrent(diaryID, selectionID: selectionID) { templates.append(created) }
+			return nil
+		}
+		var params = ThingsDiaryEntryParams(
+			content: entry.content, topicID: entry.topicID, archived: entry.archived,
+			bookmarked: entry.bookmarked, previewHidden: entry.previewHidden
+		)
+		var operation: PendingEntryOperation =
+			hasPendingCreate || entryPendingCreationIDs.contains(id) || entryDraftIDs.contains(id) ? .create : .update
+		var deletedAt = entry.deletedAt
+		var destinationID = entry.id
+		let now = Date()
+		switch action {
+		case .saveContents:
+			guard let content else { throw BulkOperationError.unavailable }
+			params = ThingsDiaryEntryParams(
+				content: content, topicID: entry.topicID,
+				archived: entry.archived, bookmarked: entry.bookmarked, previewHidden: entry.previewHidden)
+		case .bookmark(let value):
+			if entry.bookmarked == value { return nil }
+			params = ThingsDiaryEntryParams(
+				content: entry.content, topicID: entry.topicID,
+				archived: entry.archived, bookmarked: value, previewHidden: entry.previewHidden)
+		case .previewHidden(let value):
+			guard topics.first(where: { $0.id == entry.topicID })?.entryPreviewable != false else {
+				throw BulkOperationError.unavailable
+			}
+			if entry.previewHidden == value { return nil }
+			params = ThingsDiaryEntryParams(
+				content: entry.content, topicID: entry.topicID,
+				archived: entry.archived, bookmarked: entry.bookmarked, previewHidden: value)
+		case .archive(let value):
+			if entry.archived == value { return nil }
+			params = ThingsDiaryEntryParams(
+				content: entry.content, topicID: entry.topicID,
+				archived: value, bookmarked: entry.bookmarked, previewHidden: entry.previewHidden)
+		case .moveToTopic(let topicID):
+			guard topicID == nil || topics.contains(where: { $0.id == topicID && $0.diaryID == diaryID }) else {
+				throw BulkOperationError.unavailable
+			}
+			if entry.topicID == topicID { return nil }
+			params = ThingsDiaryEntryParams(
+				content: entry.content, topicID: topicID,
+				archived: entry.archived, bookmarked: entry.bookmarked, previewHidden: entry.previewHidden)
+		case .duplicate:
+			destinationID = UUID().uuidString.lowercased()
+			operation = .create
+			params = ThingsDiaryEntryParams(
+				content: content ?? entry.content, topicID: entry.topicID,
+				archived: entry.archived, bookmarked: entry.bookmarked, previewHidden: entry.previewHidden)
+		case .moveToTrash:
+			operation = .delete
+			deletedAt = now
+		case .restore:
+			operation = .restore
+			deletedAt = nil
+		case .deletePermanently: operation = .remove
+		case .saveAsTemplate, .deleteTemplates: throw BulkOperationError.unavailable
+		}
+		let localEntry = ThingsDiaryEntry(
+			id: destinationID, diaryID: diaryID, content: params.content, topicID: params.topicID,
+			archived: params.archived, bookmarked: params.bookmarked, previewHidden: params.previewHidden,
+			createdAt: action == .duplicate ? now : entry.createdAt, updatedAt: now, deletedAt: deletedAt,
+			version: max(UInt64(now.timeIntervalSince1970 * 1_000), entry.version + 1)
+		)
+		if let store {
+			try await store.savePendingEntry(PendingEntryWrite(operation: operation, entry: localEntry))
+			mergeBulkEntry(localEntry, removing: operation == .remove, selectionID: selectionID)
+			if action == .saveContents && bulkDiaryIsCurrent(diaryID, selectionID: selectionID) {
+				entryDraftIDs.remove(id)
+				entryDraftIDsHiddenFromList.remove(id)
+				if operation == .create { entryPendingCreationIDs.insert(id) }
+			}
+			return destinationID
+		}
+		let updated: ThingsDiaryEntry
+		switch action {
+		case .saveContents where operation == .create:
+			updated = try await client.createEntry(diaryID: diaryID, entryID: id, params: params)
+		case .duplicate:
+			updated = try await client.createEntry(diaryID: diaryID, params: params)
+		case .moveToTrash:
+			try await client.deleteEntry(diaryID: diaryID, entryID: id, soft: true)
+			updated = localEntry
+		case .restore:
+			updated = try await client.restoreEntry(diaryID: diaryID, entryID: id)
+		case .deletePermanently:
+			try await client.deleteEntry(diaryID: diaryID, entryID: id, soft: false)
+			updated = localEntry
+		default:
+			updated = try await client.updateEntry(entry, params: params)
+		}
+		mergeBulkEntry(updated, removing: action == .deletePermanently, selectionID: selectionID)
+		if action == .saveContents && bulkDiaryIsCurrent(diaryID, selectionID: selectionID) {
+			entryDraftIDs.remove(id)
+			entryDraftIDsHiddenFromList.remove(id)
+			entryPendingCreationIDs.remove(id)
+		}
+		return nil
+	}
+
+	private func performBulkTemplateAction(
+		_ action: WorkspaceBulkAction, id: String, diaryID: String,
+		selectionID: UUID?, content: String?
+	) async throws {
+		guard let template = templates.first(where: { $0.id == id && $0.diaryID == diaryID }),
+			!templateDraftIDs.contains(id) || action == .saveContents || action == .duplicate
+				|| action == .deleteTemplates
+		else { throw BulkOperationError.unavailable }
+		switch action {
+		case .saveContents:
+			guard let content else { throw BulkOperationError.unavailable }
+			let updated = try await client.updateTemplate(template, params: ThingsDiaryTemplateParams(content: content))
+			try await store?.upsertTemplate(updated)
+			if bulkDiaryIsCurrent(diaryID, selectionID: selectionID) {
+				templates = templates.map { $0.id == updated.id ? updated : $0 }
+				templateDraftIDs.remove(id)
+			}
+		case .duplicate:
+			let created = try await client.createTemplate(
+				diaryID: diaryID, params: ThingsDiaryTemplateParams(content: content ?? template.content)
+			)
+			try await store?.upsertTemplate(created)
+			if bulkDiaryIsCurrent(diaryID, selectionID: selectionID) { templates.append(created) }
+		case .deleteTemplates:
+			for topic in topics.filter({ $0.defaultTemplateID == id }) {
+				guard bulkDiaryIsCurrent(diaryID, selectionID: selectionID) else {
+					throw BulkOperationError.unavailable
+				}
+				let updated = try await client.updateTopic(
+					topic,
+					params: ThingsDiaryTopicParams(
+						title: topic.title, description: topic.description, color: topic.color,
+						entryPreviewable: topic.entryPreviewable, defaultTemplateID: nil))
+				try await store?.upsertTopic(updated)
+				if bulkDiaryIsCurrent(diaryID, selectionID: selectionID) {
+					topics = topics.map { $0.id == updated.id ? updated : $0 }
+				}
+			}
+			guard bulkDiaryIsCurrent(diaryID, selectionID: selectionID) else {
+				throw BulkOperationError.unavailable
+			}
+			try await client.deleteTemplate(diaryID: diaryID, templateID: id, soft: true)
+			try await store?.removeTemplate(diaryID: diaryID, templateID: id)
+			if bulkDiaryIsCurrent(diaryID, selectionID: selectionID) {
+				templates.removeAll { $0.id == id }
+				templateDraftIDs.remove(id)
+			}
+		default: throw BulkOperationError.unavailable
 		}
 	}
 

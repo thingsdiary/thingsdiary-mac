@@ -266,6 +266,9 @@ struct ThingsDiaryApp: App {
 						includesTemplate: ProcessInfo.processInfo.arguments.contains(
 							"--ui-testing-template"
 						),
+						includesMultipleTemplates: ProcessInfo.processInfo.arguments.contains(
+							"--ui-testing-multiple-templates"
+						),
 						includesMultipleDiaries: ProcessInfo.processInfo.arguments.contains(
 							"--ui-testing-multiple-diaries"
 						),

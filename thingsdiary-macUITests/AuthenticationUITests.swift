@@ -2,20 +2,20 @@ import AppKit
 import Carbon.HIToolbox
 import XCTest
 
-private extension XCUIElement {
-	func waitForKeyboardFocus(timeout: TimeInterval) -> Bool {
+extension XCUIElement {
+	fileprivate func waitForKeyboardFocus(timeout: TimeInterval) -> Bool {
 		let predicate = NSPredicate(format: "hasKeyboardFocus == true")
 		let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
 		return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
 	}
 
-	func waitUntilEnabled(timeout: TimeInterval) -> Bool {
+	fileprivate func waitUntilEnabled(timeout: TimeInterval) -> Bool {
 		let predicate = NSPredicate(format: "isEnabled == true")
 		let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
 		return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
 	}
 
-	func waitForValue(_ expectedValue: String, timeout: TimeInterval) -> Bool {
+	fileprivate func waitForValue(_ expectedValue: String, timeout: TimeInterval) -> Bool {
 		let predicate = NSPredicate(format: "value == %@", expectedValue)
 		let expectation = XCTNSPredicateExpectation(predicate: predicate, object: self)
 		return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
@@ -218,11 +218,12 @@ final class AuthenticationUITests: XCTestCase {
 		XCTAssertTrue(field.waitForKeyboardFocus(timeout: 2))
 		var chunkStart = text.startIndex
 		while chunkStart < text.endIndex {
-			let chunkEnd = text.index(
-				chunkStart,
-				offsetBy: 4,
-				limitedBy: text.endIndex
-			) ?? text.endIndex
+			let chunkEnd =
+				text.index(
+					chunkStart,
+					offsetBy: 4,
+					limitedBy: text.endIndex
+				) ?? text.endIndex
 			field.typeText(String(text[chunkStart..<chunkEnd]))
 			Thread.sleep(forTimeInterval: 0.1)
 			chunkStart = chunkEnd

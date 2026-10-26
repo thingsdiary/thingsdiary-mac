@@ -32,10 +32,11 @@ nonisolated struct ThingsDiaryRealtimeEvent: Sendable, Equatable {
 }
 
 actor RealtimeSyncCoordinator {
-	typealias SnapshotHandler = @MainActor @Sendable (
-		ThingsDiaryRealtimeEvent,
-		DiaryStoreSnapshot?
-	) -> Void
+	typealias SnapshotHandler =
+		@MainActor @Sendable (
+			ThingsDiaryRealtimeEvent,
+			DiaryStoreSnapshot?
+		) -> Void
 
 	private let client: any ThingsDiaryAppClient
 	private let store: DiaryStore?

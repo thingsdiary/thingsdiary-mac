@@ -175,42 +175,42 @@ struct BrowserTab: View {
 
 	var body: some View {
 		tabButton
-		.overlay(alignment: .trailing) {
-			if showsCloseButton {
-				TabIconButton(icon: .close, iconSize: 12, action: close)
-					.padding(.trailing, 1)
-					.accessibilityIdentifier(closeAccessibilityIdentifier)
-					.accessibilityLabel("Close \(accessibleTitle)")
-					.help("Close \(accessibleTitle)")
+			.overlay(alignment: .trailing) {
+				if showsCloseButton {
+					TabIconButton(icon: .close, iconSize: 12, action: close)
+						.padding(.trailing, 1)
+						.accessibilityIdentifier(closeAccessibilityIdentifier)
+						.accessibilityLabel("Close \(accessibleTitle)")
+						.help("Close \(accessibleTitle)")
+				}
 			}
-		}
-		.background(
-			isActive
-				? Color.primary.opacity(0.14)
-				: Color.primary.opacity(isHovered ? 0.08 : 0),
-			in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-		)
-		.overlay {
-			RoundedRectangle(cornerRadius: 7, style: .continuous)
-				.stroke(isActive ? Color.primary.opacity(0.16) : .clear)
-		}
-		.animation(.easeOut(duration: 0.12), value: isActive)
-		.animation(.easeOut(duration: 0.12), value: isHovered)
-		.contentShape(.rect)
-		.offset(x: horizontalOffset)
-		.scaleEffect(isDragged ? 1.025 : 1)
-		.shadow(
-			color: .black.opacity(isDragged ? 0.16 : 0),
-			radius: 5,
-			y: 2
-		)
-		.zIndex(isDragged ? 3 : 1)
-		.highPriorityGesture(
-			DragGesture(minimumDistance: 4)
-				.onChanged { reorder($0.translation.width) }
-				.onEnded { _ in finishReordering() }
-		)
-		.onHover { isHovered = $0 }
+			.background(
+				isActive
+					? Color.primary.opacity(0.14)
+					: Color.primary.opacity(isHovered ? 0.08 : 0),
+				in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+			)
+			.overlay {
+				RoundedRectangle(cornerRadius: 7, style: .continuous)
+					.stroke(isActive ? Color.primary.opacity(0.16) : .clear)
+			}
+			.animation(.easeOut(duration: 0.12), value: isActive)
+			.animation(.easeOut(duration: 0.12), value: isHovered)
+			.contentShape(.rect)
+			.offset(x: horizontalOffset)
+			.scaleEffect(isDragged ? 1.025 : 1)
+			.shadow(
+				color: .black.opacity(isDragged ? 0.16 : 0),
+				radius: 5,
+				y: 2
+			)
+			.zIndex(isDragged ? 3 : 1)
+			.highPriorityGesture(
+				DragGesture(minimumDistance: 4)
+					.onChanged { reorder($0.translation.width) }
+					.onEnded { _ in finishReordering() }
+			)
+			.onHover { isHovered = $0 }
 	}
 
 	@ViewBuilder private var titleMask: some View {

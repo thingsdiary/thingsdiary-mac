@@ -109,17 +109,6 @@ private struct WorkspaceShortcutMonitor: NSViewRepresentable {
 	}
 }
 
-private struct EntryDropTargetFramesKey: PreferenceKey {
-	static var defaultValue: [EntryDropDestination: CGRect] = [:]
-
-	static func reduce(
-		value: inout [EntryDropDestination: CGRect],
-		nextValue: () -> [EntryDropDestination: CGRect]
-	) {
-		value.merge(nextValue(), uniquingKeysWith: { _, new in new })
-	}
-}
-
 private struct DiarySwitcherAnchorKey: PreferenceKey {
 	static var defaultValue: Anchor<CGRect>?
 
@@ -510,6 +499,15 @@ private struct EntriesView: View {
 	@State private var searchResetID = 0
 	@State private var selection: DiaryNavigationSelection? = .entries
 	@State private var tabs = BrowserTabsState<WorkspaceTabID>()
+	@State private var listSelection = WorkspaceSelectionState<WorkspaceTabID>()
+	@State private var showsEmptySelection = false
+	@FocusState private var listIsFocused: Bool
+	@State private var bulkRunning = false
+	@State private var listViewport = WorkspaceListViewport()
+	@State private var runningBulkRequest: WorkspaceBulkRequest?
+	@State private var pendingBulkRequest: WorkspaceBulkRequest?
+	@State private var bulkError: String?
+	@State private var topicMoveRequest: WorkspaceTopicMoveRequest?
 	@State private var draftsByEntryID: [String: String] = [:]
 	@FocusState private var editorIsFocused: Bool
 	@State private var showingDiaryEditor = false
@@ -536,9 +534,6 @@ private struct EntriesView: View {
 	@State private var browserTabCloseSaveError: String?
 	@State private var tabSavingBeforeClose: WorkspaceTabID?
 	@State private var targetedDropDestination: EntryDropDestination?
-	@State private var dropTargetFrames: [EntryDropDestination: CGRect] = [:]
-	@State private var draggedEntryID: String?
-	@State private var dragLocation = CGPoint.zero
 	@State private var confirmingEmptyTrash = false
 	@State private var templateDraftsByID: [String: String] = [:]
 	@State private var templatePendingDeletion: ThingsDiaryTemplate?
@@ -573,40 +568,87 @@ private struct EntriesView: View {
 		return entries.first { $0.id == entryID }
 	}
 
-	private var entryListSelection: Binding<String?> {
+	private var visibleDocumentIDs: Set<WorkspaceTabID> {
+		activeSelection == .templates
+			? Set(filteredTemplates.map { .template($0.id) })
+			: Set(displayedEntries.map { .entry($0.id) })
+	}
+
+	private var isMultipleSelection: Bool { listSelection.isMultiple || bulkRunning }
+
+	private var hasWorkspaceDetail: Bool {
+		isMultipleSelection || (tabs.activeTabID != nil && !showsEmptySelection)
+	}
+
+	private var workspaceListSelection: Binding<Set<WorkspaceTabID>> {
 		Binding(
-			get: {
-				guard let entry = selectedEntry,
-					displayedEntries.contains(where: { $0.id == entry.id })
-				else { return nil }
-				return entry.id
-			},
-			set: { entryID in
-				guard let entryID,
-					entryID != selectedEntry?.id,
-					let entry = displayedEntries.first(where: { $0.id == entryID })
-				else { return }
-				previewEntry(entry)
+			get: { listSelection.selectedIDs.intersection(visibleDocumentIDs) },
+			set: { ids in
+				guard !bulkRunning else { return }
+				let wasMultiple = listSelection.isMultiple
+				let transition = listSelection.replace(with: ids, visibleIDs: visibleDocumentIDs)
+				applyListSelection(transition, preservingTabs: wasMultiple)
 			}
 		)
 	}
 
-	private var templateListSelection: Binding<String?> {
-		Binding(
-			get: {
-				guard let template = selectedTemplate,
-					filteredTemplates.contains(where: { $0.id == template.id })
-				else { return nil }
-				return template.id
-			},
-			set: { templateID in
-				guard let templateID,
-					templateID != selectedTemplate?.id,
-					let template = filteredTemplates.first(where: { $0.id == templateID })
-				else { return }
-				previewTemplate(template)
+	private func applyListSelection(
+		_ transition: WorkspaceSelectionState<WorkspaceTabID>.Transition,
+		preservingTabs: Bool = false
+	) {
+		switch transition {
+		case .unchanged: break
+		case .empty:
+			showsEmptySelection = true
+		case .multiple:
+			showsEmptySelection = false
+			editorIsFocused = false
+			compactWorkspacePane = .list
+		case .single(let tabID):
+			showsEmptySelection = false
+			if preservingTabs {
+				switch tabID {
+				case .entry(let id):
+					if let entry = entries.first(where: { $0.id == id }) { openEntry(entry) }
+				case .template(let id):
+					if let template = model.templates.first(where: { $0.id == id }) { openTemplate(template) }
+				}
+			} else if tabs.activeTabID != tabID {
+				switch tabID {
+				case .entry(let id):
+					if let entry = entries.first(where: { $0.id == id }) { previewEntry(entry) }
+				case .template(let id):
+					if let template = model.templates.first(where: { $0.id == id }) { previewTemplate(template) }
+				}
 			}
-		)
+			// Keep the list available for subsequent Shift/Command clicks in a narrow window.
+			if listIsFocused && !preservingTabs { compactWorkspacePane = .list }
+		}
+	}
+
+	private func reconcileListSelection() {
+		guard !bulkRunning else { return }
+		let wasMultiple = listSelection.isMultiple
+		applyListSelection(listSelection.reconcile(visibleIDs: visibleDocumentIDs), preservingTabs: wasMultiple)
+	}
+
+	private func selectActiveBrowserDocument() {
+		guard !bulkRunning else { return }
+		showsEmptySelection = false
+		let ids = tabs.activeTabID.map { Set([$0]) } ?? []
+		listSelection.replace(with: ids, visibleIDs: visibleDocumentIDs)
+	}
+
+	private func exitListSelection() {
+		guard !bulkRunning else { return }
+		if let activeID = tabs.activeTabID, validTabIDs.contains(activeID) {
+			// Escape returns to the existing document without promoting its preview tab.
+			selectActiveBrowserDocument()
+			compactWorkspacePane = .editor
+		} else {
+			workspaceListSelection.wrappedValue = []
+			showsEmptySelection = true
+		}
 	}
 
 	private var selectedDraftContent: String {
@@ -749,11 +791,12 @@ private struct EntriesView: View {
 	}
 
 	var body: some View {
-		workspaceShell
+		selectionAwareWorkspace
 			.onChange(of: selection) {
 				query = ""
 				searchIsFocused = false
 				searchResetID += 1
+				selectActiveBrowserDocument()
 			}
 			.onChange(of: selectionIsEmpty) {
 				guard selectionIsEmpty else { return }
@@ -868,7 +911,55 @@ private struct EntriesView: View {
 			}
 	}
 
-	private var workspaceShell: some View {
+	private var selectionAwareWorkspace: some View {
+		workspaceShell
+			.allowsHitTesting(!bulkRunning)
+			.onChange(of: visibleDocumentIDs) { reconcileListSelection() }
+			.sheet(item: $topicMoveRequest) { request in
+				WorkspaceTopicMoveSheet(
+					count: request.ids.count,
+					topics: model.topics,
+					currentTopicIDs: Set(entries.filter { request.ids.contains(.entry($0.id)) }.map(\.topicID))
+				) { topicID in
+					topicMoveRequest = nil
+					requestBulkAction(.moveToTopic(topicID), ids: request.ids)
+				} cancel: {
+					topicMoveRequest = nil
+				}
+			}
+			.alert(
+				bulkConfirmationTitle,
+				isPresented: Binding(
+					get: { pendingBulkRequest != nil },
+					set: { if !$0 { pendingBulkRequest = nil } }
+				)
+			) {
+				if let request = pendingBulkRequest {
+					Button(
+						request.needsSave ? "Save and \(request.action.title)" : request.confirmationButton,
+						role: request.needsSave ? nil : .destructive
+					) {
+						pendingBulkRequest = nil
+						runBulkRequest(request)
+					}
+				}
+				Button("Cancel", role: .cancel) { pendingBulkRequest = nil }
+			} message: {
+				Text(pendingBulkRequest?.confirmationMessage ?? "")
+			}
+			.alert(
+				"Some Items Could Not Be Updated",
+				isPresented: Binding(
+					get: { bulkError != nil }, set: { if !$0 { bulkError = nil } }
+				)
+			) {
+				Button("OK") { bulkError = nil }
+			} message: {
+				Text(bulkError ?? "")
+			}
+	}
+
+	private var workspaceSceneCommands: some View {
 		HStack(spacing: 0) {
 			if sidebarToggleInSidebar {
 				sidebarWorkspace
@@ -886,11 +977,12 @@ private struct EntriesView: View {
 		.background {
 			WorkspaceShortcutMonitor(
 				save: {
-					guard tabs.activeTabID != nil else { return false }
+					guard !isMultipleSelection, !showsEmptySelection, tabs.activeTabID != nil else { return false }
 					saveActiveTab()
 					return true
 				},
 				create: {
+					guard !bulkRunning else { return true }
 					createDocumentForActiveSection()
 					return true
 				},
@@ -909,23 +1001,25 @@ private struct EntriesView: View {
 		}
 		.focusedSceneValue(
 			\.entrySaveAction,
-			tabs.activeTabID != nil ? { saveActiveTab() } : nil
+			!isMultipleSelection && !showsEmptySelection && tabs.activeTabID != nil ? { saveActiveTab() } : nil
 		)
 		.focusedSceneValue(
 			\.entrySaveAllAction,
-			tabs.openTabIDs.isEmpty ? nil : { saveAllOpenTabs() }
+			bulkRunning || tabs.openTabIDs.isEmpty ? nil : { saveAllOpenTabs() }
 		)
 		.focusedSceneValue(
 			\.entryCreateAction,
-			EntryCreationActions(
-				newEntry: createEntryFromMenu,
-				newBookmark: createBookmarkFromMenu,
-				newTemplate: createTemplate
-			)
+			bulkRunning
+				? nil
+				: EntryCreationActions(
+					newEntry: createEntryFromMenu,
+					newBookmark: createBookmarkFromMenu,
+					newTemplate: createTemplate
+				)
 		)
 		.focusedSceneValue(
 			\.diaryMenuActions,
-			model.isAuthenticated
+			model.isAuthenticated && !bulkRunning
 				? DiaryMenuActions(
 					currentDiaryID: diary.id,
 					availableDiaries: model.availableDiaries,
@@ -937,69 +1031,48 @@ private struct EntriesView: View {
 		)
 		.focusedSceneValue(
 			\.selectNextTabAction,
-			tabs.openTabIDs.count > 1 ? { selectBrowserTab(offset: 1) } : nil
+			!bulkRunning && tabs.openTabIDs.count > 1 ? { selectBrowserTab(offset: 1) } : nil
 		)
 		.focusedSceneValue(
 			\.selectPreviousTabAction,
-			tabs.openTabIDs.count > 1 ? { selectBrowserTab(offset: -1) } : nil
+			!bulkRunning && tabs.openTabIDs.count > 1 ? { selectBrowserTab(offset: -1) } : nil
 		)
 		.focusedSceneValue(
 			\.entryCloseAction,
-			tabs.activeTabID != nil
+			!isMultipleSelection && !showsEmptySelection && tabs.activeTabID != nil
 				? {
 					guard let activeTabID = tabs.activeTabID else { return }
 					closeBrowserTab(activeTabID)
 				} : nil
 		)
-		.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
-			GeometryReader { proxy in
-				if showingDiaryMenu, let anchor {
-					let frame = proxy[anchor]
+	}
 
-					ZStack(alignment: .topLeading) {
-						Color.black.opacity(0.001)
-							.contentShape(.rect)
-							.onTapGesture { showingDiaryMenu = false }
+	private var workspaceShell: some View {
+		workspaceSceneCommands
+			.overlayPreferenceValue(DiarySwitcherAnchorKey.self) { anchor in
+				GeometryReader { proxy in
+					if showingDiaryMenu, let anchor {
+						let frame = proxy[anchor]
 
-						diaryMenu
-							.frame(width: max(frame.width - 8, 160))
-							.offset(x: frame.minX + 4, y: frame.maxY + 6)
+						ZStack(alignment: .topLeading) {
+							Color.black.opacity(0.001)
+								.contentShape(.rect)
+								.onTapGesture { showingDiaryMenu = false }
+
+							diaryMenu
+								.frame(width: max(frame.width - 8, 160))
+								.offset(x: frame.minX + 4, y: frame.maxY + 6)
+						}
 					}
 				}
 			}
-		}
-		.background(
-			WorkspaceWindowChrome(
-				title: selectionTitle,
-				trafficLightsTrailingInset: $trafficLightsTrailingInset
+			.background(
+				WorkspaceWindowChrome(
+					title: selectionTitle,
+					trafficLightsTrailingInset: $trafficLightsTrailingInset
+				)
 			)
-		)
-		.ignoresSafeArea(.container, edges: .top)
-		.onPreferenceChange(EntryDropTargetFramesKey.self) { frames in
-			dropTargetFrames = frames
-		}
-		.overlay(alignment: .topLeading) {
-			GeometryReader { proxy in
-				if let draggedEntry {
-					let frame = proxy.frame(in: .global)
-					let localLocation = CGPoint(
-						x: dragLocation.x - frame.minX,
-						y: dragLocation.y - frame.minY
-					)
-
-					entryDragPreview(draggedEntry)
-						.offset(
-							x: localLocation.x,
-							y: localLocation.y
-						)
-						.allowsHitTesting(false)
-				}
-			}
-		}
-		.frame(
-			maxWidth: .infinity,
-			maxHeight: .infinity
-		)
+			.ignoresSafeArea(.container, edges: .top)
 	}
 
 	private var sidebarWorkspace: some View {
@@ -1064,7 +1137,7 @@ private struct EntriesView: View {
 				availableWidth: availableWidth
 			)
 			let layout = entryWorkspaceLayout(
-				hasSelectedEntry: tabs.activeTabID != nil,
+				hasSelectedEntry: hasWorkspaceDetail,
 				availableWidth: availableWidth,
 				isEntryListCollapsed: isEntryListCollapsed,
 				isCompact: isEditorWorkspaceCompact,
@@ -1104,13 +1177,25 @@ private struct EntriesView: View {
 					}
 					.clipped()
 
-				browserTabsBar
-					.frame(width: browserWidth, alignment: .leading)
-					.background(TitlebarMaterialBackground())
-					.clipped()
-					.allowsHitTesting(layout != .listOnly)
-					.accessibilityHidden(layout == .listOnly)
-					.zIndex(1)
+				Group {
+					if isMultipleSelection {
+						Color.clear.background(WorkspaceWindowDragArea())
+					} else {
+						browserTabsBar
+					}
+				}
+				.frame(width: browserWidth, alignment: .leading)
+				.background {
+					if isMultipleSelection {
+						Color(nsColor: .windowBackgroundColor)
+					} else {
+						TitlebarMaterialBackground()
+					}
+				}
+				.clipped()
+				.allowsHitTesting(layout != .listOnly)
+				.accessibilityHidden(layout == .listOnly)
+				.zIndex(1)
 			}
 			.animation(.easeInOut(duration: 0.24), value: layout)
 		}
@@ -1142,7 +1227,7 @@ private struct EntriesView: View {
 
 			Spacer(minLength: 8)
 
-			if currentWorkspaceLayout == .listOnly, tabs.activeTabID != nil {
+			if currentWorkspaceLayout == .listOnly, hasWorkspaceDetail {
 				Button {
 					compactWorkspacePane = .editor
 				} label: {
@@ -1516,12 +1601,12 @@ private struct EntriesView: View {
 			let availableWidth = max(proxy.size.width, 0)
 			let compact = updatedEditorWorkspaceCompactState(
 				isCompact: isEditorWorkspaceCompact,
-				hasSelectedEntry: tabs.activeTabID != nil,
+				hasSelectedEntry: hasWorkspaceDetail,
 				availableWidth: availableWidth,
-				isDragging: draggedEntryID != nil
+				isDragging: false
 			)
 			let layout = entryWorkspaceLayout(
-				hasSelectedEntry: tabs.activeTabID != nil,
+				hasSelectedEntry: hasWorkspaceDetail,
 				availableWidth: availableWidth,
 				isEntryListCollapsed: isEntryListCollapsed,
 				isCompact: compact,
@@ -1542,9 +1627,6 @@ private struct EntriesView: View {
 					currentWorkspaceLayout = layout
 				}
 				.onChange(of: tabs.activeTabID) {
-					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
-				}
-				.onChange(of: draggedEntryID) {
 					updateEditorWorkspaceCompactState(availableWidth: availableWidth)
 				}
 		}
@@ -1600,15 +1682,27 @@ private struct EntriesView: View {
 				}
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 			} else {
-				List(selection: templateListSelection) {
+				List(selection: workspaceListSelection) {
 					ForEach(filteredTemplates) { template in
 						templateRow(template)
-							.tag(template.id)
+							.tag(WorkspaceTabID.template(template.id))
 							.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
 							.listRowSeparator(.visible)
 					}
 				}
 				.listStyle(.inset)
+				.focused($listIsFocused)
+				.contextMenu(forSelectionType: WorkspaceTabID.self) { ids in
+					workspaceContextMenu(for: ids)
+				} primaryAction: { ids in
+					openPrimarySelection(ids)
+				}
+				.background(
+					WorkspaceListSelectionAppearance(
+						order: filteredTemplates.map(\.id), selection: listSelection.selectedIDs,
+						viewport: listViewport, isUpdating: bulkRunning)
+				)
+				.onExitCommand(perform: exitListSelection)
 				.accessibilityIdentifier("template-list.scroll")
 			}
 		}
@@ -1638,16 +1732,10 @@ private struct EntriesView: View {
 		.padding(.vertical, 10)
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.contentShape(.rect)
+		.accessibilityElement(children: .combine)
 		.accessibilityIdentifier("template.\(template.id)")
 		.accessibilityAddTraits(.isButton)
-		.accessibilityAction { previewTemplate(template) }
-		.onTapGesture { previewTemplate(template) }
-		.overlay {
-			WorkspaceTemplateContextMenuArea {
-				templatePendingDeletion = template
-			}
-			.accessibilityHidden(true)
-		}
+		.accessibilityAction { workspaceListSelection.wrappedValue = [.template(template.id)] }
 	}
 
 	@ViewBuilder private func workspace(
@@ -1744,9 +1832,9 @@ private struct EntriesView: View {
 	private func updateEditorWorkspaceCompactState(availableWidth: CGFloat) {
 		isEditorWorkspaceCompact = updatedEditorWorkspaceCompactState(
 			isCompact: isEditorWorkspaceCompact,
-			hasSelectedEntry: tabs.activeTabID != nil,
+			hasSelectedEntry: hasWorkspaceDetail,
 			availableWidth: availableWidth,
-			isDragging: draggedEntryID != nil
+			isDragging: false
 		)
 	}
 
@@ -1773,7 +1861,9 @@ private struct EntriesView: View {
 	}
 
 	@ViewBuilder private func entryDetailPane(layout: EntryWorkspaceLayout) -> some View {
-		if let activeTabID = tabs.activeTabID {
+		if isMultipleSelection {
+			bulkSelectionOverview
+		} else if !showsEmptySelection, let activeTabID = tabs.activeTabID {
 			TextEditor(text: activeTabDraftBinding)
 				.accessibilityIdentifier(activeTabID.editorAccessibilityID)
 				.focused($editorIsFocused)
@@ -1790,6 +1880,307 @@ private struct EntriesView: View {
 		} else {
 			Color.clear
 				.accessibilityHidden(true)
+		}
+	}
+
+	private var bulkSelectionTitle: String {
+		let count = runningBulkRequest?.ids.count ?? listSelection.selectedIDs.count
+		let templates = runningBulkRequest?.templates ?? (activeSelection == .templates)
+		return "\(count) \(templates ? "templates" : "entries") selected"
+	}
+
+	private var bulkConfirmationTitle: String {
+		guard let request = pendingBulkRequest else { return "Confirm Action" }
+		return "\(request.action.title) \(request.ids.count) \(request.templates ? "Templates" : "Entries")?"
+	}
+
+	private var bulkSelectionOverview: some View {
+		GeometryReader { geometry in
+			ScrollView {
+				VStack(spacing: 20) {
+					Image(systemName: "square.stack").font(.system(size: 36)).foregroundStyle(.secondary)
+					Text(bulkSelectionTitle).font(.title2.bold()).accessibilityIdentifier("bulk.count")
+					VStack(spacing: 10) {
+						bulkOverviewActions
+						Divider().padding(.vertical, 4)
+						Button(action: exitListSelection) {
+							Text("Done").frame(maxWidth: .infinity)
+						}
+						.help("Return to the active note (Esc)")
+						.accessibilityIdentifier("bulk.action.done")
+					}
+					.buttonStyle(.bordered).controlSize(.large)
+					.frame(width: 240)
+					.disabled(bulkRunning)
+					if activeSelection == .trash {
+						Text("Restored entries return to their original sections.")
+							.font(.callout).foregroundStyle(.secondary)
+					}
+				}
+				.accessibilityElement(children: .contain)
+				.accessibilityIdentifier("bulk.overview")
+				.overlay(alignment: .bottom) {
+					if bulkRunning {
+						ProgressView().controlSize(.small)
+							.accessibilityLabel("Updating selected items")
+							.offset(y: 24)
+					}
+				}
+				.multilineTextAlignment(.center)
+				.frame(maxWidth: 380).padding(32)
+				.frame(maxWidth: .infinity, minHeight: geometry.size.height)
+			}
+		}
+	}
+
+	@ViewBuilder private var bulkOverviewActions: some View {
+		let ids = listSelection.selectedIDs
+		let chosen = entries.filter { ids.contains(.entry($0.id)) }
+		if activeSelection == .templates {
+			bulkOverviewButton(.duplicate, ids: ids)
+			bulkOverviewButton(.deleteTemplates, ids: ids)
+		} else if activeSelection == .trash {
+			bulkOverviewButton(.restore, ids: ids)
+			bulkOverviewButton(.deletePermanently, ids: ids)
+		} else {
+			bulkOverviewButton(.bookmark(!chosen.allSatisfy(\.bookmarked)), ids: ids)
+			Button {
+				presentBulkTopicPicker(ids: ids)
+			} label: {
+				Label("Move to Topic…", systemImage: "tag").frame(maxWidth: .infinity, alignment: .leading)
+			}.accessibilityIdentifier("bulk.action.topic")
+			bulkOverviewButton(.moveToTrash, ids: ids)
+			Menu {
+				bulkButton(.duplicate, ids: ids)
+				bulkButton(.saveAsTemplate, ids: ids)
+				Divider()
+				let previewAllowed = !chosen.contains { entry in
+					model.topics.contains { $0.id == entry.topicID && !$0.entryPreviewable }
+				}
+				bulkButton(.previewHidden(!chosen.allSatisfy(\.previewHidden)), ids: ids)
+					.disabled(!previewAllowed)
+				Divider()
+				bulkButton(.archive(!chosen.allSatisfy(\.archived)), ids: ids)
+			} label: {
+				Label("More…", systemImage: "ellipsis").frame(maxWidth: .infinity, alignment: .leading)
+			}.accessibilityIdentifier("bulk.action.more")
+		}
+	}
+
+	private func bulkOverviewButton(_ action: WorkspaceBulkAction, ids: Set<WorkspaceTabID>) -> some View {
+		Button(role: action.isDestructive ? .destructive : nil) {
+			requestBulkAction(action, ids: ids)
+		} label: {
+			Label(action.title, systemImage: action.symbol)
+				.foregroundStyle(action.isDestructive ? Color.red : Color.primary)
+				.frame(maxWidth: .infinity, alignment: .leading)
+		}.accessibilityIdentifier("bulk.action.\(action.accessibilityID)")
+	}
+
+	private func presentBulkTopicPicker(ids: Set<WorkspaceTabID>) {
+		let entryIDs = ids.intersection(validTabIDs).filter {
+			if case .entry = $0 { return true }
+			return false
+		}
+		guard !entryIDs.isEmpty else { return }
+		topicMoveRequest = WorkspaceTopicMoveRequest(ids: entryIDs)
+	}
+
+	@ViewBuilder private func bulkCommands(for proposedIDs: Set<WorkspaceTabID>) -> some View {
+		let ids = proposedIDs.intersection(validTabIDs)
+		let entryIDs = Set(
+			ids.compactMap { id -> String? in
+				if case .entry(let value) = id { return value }
+				return nil
+			})
+		let chosenEntries = entries.filter { entryIDs.contains($0.id) }
+		if !ids.isEmpty {
+			if entryIDs.isEmpty {
+				bulkButton(.duplicate, ids: ids)
+				Divider()
+				bulkButton(.deleteTemplates, ids: ids)
+			} else if chosenEntries.allSatisfy({ $0.deletedAt != nil }) {
+				bulkButton(.restore, ids: ids)
+				bulkButton(.deletePermanently, ids: ids)
+			} else {
+				bulkButton(.bookmark(!chosenEntries.allSatisfy(\.bookmarked)), ids: ids)
+				let previewAllowed = !chosenEntries.contains { entry in
+					model.topics.contains { $0.id == entry.topicID && !$0.entryPreviewable }
+				}
+				bulkButton(.previewHidden(!chosenEntries.allSatisfy(\.previewHidden)), ids: ids)
+					.disabled(!previewAllowed)
+				bulkButton(.duplicate, ids: ids)
+				bulkButton(.saveAsTemplate, ids: ids)
+				Button("Move to Topic…", systemImage: "tag") {
+					presentBulkTopicPicker(ids: ids)
+				}.accessibilityIdentifier("bulk.action.topic")
+				Divider()
+				bulkButton(.archive(!chosenEntries.allSatisfy(\.archived)), ids: ids)
+				bulkButton(.moveToTrash, ids: ids)
+			}
+		}
+	}
+
+	@ViewBuilder private func workspaceContextMenu(for ids: Set<WorkspaceTabID>) -> some View {
+		if ids.count == 1, !listSelection.isMultiple, let tabID = ids.first {
+			switch tabID {
+			case .template(let id):
+				bulkButton(.duplicate, ids: ids)
+				if let template = model.templates.first(where: { $0.id == id }) {
+					Button("Delete", role: .destructive) { templatePendingDeletion = template }
+				}
+			case .entry(let id):
+				if let entry = entries.first(where: { $0.id == id }) { singleEntryContextMenu(entry) }
+			}
+		} else {
+			bulkCommands(for: ids)
+		}
+	}
+
+	@ViewBuilder private func singleEntryContextMenu(_ entry: ThingsDiaryEntry) -> some View {
+		if entry.deletedAt != nil {
+			Button("Restore") { perform(.restore, on: entry, topicID: nil) }
+			Button("Delete Permanently", role: .destructive) { perform(.deletePermanently, on: entry, topicID: nil) }
+		} else {
+			let ephemeral = model.entryDraftIDs.contains(entry.id)
+			let topic = model.topics.first { $0.id == entry.topicID }
+			let preview = EntryPreviewMenuState(
+				entryHidesPreview: entry.previewHidden,
+				topicHidesPreview: topic?.entryPreviewable == false)
+			Button(entry.bookmarked ? "Remove Bookmark" : "Add Bookmark") {
+				perform(.toggleBookmark, on: entry, topicID: nil)
+			}
+			Button(preview.title) { toggleEntryPreview(entry) }
+				.disabled(ephemeral || preview.topicHidesPreview)
+			if preview.topicHidesPreview, let topic {
+				Button("Topic Settings…") { beginEditing(topic) }
+			}
+			Button("Duplicate") { perform(.duplicate, on: entry, topicID: nil) }.disabled(ephemeral)
+			Button("Save as Template") { perform(.saveAsTemplate, on: entry, topicID: nil) }
+			if shouldShowTopicAssignmentMenu(topicCount: model.topics.count, currentTopicID: entry.topicID) {
+				Menu("Move to Topic") {
+					Button("No Topic") { if entry.topicID != nil { perform(.moveToTopic, on: entry, topicID: nil) } }
+					ForEach(model.topics) { topic in
+						Button(topic.title) {
+							if entry.topicID != topic.id { perform(.moveToTopic, on: entry, topicID: topic.id) }
+						}
+					}
+				}
+			}
+			Divider()
+			Button(entry.archived ? "Restore from Archive" : "Archive") {
+				perform(.toggleArchive, on: entry, topicID: nil)
+			}.disabled(ephemeral)
+			Button("Move to Trash", role: .destructive) { perform(.moveToTrash, on: entry, topicID: nil) }
+				.disabled(ephemeral)
+		}
+	}
+
+	private func bulkButton(_ action: WorkspaceBulkAction, ids: Set<WorkspaceTabID>) -> some View {
+		Button(action.title, systemImage: action.symbol, role: action.isDestructive ? .destructive : nil) {
+			requestBulkAction(action, ids: ids)
+		}.accessibilityIdentifier("bulk.action.\(action.accessibilityID)")
+	}
+
+	private func openPrimarySelection(_ ids: Set<WorkspaceTabID>) {
+		guard ids.count == 1, let tabID = ids.first, !bulkRunning else { return }
+		workspaceListSelection.wrappedValue = ids
+		switch tabID {
+		case .entry(let id):
+			if let entry = entries.first(where: { $0.id == id }) { openEntry(entry) }
+		case .template(let id):
+			if let template = model.templates.first(where: { $0.id == id }) { openTemplate(template) }
+		}
+		compactWorkspacePane = .editor
+	}
+
+	private func requestBulkAction(_ action: WorkspaceBulkAction, ids proposedIDs: Set<WorkspaceTabID>) {
+		guard !bulkRunning else { return }
+		let ids = proposedIDs.intersection(validTabIDs)
+		guard let first = ids.first, !ids.isEmpty else { return }
+		let templates: Bool
+		if case .template = first { templates = true } else { templates = false }
+		// A request can never cross document kinds, even if invoked outside the visible list.
+		guard
+			ids.allSatisfy({ id in
+				if case .template = id { return templates }
+				return !templates
+			})
+		else { return }
+		let contents = Dictionary(uniqueKeysWithValues: ids.map { ($0.documentID, tabDraftContent($0)) })
+		let copiesContent = action == .duplicate || action == .saveAsTemplate
+		let unsavedIDs = ids.filter { tabID in
+			switch tabID {
+			case .entry(let id):
+				return model.entryDraftIDs.contains(id) || tabDraftContent(tabID) != tabPersistedContent(tabID)
+			case .template(let id):
+				return model.templateDraftIDs.contains(id) || tabDraftContent(tabID) != tabPersistedContent(tabID)
+			}
+		}.map(\.documentID).sorted()
+		// Restoring keeps local buffers; deletion explicitly discards them after confirmation.
+		let saveIDs =
+			copiesContent || action == .restore || action == .deletePermanently || action == .deleteTemplates
+			? [] : unsavedIDs
+		let request = WorkspaceBulkRequest(
+			action: action, ids: ids.map(\.documentID).sorted(),
+			templates: templates, contentsByID: contents, saveIDs: saveIDs,
+			hasUnsavedChanges: !unsavedIDs.isEmpty)
+		if action.isDestructive || request.needsSave { pendingBulkRequest = request } else { runBulkRequest(request) }
+	}
+
+	private func runBulkRequest(_ request: WorkspaceBulkRequest) {
+		guard !bulkRunning else { return }
+		listViewport.beginUpdates(changingIDs: Set(request.ids))
+		bulkRunning = true
+		runningBulkRequest = request
+		bulkError = nil
+		Task { @MainActor in
+			var saveResult = WorkspaceBulkResult()
+			if request.needsSave {
+				saveResult = await model.performBulkAction(
+					.saveContents, ids: request.saveIDs,
+					templates: request.templates, contentsByID: request.contentsByID)
+				for id in saveResult.succeededIDs {
+					if request.templates {
+						templateDraftsByID.removeValue(forKey: id)
+					} else {
+						draftsByEntryID.removeValue(forKey: id)
+					}
+				}
+			}
+			let readyIDs = request.ids.filter { !saveResult.failedIDs.contains($0) }
+			var result = await model.performBulkAction(
+				request.action, ids: readyIDs,
+				templates: request.templates, contentsByID: request.contentsByID)
+			result.failedIDs.formUnion(saveResult.failedIDs)
+			result.errorsByID.merge(saveResult.errorsByID) { _, new in new }
+			if !result.failedIDs.isEmpty {
+				bulkError =
+					"\(result.failedIDs.count) items could not be updated. "
+					+ (result.errorsByID.sorted(by: { $0.key < $1.key }).first?.value ?? "Please try again.")
+			}
+			let finalOrder: [String]
+			if request.templates {
+				finalOrder = filteredTemplates.map(\.id)
+			} else if case .entries(_, let currentEntries) = model.screen {
+				finalOrder = visibleEntries(
+					currentEntries.filter { !model.entryDraftIDsHiddenFromList.contains($0.id) },
+					selection: activeSelection, query: query, sort: .newest
+				).map(\.id)
+			} else {
+				finalOrder = []
+			}
+			listViewport.finishUpdates(expectedOrder: finalOrder)
+			bulkRunning = false
+			runningBulkRequest = nil
+			if !result.failedIDs.isEmpty {
+				let failures = Set(
+					result.failedIDs.map { request.templates ? WorkspaceTabID.template($0) : .entry($0) })
+				let transition = listSelection.replace(with: failures, visibleIDs: visibleDocumentIDs)
+				applyListSelection(transition, preservingTabs: true)
+			} else {
+				reconcileListSelection()
+			}
 		}
 	}
 
@@ -2276,6 +2667,7 @@ private struct EntriesView: View {
 		if draftsByEntryID[entry.id] == nil {
 			draftsByEntryID[entry.id] = entry.content
 		}
+		selectActiveBrowserDocument()
 		compactWorkspacePane = .editor
 	}
 
@@ -2291,6 +2683,7 @@ private struct EntriesView: View {
 		if templateDraftsByID[template.id] == nil {
 			templateDraftsByID[template.id] = template.content
 		}
+		selectActiveBrowserDocument()
 		compactWorkspacePane = .editor
 	}
 
@@ -2300,17 +2693,21 @@ private struct EntriesView: View {
 		if replacedPreviewTabID != tabs.previewTabID, let replacedPreviewTabID {
 			discardDraft(for: replacedPreviewTabID)
 		}
+		selectActiveBrowserDocument()
 		compactWorkspacePane = .editor
 	}
 
 	private func activateBrowserTab(_ tabID: WorkspaceTabID) {
-		guard tabs.openTabIDs.contains(tabID) else { return }
+		guard !bulkRunning, tabs.openTabIDs.contains(tabID) else { return }
 		tabs.activeTabID = tabID
+		selectActiveBrowserDocument()
 		compactWorkspacePane = .editor
 	}
 
 	private func selectBrowserTab(offset: Int) {
+		guard !bulkRunning else { return }
 		tabs.selectTab(offset: offset)
+		selectActiveBrowserDocument()
 		compactWorkspacePane = .editor
 	}
 
@@ -2518,6 +2915,7 @@ private struct EntriesView: View {
 		}
 		discardDraft(for: tabID)
 		tabs.close(tabID)
+		selectActiveBrowserDocument()
 	}
 
 	private func discardDraft(for tabID: WorkspaceTabID) {
@@ -2528,13 +2926,16 @@ private struct EntriesView: View {
 	}
 
 	private func saveActiveTab() {
-		guard canSaveActiveTab, let activeTabID = tabs.activeTabID else { return }
+		guard !isMultipleSelection, !showsEmptySelection, canSaveActiveTab, let activeTabID = tabs.activeTabID else {
+			return
+		}
 		Task {
 			_ = await saveTab(activeTabID, submittedContent: tabDraftContent(activeTabID))
 		}
 	}
 
 	private func saveAllOpenTabs() {
+		guard !bulkRunning else { return }
 		let submissions = tabs.openTabIDs.map { tabID in
 			(tabID, tabDraftContent(tabID))
 		}
@@ -2656,29 +3057,49 @@ private struct EntriesView: View {
 	}
 
 	private var entryListScrollView: some View {
-		List(selection: entryListSelection) {
+		List(selection: workspaceListSelection) {
 			ForEach(displayedEntries) { entry in
 				entryListRow(entry)
 					.padding(.horizontal, 4)
 					.frame(maxWidth: .infinity, alignment: .leading)
-					.opacity(draggedEntryID == entry.id ? 0.45 : 1)
 					.contentShape(.interaction, Rectangle())
-					.simultaneousGesture(entryDragGesture(for: entry))
-					.onTapGesture { previewEntry(entry) }
 					.accessibilityElement(children: .combine)
 					.accessibilityIdentifier("entry.\(entry.id)")
 					.accessibilityAddTraits(.isButton)
-					.accessibilityAction { previewEntry(entry) }
-					.overlay {
-						entryActions(for: entry)
-							.accessibilityHidden(true)
-					}
-					.tag(entry.id)
+					.accessibilityAction { workspaceListSelection.wrappedValue = [.entry(entry.id)] }
+					.modifier(
+						WorkspaceEntryDragSource(
+							enabled: !bulkRunning,
+							payloads: dragPayloads(for: entry),
+							isSelected: listSelection.selectedIDs.contains(.entry(entry.id)),
+							select: {
+								editorIsFocused = false
+								searchIsFocused = false
+								listIsFocused = true
+								workspaceListSelection.wrappedValue = [.entry(entry.id)]
+							},
+							open: { openPrimarySelection([.entry(entry.id)]) },
+							preview: { entryListRow(entry).padding(12).frame(width: 280).background(.regularMaterial) }
+						)
+					)
+					.tag(WorkspaceTabID.entry(entry.id))
 					.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
 					.listRowSeparator(.visible)
 			}
 		}
 		.listStyle(.inset)
+		.focused($listIsFocused)
+		.contextMenu(forSelectionType: WorkspaceTabID.self) { ids in
+			workspaceContextMenu(for: ids)
+		} primaryAction: { ids in
+			openPrimarySelection(ids)
+		}
+		.background(
+			WorkspaceListSelectionAppearance(
+				order: displayedEntries.map(\.id), selection: listSelection.selectedIDs,
+				viewport: listViewport, isUpdating: bulkRunning)
+		)
+		.onExitCommand(perform: exitListSelection)
 		.accessibilityIdentifier("entry-list.scroll")
 	}
 
@@ -2729,10 +3150,38 @@ private struct EntriesView: View {
 		execute(pending.action, on: entry, topicID: pending.topicID)
 	}
 
+	private func dragPayloads(for entry: ThingsDiaryEntry) -> [EntryDragPayload] {
+		let ids = listSelection.selectedIDs
+		let draggedEntries =
+			ids.contains(.entry(entry.id))
+			? displayedEntries.filter { ids.contains(.entry($0.id)) } : [entry]
+		return draggedEntries.map { EntryDragPayload(diaryID: diary.id, entryID: $0.id) }
+	}
+
 	private func performDrop(
-		_ payload: EntryDragPayload,
+		_ payloads: [EntryDragPayload],
 		to destination: EntryDropDestination
 	) {
+		guard !bulkRunning else { return }
+		if payloads.count > 1 {
+			let validIDs = Set(
+				payloads.compactMap { payload -> WorkspaceTabID? in
+					guard resolveEntryDrop(payload, to: destination, diaryID: diary.id, entries: entries) != nil else {
+						return nil
+					}
+					return .entry(payload.entryID)
+				})
+			let action: WorkspaceBulkAction =
+				switch destination {
+				case .bookmarks: .bookmark(true)
+				case .topic(let id): .moveToTopic(id)
+				case .archive: .archive(true)
+				case .trash: .moveToTrash
+				}
+			requestBulkAction(action, ids: validIDs)
+			return
+		}
+		guard let payload = payloads.first else { return }
 		guard
 			let request = resolveEntryDrop(
 				payload,
@@ -2761,52 +3210,6 @@ private struct EntriesView: View {
 		entry.deletedAt == nil
 			&& !entry.archived
 			&& (model.entryDraftIDs.contains(entry.id) || selectedDraftContent != entry.content)
-	}
-
-	private func entryDragGesture(for entry: ThingsDiaryEntry) -> some Gesture {
-		DragGesture(
-			minimumDistance: 4,
-			coordinateSpace: .global
-		)
-		.onChanged { value in
-			draggedEntryID = entry.id
-			dragLocation = value.location
-			targetedDropDestination = dropDestination(at: value.location)
-		}
-		.onEnded { value in
-			defer {
-				targetedDropDestination = nil
-				draggedEntryID = nil
-			}
-			guard let destination = dropDestination(at: value.location) else { return }
-			performDrop(
-				EntryDragPayload(diaryID: diary.id, entryID: entry.id),
-				to: destination
-			)
-		}
-	}
-
-	private func dropDestination(at location: CGPoint) -> EntryDropDestination? {
-		dropTargetFrames.first { $0.value.contains(location) }?.key
-	}
-
-	private var draggedEntry: ThingsDiaryEntry? {
-		guard let draggedEntryID else { return nil }
-		return entries.first { $0.id == draggedEntryID }
-	}
-
-	private func entryDragPreview(_ entry: ThingsDiaryEntry) -> some View {
-		entryListRow(entry)
-			.padding(.horizontal, 12)
-			.padding(.vertical, 6)
-			.frame(width: 280, alignment: .leading)
-			.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-			.overlay {
-				RoundedRectangle(cornerRadius: 10)
-					.stroke(Color.primary.opacity(0.14), lineWidth: 1)
-			}
-			.shadow(color: .black.opacity(0.2), radius: 12, y: 5)
-			.accessibilityIdentifier("entry.drag-preview")
 	}
 
 	private func sidebarRow(
@@ -2890,28 +3293,12 @@ private struct EntriesView: View {
 		.buttonStyle(.plain)
 		.accessibilityIdentifier(identifier)
 		.accessibilityValue(isDropTargeted ? "Drop target" : "")
-		.background {
-			GeometryReader { proxy in
-				Color.clear.preference(
-					key: EntryDropTargetFramesKey.self,
-					value: dropDestination.map {
-						[$0: proxy.frame(in: .global)]
-					} ?? [:]
-				)
-			}
-		}
-	}
-
-	private func entryActions(for entry: ThingsDiaryEntry) -> some View {
-		WorkspaceEntryContextMenuArea(
-			entry: entry,
-			topics: model.topics,
-			isEphemeral: model.entryDraftIDs.contains(entry.id),
-			togglePreview: { toggleEntryPreview(entry) },
-			editTopic: { beginEditing($0) }
-		) { action, topicID in
-			perform(action, on: entry, topicID: topicID)
-		}
+		.modifier(
+			WorkspaceEntryDropTarget(
+				destination: dropDestination,
+				targetedDestination: $targetedDropDestination,
+				perform: performDrop
+			))
 	}
 
 	private func toggleEntryPreview(_ entry: ThingsDiaryEntry) {
@@ -3014,7 +3401,8 @@ private struct EntriesView: View {
 		let content = draftsByEntryID[entry.id] ?? entry.content
 		let topic = model.topics.first { $0.id == entry.topicID }
 		let previewIsHidden = entryPreviewIsHidden(entry)
-		let presentation = previewIsHidden
+		let presentation =
+			previewIsHidden
 			? hiddenEntryListPlaceholder(for: entry.id) : entryListPresentation(content: content)
 		let title = presentation.title
 		let preview = presentation.preview
