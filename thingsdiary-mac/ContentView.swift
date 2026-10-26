@@ -573,6 +573,42 @@ private struct EntriesView: View {
 		return entries.first { $0.id == entryID }
 	}
 
+	private var entryListSelection: Binding<String?> {
+		Binding(
+			get: {
+				guard let entry = selectedEntry,
+					displayedEntries.contains(where: { $0.id == entry.id })
+				else { return nil }
+				return entry.id
+			},
+			set: { entryID in
+				guard let entryID,
+					entryID != selectedEntry?.id,
+					let entry = displayedEntries.first(where: { $0.id == entryID })
+				else { return }
+				previewEntry(entry)
+			}
+		)
+	}
+
+	private var templateListSelection: Binding<String?> {
+		Binding(
+			get: {
+				guard let template = selectedTemplate,
+					filteredTemplates.contains(where: { $0.id == template.id })
+				else { return nil }
+				return template.id
+			},
+			set: { templateID in
+				guard let templateID,
+					templateID != selectedTemplate?.id,
+					let template = filteredTemplates.first(where: { $0.id == templateID })
+				else { return }
+				previewTemplate(template)
+			}
+		)
+	}
+
 	private var selectedDraftContent: String {
 		guard let selectedEntry else { return "" }
 		return draftsByEntryID[selectedEntry.id] ?? selectedEntry.content
@@ -1564,14 +1600,16 @@ private struct EntriesView: View {
 				}
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 			} else {
-				ScrollView {
-					LazyVStack(spacing: 0) {
-						ForEach(filteredTemplates) { template in
-							templateRow(template)
-							Divider().padding(.horizontal, listPaneHorizontalInset)
-						}
+				List(selection: templateListSelection) {
+					ForEach(filteredTemplates) { template in
+						templateRow(template)
+							.tag(template.id)
+							.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+							.listRowSeparator(.visible)
 					}
 				}
+				.listStyle(.inset)
+				.accessibilityIdentifier("template-list.scroll")
 			}
 		}
 	}
@@ -1579,33 +1617,31 @@ private struct EntriesView: View {
 	private func templateRow(_ template: ThingsDiaryTemplate) -> some View {
 		let draft = templateDraftsByID[template.id] ?? template.content
 		let presentation = templateListPresentation(content: draft)
-		return Button {
-			previewTemplate(template)
-		} label: {
-			VStack(alignment: .leading, spacing: 5) {
-				HStack {
-					Text(presentation.title)
-						.font(.headline)
-						.lineLimit(1)
-					Spacer()
-					Text(template.createdAt.formatted(date: .abbreviated, time: .omitted))
-						.font(.caption)
-						.foregroundStyle(.secondary)
-				}
-				if let preview = presentation.preview {
-					Text(preview)
-						.font(.subheadline)
-						.foregroundStyle(.secondary)
-						.lineLimit(2)
-				}
+		return VStack(alignment: .leading, spacing: 5) {
+			HStack {
+				Text(presentation.title)
+					.font(.headline)
+					.lineLimit(1)
+				Spacer()
+				Text(template.createdAt.formatted(date: .abbreviated, time: .omitted))
+					.font(.caption)
+					.foregroundStyle(.secondary)
 			}
-			.padding(.horizontal, listPaneHorizontalInset)
-			.padding(.vertical, 10)
-			.frame(maxWidth: .infinity, alignment: .leading)
-			.contentShape(.rect)
+			if let preview = presentation.preview {
+				Text(preview)
+					.font(.subheadline)
+					.foregroundStyle(.secondary)
+					.lineLimit(2)
+			}
 		}
-		.buttonStyle(.plain)
+		.padding(.horizontal, 4)
+		.padding(.vertical, 10)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.contentShape(.rect)
 		.accessibilityIdentifier("template.\(template.id)")
+		.accessibilityAddTraits(.isButton)
+		.accessibilityAction { previewTemplate(template) }
+		.onTapGesture { previewTemplate(template) }
 		.overlay {
 			WorkspaceTemplateContextMenuArea {
 				templatePendingDeletion = template
@@ -2620,36 +2656,29 @@ private struct EntriesView: View {
 	}
 
 	private var entryListScrollView: some View {
-		ScrollView {
-			LazyVStack(spacing: 0) {
-				ForEach(displayedEntries) { entry in
-					entryListRow(entry)
-						.padding(.horizontal, listPaneHorizontalInset)
-						.frame(maxWidth: .infinity, alignment: .leading)
-						.background(.background)
-						.opacity(draggedEntryID == entry.id ? 0.45 : 1)
-						.contentShape(.interaction, Rectangle())
-						.onTapGesture {
-							previewEntry(entry)
-						}
-						.highPriorityGesture(entryDragGesture(for: entry))
-						.accessibilityElement(children: .combine)
-						.accessibilityIdentifier("entry.\(entry.id)")
-						.accessibilityAddTraits(.isButton)
-						.overlay {
-							entryActions(for: entry)
-								.accessibilityHidden(true)
-						}
-						.overlay(alignment: .bottom) {
-							Divider()
-								.padding(.horizontal, listPaneHorizontalInset)
-								.allowsHitTesting(false)
-						}
-				}
+		List(selection: entryListSelection) {
+			ForEach(displayedEntries) { entry in
+				entryListRow(entry)
+					.padding(.horizontal, 4)
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.opacity(draggedEntryID == entry.id ? 0.45 : 1)
+					.contentShape(.interaction, Rectangle())
+					.simultaneousGesture(entryDragGesture(for: entry))
+					.onTapGesture { previewEntry(entry) }
+					.accessibilityElement(children: .combine)
+					.accessibilityIdentifier("entry.\(entry.id)")
+					.accessibilityAddTraits(.isButton)
+					.accessibilityAction { previewEntry(entry) }
+					.overlay {
+						entryActions(for: entry)
+							.accessibilityHidden(true)
+					}
+					.tag(entry.id)
+					.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+					.listRowSeparator(.visible)
 			}
 		}
-		.clipped()
-		.background(.background)
+		.listStyle(.inset)
 		.accessibilityIdentifier("entry-list.scroll")
 	}
 
