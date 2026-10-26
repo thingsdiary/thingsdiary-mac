@@ -65,13 +65,15 @@ final class SelectionAppearanceView: NSView {
 	}
 }
 
-/// Keep the reading position stable while a batch changes row heights and sort order.
+/// Keep the reading position stable while rows are inserted, resized, or reordered.
 @MainActor final class WorkspaceListViewport {
 	private weak var outline: NSOutlineView?
 	private var order: [String] = []
 	private var snapshot: Snapshot?
 	private var expectedFinalOrder: [String]?
 	private var settlingPassRequested = false
+	private var topInsertionID: String?
+	private var topInsertionSettlingPassRequested = false
 
 	private struct Snapshot {
 		let atTop: Bool
@@ -83,6 +85,18 @@ final class SelectionAppearanceView: NSView {
 	func attach(_ outline: NSOutlineView, order: [String]) {
 		self.outline = outline
 		self.order = order
+	}
+
+	/// Keep a newly inserted first row visible when the list was already at the top.
+	func pinTopForInsertion(of id: String) {
+		guard snapshot == nil,
+			let outline,
+			let clip = outline.enclosingScrollView?.contentView,
+			clip.bounds.minY <= 1,
+			!order.contains(id)
+		else { return }
+		topInsertionID = id
+		topInsertionSettlingPassRequested = false
 	}
 
 	func beginUpdates(changingIDs: Set<String>) {
@@ -106,6 +120,7 @@ final class SelectionAppearanceView: NSView {
 
 	@discardableResult
 	func restore(isUpdating: Bool = false) -> Bool {
+		if restoreTopInsertion() { return true }
 		guard let snapshot, let outline, let scroll = outline.enclosingScrollView else { return false }
 		let clip = scroll.contentView
 		var bounds = clip.bounds
@@ -138,6 +153,26 @@ final class SelectionAppearanceView: NSView {
 			self.expectedFinalOrder = nil
 			settlingPassRequested = false
 		}
+		return false
+	}
+
+	private func restoreTopInsertion() -> Bool {
+		guard let topInsertionID,
+			order.contains(topInsertionID),
+			let outline,
+			let scroll = outline.enclosingScrollView
+		else { return false }
+		let clip = scroll.contentView
+		var bounds = clip.bounds
+		bounds.origin.y = 0
+		clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
+		scroll.reflectScrolledClipView(clip)
+		if !topInsertionSettlingPassRequested {
+			topInsertionSettlingPassRequested = true
+			return true
+		}
+		self.topInsertionID = nil
+		topInsertionSettlingPassRequested = false
 		return false
 	}
 }

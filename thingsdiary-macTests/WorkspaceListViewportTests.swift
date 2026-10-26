@@ -135,3 +135,58 @@ import Testing
 	viewport.restore(isUpdating: false)
 	#expect(abs(fixture.scroll.contentView.bounds.minY) < 1)
 }
+
+@Test("Inserting a row keeps a list pinned to the top through its settling layout")
+@MainActor func insertionKeepsTopPinned() {
+	let fixture = ViewportOutlineFixture()
+	let viewport = WorkspaceListViewport()
+	viewport.attach(fixture.outline, order: fixture.ids)
+	viewport.pinTopForInsertion(of: "new")
+	fixture.ids.insert("new", at: 0)
+	fixture.outline.reloadData()
+	fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 40))
+	viewport.attach(fixture.outline, order: fixture.ids)
+	#expect(viewport.restore())
+	#expect(abs(fixture.scroll.contentView.bounds.minY) < 1)
+
+	fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 40))
+	#expect(!viewport.restore())
+	#expect(abs(fixture.scroll.contentView.bounds.minY) < 1)
+
+	fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 60))
+	viewport.restore()
+	#expect(abs(fixture.scroll.contentView.bounds.minY - 60) < 1)
+}
+
+@Test("Each consecutive insertion can pin the list to the top")
+@MainActor func consecutiveInsertionsKeepTopPinned() {
+	let fixture = ViewportOutlineFixture()
+	let viewport = WorkspaceListViewport()
+	viewport.attach(fixture.outline, order: fixture.ids)
+
+	for id in ["new-1", "new-2"] {
+		viewport.pinTopForInsertion(of: id)
+		fixture.ids.insert(id, at: 0)
+		fixture.outline.reloadData()
+		fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 40))
+		viewport.attach(fixture.outline, order: fixture.ids)
+		#expect(viewport.restore())
+		#expect(!viewport.restore())
+		#expect(abs(fixture.scroll.contentView.bounds.minY) < 1)
+	}
+}
+
+@Test("An insertion does not move a list that was scrolled away from the top")
+@MainActor func insertionDoesNotPinScrolledList() {
+	let fixture = ViewportOutlineFixture()
+	let viewport = WorkspaceListViewport()
+	fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 120))
+	viewport.attach(fixture.outline, order: fixture.ids)
+	viewport.pinTopForInsertion(of: "new")
+	fixture.ids.insert("new", at: 0)
+	fixture.outline.reloadData()
+	fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 160))
+	viewport.attach(fixture.outline, order: fixture.ids)
+	#expect(!viewport.restore())
+	#expect(abs(fixture.scroll.contentView.bounds.minY - 160) < 1)
+}

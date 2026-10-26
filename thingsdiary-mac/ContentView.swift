@@ -2557,6 +2557,9 @@ private struct EntriesView: View {
 		Task {
 			guard let template = await model.beginTemplateDraft() else { return }
 			selection = .templates
+			if templateMatchesCurrentQuery(template) {
+				listViewport.pinTopForInsertion(of: template.id)
+			}
 			openTemplate(template)
 			await Task.yield()
 			editorIsFocused = true
@@ -2602,11 +2605,21 @@ private struct EntriesView: View {
 		if topicID == nil, !bookmarked {
 			selection = .entries
 		}
+		if appearsInList,
+			!visibleEntries([draft], selection: activeSelection, query: query, sort: .newest).isEmpty
+		{
+			listViewport.pinTopForInsertion(of: draft.id)
+		}
 		openEntry(draft)
 		Task { @MainActor in
 			await Task.yield()
 			editorIsFocused = true
 		}
+	}
+
+	private func templateMatchesCurrentQuery(_ template: ThingsDiaryTemplate) -> Bool {
+		let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+		return trimmedQuery.isEmpty || template.content.localizedCaseInsensitiveContains(trimmedQuery)
 	}
 
 	private func toggleSidebar() {
