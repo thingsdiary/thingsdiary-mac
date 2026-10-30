@@ -530,10 +530,60 @@ private enum EntryDraftSaveOutcome {
 	case failed
 }
 
+private struct SidebarNavigationButtonStyle: ButtonStyle {
+	let isSelected: Bool
+	let isDropTargeted: Bool
+	let dropTint: Color
+
+	func makeBody(configuration: Configuration) -> some View {
+		SidebarNavigationButtonBody(
+			configuration: configuration,
+			isSelected: isSelected,
+			isDropTargeted: isDropTargeted,
+			dropTint: dropTint
+		)
+	}
+
+	private struct SidebarNavigationButtonBody: View {
+		let configuration: ButtonStyle.Configuration
+		let isSelected: Bool
+		let isDropTargeted: Bool
+		let dropTint: Color
+		@State private var isHovered = false
+
+		private var backgroundColor: Color {
+			if isDropTargeted { return dropTint.opacity(0.18) }
+			if isSelected { return Color.accentColor.opacity(configuration.isPressed ? 0.24 : 0.16) }
+			if configuration.isPressed { return Color.primary.opacity(0.16) }
+			return Color.primary.opacity(isHovered ? 0.1 : 0)
+		}
+
+		var body: some View {
+			configuration.label
+				.background {
+					RoundedRectangle(cornerRadius: 7, style: .continuous)
+						.fill(backgroundColor)
+				}
+				.overlay {
+					RoundedRectangle(cornerRadius: 7, style: .continuous)
+						.stroke(
+							isDropTargeted ? dropTint.opacity(0.7) : Color.clear,
+							lineWidth: 1
+						)
+				}
+				.onHover { isHovered = $0 }
+				.animation(.easeOut(duration: 0.1), value: isHovered)
+				.animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+				.animation(.easeOut(duration: 0.12), value: isDropTargeted)
+		}
+	}
+}
+
 private struct EntriesView: View {
 	private let listPaneHorizontalInset = workspaceTitlebarHorizontalInset
 	private let minimumSidebarWidth: CGFloat = 180
 	private let maximumSidebarWidth: CGFloat = 300
+	private let sidebarTrailingControlInset: CGFloat = 4
 
 	@Bindable var model: ThingsDiaryAppModel
 	let diary: ThingsDiaryDiary
@@ -1126,7 +1176,7 @@ private struct EntriesView: View {
 				.overlay(alignment: .trailing) {
 					if sidebarToggleInSidebar {
 						workspaceNavigationControls
-							.padding(.trailing, 10)
+							.padding(.trailing, 9 + sidebarTrailingControlInset)
 					}
 				}
 			sidebar
@@ -2189,7 +2239,7 @@ private struct EntriesView: View {
 				VStack(alignment: .leading, spacing: 4) {
 					sidebarRow(
 						"Entries",
-						systemImage: "note.text",
+						icon: .inbox,
 						destination: .entries,
 						identifier: "sidebar.entries"
 					)
@@ -2201,7 +2251,7 @@ private struct EntriesView: View {
 					}
 					sidebarRow(
 						"Bookmarks",
-						systemImage: "bookmark",
+						icon: .bookmark,
 						destination: .bookmarks,
 						identifier: "sidebar.bookmarks",
 						dropDestination: .bookmarks
@@ -2216,8 +2266,8 @@ private struct EntriesView: View {
 					HStack(spacing: 8) {
 						if model.topics.isEmpty {
 							HStack(spacing: 8) {
-								Image(systemName: "tag")
-									.frame(width: 16)
+								AppIconImage(icon: .messageSquareText, size: 16)
+									.frame(width: 18)
 									.foregroundStyle(.tint)
 								Text("Topics")
 									.lineLimit(1)
@@ -2225,14 +2275,14 @@ private struct EntriesView: View {
 									.frame(maxWidth: .infinity, alignment: .leading)
 									.layoutPriority(1)
 							}
-							.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+							.frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
 						} else {
 							Button {
 								toggleTopics()
 							} label: {
 								HStack(spacing: 8) {
-									Image(systemName: "tag")
-										.frame(width: 16)
+									AppIconImage(icon: .messageSquareText, size: 16)
+										.frame(width: 18)
 										.foregroundStyle(.tint)
 									Text("Topics")
 										.foregroundStyle(.primary)
@@ -2241,7 +2291,7 @@ private struct EntriesView: View {
 										.frame(maxWidth: .infinity, alignment: .leading)
 										.layoutPriority(1)
 								}
-								.frame(maxWidth: .infinity, minHeight: 20, alignment: .leading)
+								.frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
 								.contentShape(.rect)
 							}
 							.buttonStyle(.plain)
@@ -2251,45 +2301,47 @@ private struct EntriesView: View {
 							.help(topicsExpanded ? "Collapse Topics" : "Expand Topics")
 						}
 
-						if topicsHeaderHovered || model.topics.isEmpty {
-							Button {
+						HStack(spacing: 0) {
+							TabIconButton(icon: .plus, iconSize: 14) {
 								beginCreatingTopic()
-							} label: {
-								Image(systemName: "plus")
-									.fixedSize()
 							}
-							.buttonStyle(.plain)
 							.accessibilityIdentifier("topic.create")
 							.accessibilityLabel("New Topic")
 							.help("New Topic")
-						}
+							.opacity(topicsHeaderHovered || model.topics.isEmpty ? 1 : 0)
+							.allowsHitTesting(topicsHeaderHovered || model.topics.isEmpty)
+							.accessibilityHidden(!topicsHeaderHovered && !model.topics.isEmpty)
 
-						if !model.topics.isEmpty {
-							Button {
-								toggleTopics()
-							} label: {
-								Image(systemName: topicsExpanded ? "chevron.down" : "chevron.right")
-									.font(.caption.weight(.semibold))
-									.fixedSize()
+							if !model.topics.isEmpty {
+								TabIconButton(
+									icon: topicsExpanded ? .chevronDown : .chevronRight,
+									iconSize: 14
+								) {
+									toggleTopics()
+								}
+								.accessibilityIdentifier("topics.chevron")
+								.accessibilityLabel(topicsExpanded ? "Collapse Topics" : "Expand Topics")
+								.accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
+								.help(topicsExpanded ? "Collapse Topics" : "Expand Topics")
 							}
-							.buttonStyle(.plain)
-							.accessibilityIdentifier("topics.chevron")
-							.accessibilityLabel(topicsExpanded ? "Collapse Topics" : "Expand Topics")
-							.accessibilityValue(topicsExpanded ? "Expanded" : "Collapsed")
-							.help(topicsExpanded ? "Collapse Topics" : "Expand Topics")
 						}
 					}
-					.padding(.horizontal, 7)
-					.padding(.vertical, 5)
-					.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+					.padding(.leading, 7)
+					.padding(.trailing, sidebarTrailingControlInset)
+					.frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
 					.contentShape(.rect)
+					.background {
+						RoundedRectangle(cornerRadius: 7, style: .continuous)
+							.fill(Color.primary.opacity(topicsHeaderHovered ? 0.1 : 0))
+					}
 					.onHover { topicsHeaderHovered = $0 }
+					.animation(.easeOut(duration: 0.1), value: topicsHeaderHovered)
 
 					if topicsExpanded {
 						ForEach(topicsSortedByCreation(model.topics)) { topic in
 							sidebarRow(
 								topic.title,
-								systemImage: "tag",
+								icon: .messageSquareText,
 								destination: .topic(topic.id),
 								identifier: "sidebar.topic.\(topic.id)",
 								color: topicColorValue(topic.color),
@@ -2335,7 +2387,7 @@ private struct EntriesView: View {
 
 					sidebarRow(
 						"Templates",
-						systemImage: "doc.on.doc",
+						icon: .layers,
 						destination: .templates,
 						identifier: "sidebar.templates",
 						showsCount: false
@@ -2346,7 +2398,7 @@ private struct EntriesView: View {
 
 					sidebarRow(
 						"Archive",
-						systemImage: "archivebox",
+						icon: .archive,
 						destination: .archive,
 						identifier: "sidebar.archive",
 						showsCount: false,
@@ -2354,7 +2406,7 @@ private struct EntriesView: View {
 					)
 					sidebarRow(
 						"Trash",
-						systemImage: "trash",
+						icon: count(for: .trash) == 0 ? .trashEmpty : .trash,
 						destination: .trash,
 						identifier: "sidebar.trash",
 						showsCount: false,
@@ -2387,9 +2439,8 @@ private struct EntriesView: View {
 			}
 		} label: {
 			HStack(spacing: 8) {
-				Image(systemName: "book.closed")
-					.frame(width: 16)
-					.symbolRenderingMode(.monochrome)
+				AppIconImage(icon: .book, size: 16)
+					.frame(width: 18)
 					.foregroundStyle(Color(nsColor: .secondaryLabelColor))
 				Text(diary.title)
 					.font(.callout.weight(.semibold))
@@ -2397,23 +2448,25 @@ private struct EntriesView: View {
 					.truncationMode(.tail)
 					.layoutPriority(1)
 				Spacer(minLength: 0)
-				Image(systemName: "chevron.up.chevron.down")
-					.font(.caption2.weight(.semibold))
-					.fixedSize()
+				AppIconImage(icon: .arrowUpDown, size: 14)
+					.frame(width: 28, height: 28)
 					.foregroundStyle(.secondary)
 			}
-			.padding(.horizontal, 11)
+			.padding(.leading, 11)
+			.padding(.trailing, sidebarTrailingControlInset)
 			.frame(maxWidth: .infinity, minHeight: 36)
 			.contentShape(.rect)
-			.background(
-				Color.primary.opacity(0.08),
-				in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-			)
 		}
-		.buttonStyle(.plain)
+		.buttonStyle(
+			AppHoverButtonStyle(
+				isActive: showingDiaryMenu,
+				baseOpacity: 0.08,
+				cornerRadius: 8
+			)
+		)
 		.accessibilityLabel("Current diary, \(diary.title)")
 		.help("Switch Diary")
-		.padding(.init(top: 6, leading: 6, bottom: 2, trailing: 6))
+		.padding(.init(top: 6, leading: 6, bottom: 2, trailing: 10))
 		.anchorPreference(key: DiarySwitcherAnchorKey.self, value: .bounds) { $0 }
 		.accessibilityIdentifier("diary.switcher")
 		.contextMenu {
@@ -2444,7 +2497,7 @@ private struct EntriesView: View {
 				model.showDiaryCreation()
 			} label: {
 				HStack(spacing: 8) {
-					Image(systemName: "plus")
+					AppIconImage(icon: .plus, size: 14)
 						.frame(width: 16)
 					Text("New Diary…")
 					Spacer()
@@ -2453,7 +2506,7 @@ private struct EntriesView: View {
 				.frame(maxWidth: .infinity, minHeight: 28)
 				.contentShape(.rect)
 			}
-			.buttonStyle(.plain)
+			.buttonStyle(AppHoverButtonStyle(cornerRadius: 6))
 			.accessibilityIdentifier("diary.create")
 		}
 		.padding(6)
@@ -2475,8 +2528,12 @@ private struct EntriesView: View {
 			firstDiaryID: model.availableDiaries.first?.id,
 			hoveredDiaryID: hoveredDiaryID
 		)
+		let rowBackground =
+			isSelected
+			? Color.accentColor.opacity(0.16)
+			: Color.primary.opacity(hoveredDiaryID == candidate.id ? 0.1 : 0)
 
-		return HStack(spacing: 2) {
+		return HStack(spacing: 0) {
 			Button {
 				showingDiaryMenu = false
 				guard !isSelected else { return }
@@ -2484,7 +2541,7 @@ private struct EntriesView: View {
 			} label: {
 				HStack(spacing: 8) {
 					if isSelected {
-						Image(systemName: "checkmark").frame(width: 16)
+						AppIconImage(icon: .check, size: 14).frame(width: 16)
 					} else {
 						Color.clear.frame(width: 16, height: 1)
 					}
@@ -2494,26 +2551,20 @@ private struct EntriesView: View {
 						.frame(maxWidth: .infinity, alignment: .leading)
 						.layoutPriority(1)
 				}
-				.padding(.horizontal, 7)
-				.frame(maxWidth: .infinity, minHeight: 28)
+				.padding(.leading, 7)
+				.frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28)
 				.contentShape(.rect)
 			}
 			.buttonStyle(.plain)
 			.frame(maxWidth: .infinity, alignment: .leading)
-			.layoutPriority(1)
 			.accessibilityIdentifier("diary.switch.\(candidate.id)")
 			.accessibilityValue(isSelected ? "Selected" : "")
 
-			Button {
+			TabIconButton(icon: .settings, iconSize: 13) {
 				showingDiaryMenu = false
 				Task { await model.requestDiaryEdit(for: candidate) }
-			} label: {
-				Image(systemName: "gearshape")
-					.frame(width: 24, height: 24)
-					.contentShape(.rect)
 			}
-			.buttonStyle(.plain)
-			.fixedSize()
+			.padding(.trailing, sidebarTrailingControlInset)
 			.foregroundStyle(.secondary)
 			.opacity(editControlVisible ? 1 : 0)
 			.allowsHitTesting(editControlVisible)
@@ -2521,9 +2572,12 @@ private struct EntriesView: View {
 			.accessibilityIdentifier("diary.edit.\(candidate.id)")
 			.help("Edit \(candidate.title)")
 		}
+		.frame(height: 28)
+		.background(rowBackground, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
 		.onHover { hovering in
 			hoveredDiaryID = hovering ? candidate.id : nil
 		}
+		.animation(.easeOut(duration: 0.1), value: hoveredDiaryID)
 	}
 
 	private func presentRequestedDiaryEditor() {
@@ -3224,7 +3278,7 @@ private struct EntriesView: View {
 
 	private func sidebarRow(
 		_ title: String,
-		systemImage: String,
+		icon: AppIcon,
 		destination: DiaryNavigationSelection,
 		identifier: String,
 		color: Color? = nil,
@@ -3251,17 +3305,14 @@ private struct EntriesView: View {
 					Circle()
 						.fill(color)
 						.frame(width: 8, height: 8)
-						.frame(width: 16)
+						.frame(width: 18)
 				} else {
-					Image(
-						systemName: isDropTargeted && dropDestination == .bookmarks
-							? "bookmark.fill" : systemImage
-					)
-					.frame(width: 16)
-					.foregroundStyle(
-						isDropTargeted && dropDestination == .bookmarks
-							? dropTint : Color.accentColor
-					)
+					AppIconImage(icon: icon, size: 16)
+						.frame(width: 18)
+						.foregroundStyle(
+							isDropTargeted && dropDestination == .bookmarks
+								? dropTint : Color.accentColor
+						)
 				}
 				Text(title)
 					.lineLimit(1)
@@ -3277,30 +3328,21 @@ private struct EntriesView: View {
 						.font(.caption.monospacedDigit())
 						.foregroundStyle(.secondary)
 						.fixedSize()
+						.padding(.trailing, sidebarTrailingControlInset)
 				}
 			}
 			.padding(.horizontal, 7)
-			.padding(.vertical, 5)
-			.frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+			.frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
 			.contentShape(.rect)
-			.background {
-				RoundedRectangle(cornerRadius: 7, style: .continuous)
-					.fill(
-						isDropTargeted
-							? dropTint.opacity(0.18)
-							: activeSelection == destination
-								? Color.accentColor.opacity(0.16)
-								: Color.clear
-					)
-			}
-			.overlay {
-				RoundedRectangle(cornerRadius: 7, style: .continuous)
-					.stroke(isDropTargeted ? dropTint.opacity(0.7) : Color.clear, lineWidth: 1)
-			}
-			.animation(.easeOut(duration: 0.12), value: isDropTargeted)
 		}
 		.simultaneousGesture(TapGesture(count: 2).onEnded { doubleClick?() })
-		.buttonStyle(.plain)
+		.buttonStyle(
+			SidebarNavigationButtonStyle(
+				isSelected: activeSelection == destination,
+				isDropTargeted: isDropTargeted,
+				dropTint: dropTint
+			)
+		)
 		.accessibilityIdentifier(identifier)
 		.accessibilityValue(isDropTargeted ? "Drop target" : "")
 		.modifier(

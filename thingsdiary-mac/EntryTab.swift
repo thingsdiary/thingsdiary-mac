@@ -3,12 +3,23 @@ import SwiftUI
 struct AppIcon {
 	let resource: ImageResource
 
+	static let archive = Self(resource: .iconArchive)
+	static let arrowUpDown = Self(resource: .iconArrowUpDown)
+	static let book = Self(resource: .iconBook)
+	static let bookmark = Self(resource: .iconBookmark)
+	static let check = Self(resource: .iconCheck)
+	static let chevronDown = Self(resource: .iconChevronDown)
+	static let chevronRight = Self(resource: .iconChevronRight)
 	static let close = Self(resource: .iconX)
 	static let circleX = Self(resource: .iconCircleX)
+	static let inbox = Self(resource: .iconInbox)
+	static let layers = Self(resource: .iconLayers)
 	static let menu = Self(resource: .iconMenu)
+	static let messageSquareText = Self(resource: .iconMessageSquareText)
 	static let newEntry = Self(resource: .iconSquarePen)
 	static let panelLeft = Self(resource: .iconPanelLeft)
 	static let plus = Self(resource: .iconPlus)
+	static let settings = Self(resource: .iconSettings)
 	static let trash = Self(resource: .iconTrash)
 	static let trashEmpty = Self(resource: .iconTrashEmpty)
 }
@@ -31,8 +42,6 @@ struct TabIconButton: View {
 	let iconSize: CGFloat
 	let action: () -> Void
 
-	@State private var isHovered = false
-
 	init(
 		icon: AppIcon,
 		iconSize: CGFloat = 13,
@@ -45,20 +54,65 @@ struct TabIconButton: View {
 
 	var body: some View {
 		Button(action: action) {
-			ZStack {
-				RoundedRectangle(cornerRadius: 5, style: .continuous)
-					.fill(Color.primary.opacity(isHovered ? 0.1 : 0))
-					.frame(width: 22, height: 22)
-
-				AppIconImage(icon: icon, size: iconSize)
-			}
-			.frame(width: 28, height: 28)
-			.contentShape(.rect)
+			AppIconImage(icon: icon, size: iconSize)
+				.frame(width: 28, height: 28)
+				.contentShape(.rect)
 		}
-		.buttonStyle(.plain)
+		.buttonStyle(AppHoverButtonStyle(cornerRadius: 5, backgroundInset: 3))
 		.frame(width: 28, height: 28)
-		.onHover { isHovered = $0 }
-		.animation(.easeOut(duration: 0.1), value: isHovered)
+	}
+}
+
+struct AppHoverButtonStyle: ButtonStyle {
+	var isActive = false
+	var isSelected = false
+	var baseOpacity = 0.0
+	var cornerRadius: CGFloat = 7
+	var backgroundInset: CGFloat = 0
+
+	func makeBody(configuration: Configuration) -> some View {
+		AppHoverButtonBody(
+			configuration: configuration,
+			isActive: isActive,
+			isSelected: isSelected,
+			baseOpacity: baseOpacity,
+			cornerRadius: cornerRadius,
+			backgroundInset: backgroundInset
+		)
+	}
+
+	private struct AppHoverButtonBody: View {
+		let configuration: ButtonStyle.Configuration
+		let isActive: Bool
+		let isSelected: Bool
+		let baseOpacity: Double
+		let cornerRadius: CGFloat
+		let backgroundInset: CGFloat
+		@State private var isHovered = false
+
+		private var backgroundColor: Color {
+			if isSelected {
+				return Color.accentColor.opacity(configuration.isPressed ? 0.24 : 0.16)
+			}
+			if configuration.isPressed { return Color.primary.opacity(0.16) }
+			if isActive { return Color.primary.opacity(0.14) }
+			if isHovered { return Color.primary.opacity(0.1) }
+			return Color.primary.opacity(baseOpacity)
+		}
+
+		var body: some View {
+			configuration.label
+				.background {
+					RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+						.fill(backgroundColor)
+						.padding(backgroundInset)
+				}
+				.onHover { isHovered = $0 }
+				.animation(.easeOut(duration: 0.1), value: isHovered)
+				.animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+				.animation(.easeOut(duration: 0.1), value: isActive)
+				.animation(.easeOut(duration: 0.1), value: isSelected)
+		}
 	}
 }
 
@@ -67,8 +121,6 @@ struct IconButton: View {
 	let usesTitlebarBackground: Bool
 	let iconSize: CGFloat
 	let action: () -> Void
-
-	@State private var isHovered = false
 
 	init(
 		icon: AppIcon,
@@ -84,25 +136,17 @@ struct IconButton: View {
 
 	var body: some View {
 		Button(action: action) {
-			ZStack {
-				RoundedRectangle(cornerRadius: 6, style: .continuous)
-					.fill(Color.primary.opacity(isHovered ? 0.1 : 0))
-					.frame(width: 30, height: 30)
-
-				AppIconImage(icon: icon, size: iconSize)
-			}
-			.frame(width: 30, height: 30)
-			.contentShape(.rect)
+			AppIconImage(icon: icon, size: iconSize)
+				.frame(width: 30, height: 30)
+				.contentShape(.rect)
 		}
-		.buttonStyle(.plain)
+		.buttonStyle(AppHoverButtonStyle(cornerRadius: 6))
 		.frame(width: 30, height: 30)
 		.background {
 			if usesTitlebarBackground {
 				TitlebarMaterialBackground()
 			}
 		}
-		.onHover { isHovered = $0 }
-		.animation(.easeOut(duration: 0.1), value: isHovered)
 	}
 }
 

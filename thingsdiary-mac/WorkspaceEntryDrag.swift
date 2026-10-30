@@ -161,14 +161,9 @@ private final class EntryDropAreaView: NSView {
 	var targeted: ((Bool) -> Void)?
 	var perform: (([EntryDragPayload]) -> Void)?
 
-	override func hitTest(_ point: NSPoint) -> NSView? {
-		if let event = NSApp.currentEvent,
-			[.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp].contains(event.type)
-		{
-			return nil
-		}
-		return super.hitTest(point)
-	}
+	// Drag destinations do not need to participate in hit testing. Passing all
+	// pointer events through keeps the SwiftUI button's hover and pressed states alive.
+	override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
 	override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
 		guard sender.draggingPasteboard.availableType(from: [entryDragPasteboardType]) != nil else { return [] }

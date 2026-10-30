@@ -556,11 +556,14 @@ final class WorkspaceContextMenuAreaView: NSView {
 		true
 	}
 
-	override func mouseDown(with event: NSEvent) {
-	}
-
-	override func mouseUp(with event: NSEvent) {
-		primaryAction?()
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		guard let event = NSApplication.shared.currentEvent else { return nil }
+		switch event.type {
+		case .rightMouseDown, .rightMouseUp:
+			return bounds.contains(point) ? self : nil
+		default:
+			return nil
+		}
 	}
 
 	override func rightMouseDown(with event: NSEvent) {
