@@ -3096,7 +3096,17 @@ private struct EntriesView: View {
 
 	private var emptyStateView: some View {
 		ContentUnavailableView {
-			Label(emptyStateTitle, systemImage: emptyStateSystemImage)
+			if activeSelection == .trash
+				&& query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+			{
+				Label {
+					Text(emptyStateTitle)
+				} icon: {
+					AppIconImage(icon: .trashEmpty, size: 36)
+				}
+			} else {
+				Label(emptyStateTitle, systemImage: emptyStateSystemImage)
+			}
 		} description: {
 			Text(emptyStateDescription)
 		} actions: {

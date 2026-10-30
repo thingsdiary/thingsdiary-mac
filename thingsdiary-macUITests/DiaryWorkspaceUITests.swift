@@ -1865,6 +1865,12 @@ final class DiaryWorkspaceUITests: XCTestCase {
 
 	func testTrashContextMenuDisablesEmptyTrashWhenTrashIsEmpty() {
 		let app = launchWorkspace(additionalArguments: ["--ui-testing-empty-trash"])
+		app.buttons["sidebar.trash"].click()
+
+		let emptyTrashButton = app.buttons["trash.empty"]
+		XCTAssertTrue(emptyTrashButton.waitForExistence(timeout: 2))
+		XCTAssertFalse(emptyTrashButton.isEnabled)
+
 		app.buttons["sidebar.trash"].rightClick()
 		let disabledEmptyTrash = app.menuItems["Empty Trash"]
 		XCTAssertTrue(disabledEmptyTrash.waitForExistence(timeout: 2))

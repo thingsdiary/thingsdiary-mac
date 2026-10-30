@@ -88,9 +88,11 @@ struct AppHoverButtonStyle: ButtonStyle {
 		let baseOpacity: Double
 		let cornerRadius: CGFloat
 		let backgroundInset: CGFloat
+		@Environment(\.isEnabled) private var isEnabled
 		@State private var isHovered = false
 
 		private var backgroundColor: Color {
+			guard isEnabled else { return .clear }
 			if isSelected {
 				return Color.accentColor.opacity(configuration.isPressed ? 0.24 : 0.16)
 			}
@@ -102,6 +104,7 @@ struct AppHoverButtonStyle: ButtonStyle {
 
 		var body: some View {
 			configuration.label
+				.opacity(isEnabled ? 1 : 0.35)
 				.background {
 					RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 						.fill(backgroundColor)
