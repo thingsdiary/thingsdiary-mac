@@ -14,7 +14,7 @@ struct SearchBox: View {
 
 	var body: some View {
 		HStack(spacing: 8) {
-			Image(systemName: "magnifyingglass")
+			AppIconImage(icon: .search, size: 13)
 				.font(.system(size: 13, weight: .medium))
 				.foregroundStyle(.secondary)
 

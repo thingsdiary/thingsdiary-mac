@@ -406,8 +406,10 @@ private struct DiaryPickerView: View {
 						.accessibilityIdentifier("diary.cancel")
 				}
 				ToolbarItem(placement: .automatic) {
-					Button("Create Diary", systemImage: "plus", action: model.showDiaryCreation)
-						.accessibilityIdentifier("diary.create")
+					Button(action: model.showDiaryCreation) {
+						AppIconLabel(title: "Create Diary", icon: .plus)
+					}
+					.accessibilityIdentifier("diary.create")
 				}
 				ToolbarItem(placement: .confirmationAction) {
 					Button("Open Diary", action: openSelectedDiary)
@@ -1694,13 +1696,15 @@ private struct EntriesView: View {
 
 	private var templateEmptyState: some View {
 		ContentUnavailableView {
-			Label("Templates", systemImage: "doc.on.doc")
+			AppIconLabel(title: "Templates", icon: .copy, size: 36)
 		} description: {
 			Text("Reuse the same structure when you start a new entry.")
 		} actions: {
-			Button("New Template", systemImage: "square.and.pencil", action: createTemplate)
-				.buttonStyle(.borderedProminent)
-				.accessibilityIdentifier("template.empty-create")
+			Button(action: createTemplate) {
+				AppIconLabel(title: "New Template", icon: .newEntry)
+			}
+			.buttonStyle(.borderedProminent)
+			.accessibilityIdentifier("template.empty-create")
 		}
 		.accessibilityIdentifier("template.empty-state")
 	}
@@ -1719,7 +1723,7 @@ private struct EntriesView: View {
 
 			if filteredTemplates.isEmpty {
 				ContentUnavailableView {
-					Label("No Results", systemImage: "magnifyingglass")
+					AppIconLabel(title: "No Results", icon: .search, size: 36)
 				} description: {
 					Text("Try another search term.")
 				}
@@ -1983,7 +1987,7 @@ private struct EntriesView: View {
 			Button {
 				presentBulkTopicPicker(ids: ids)
 			} label: {
-				Label("Move to Topic…", systemImage: "tag").frame(maxWidth: .infinity, alignment: .leading)
+				AppIconLabel(title: "Move to Topic…", icon: .tag).frame(maxWidth: .infinity, alignment: .leading)
 			}.accessibilityIdentifier("bulk.action.topic")
 			bulkOverviewButton(.moveToTrash, ids: ids)
 			Menu {
@@ -1998,7 +2002,7 @@ private struct EntriesView: View {
 				Divider()
 				bulkButton(.archive(!chosen.allSatisfy(\.archived)), ids: ids)
 			} label: {
-				Label("More…", systemImage: "ellipsis").frame(maxWidth: .infinity, alignment: .leading)
+				AppIconLabel(title: "More…", icon: .ellipsis).frame(maxWidth: .infinity, alignment: .leading)
 			}.accessibilityIdentifier("bulk.action.more")
 		}
 	}
@@ -2007,7 +2011,7 @@ private struct EntriesView: View {
 		Button(role: action.isDestructive ? .destructive : nil) {
 			requestBulkAction(action, ids: ids)
 		} label: {
-			Label(action.title, systemImage: action.symbol)
+			AppIconLabel(title: action.title, icon: action.icon)
 				.foregroundStyle(action.isDestructive ? Color.red : Color.primary)
 				.frame(maxWidth: .infinity, alignment: .leading)
 		}.accessibilityIdentifier("bulk.action.\(action.accessibilityID)")
@@ -3105,15 +3109,17 @@ private struct EntriesView: View {
 					AppIconImage(icon: .trashEmpty, size: 36)
 				}
 			} else {
-				Label(emptyStateTitle, systemImage: emptyStateSystemImage)
+				AppIconLabel(title: emptyStateTitle, icon: emptyStateIcon, size: 36)
 			}
 		} description: {
 			Text(emptyStateDescription)
 		} actions: {
 			if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 				if activeSelection == .entries || isTopicSelected {
-					Button("New Entry", systemImage: "square.and.pencil") {
+					Button {
 						beginCreatingEntry()
+					} label: {
+						AppIconLabel(title: "New Entry", icon: .newEntry)
 					}
 					.buttonStyle(.borderedProminent)
 				} else if activeSelection == .bookmarks {
@@ -3330,7 +3336,7 @@ private struct EntriesView: View {
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.layoutPriority(1)
 				if isDropTargeted {
-					Image(systemName: dropDestination == .trash ? "trash.fill" : "arrow.down.circle.fill")
+					AppIconImage(icon: dropDestination == .trash ? .trash2 : .circleArrowDown, size: 16)
 						.foregroundStyle(dropTint)
 						.fixedSize()
 				} else if showsCount && rowCount > 0 {
@@ -3486,7 +3492,7 @@ private struct EntriesView: View {
 					.accessibilityLabel(previewIsHidden ? "Hidden entry" : title)
 				Spacer(minLength: 8)
 				if entryShowsMetadataIndicators(entry), entry.bookmarked {
-					Image(systemName: "bookmark.fill")
+					AppIconImage(icon: .bookmark, size: 16)
 						.foregroundStyle(.tint)
 						.fixedSize()
 						.accessibilityLabel("Bookmarked")
@@ -3548,14 +3554,14 @@ private struct EntriesView: View {
 		}
 	}
 
-	private var emptyStateSystemImage: String {
+	private var emptyStateIcon: AppIcon {
 		switch activeSelection {
-		case .bookmarks: "bookmark"
-		case .topic: "tag"
-		case .templates: "doc.on.doc"
-		case .archive: "archivebox"
-		case .trash: "trash"
-		case .entries: "note.text"
+		case .bookmarks: .bookmark
+		case .topic: .tag
+		case .templates: .copy
+		case .archive: .archive
+		case .trash: .trash2
+		case .entries: .notebookText
 		}
 	}
 
@@ -3863,7 +3869,7 @@ private struct ErrorView: View {
 
 	var body: some View {
 		ContentUnavailableView {
-			Label("Something Went Wrong", systemImage: "exclamationmark.triangle")
+			AppIconLabel(title: "Something Went Wrong", icon: .triangleAlert, size: 36)
 		} description: {
 			Text(message)
 				.accessibilityIdentifier("auth.error")

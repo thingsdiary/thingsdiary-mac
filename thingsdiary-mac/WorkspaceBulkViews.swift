@@ -43,17 +43,17 @@ extension WorkspaceBulkAction {
 		}
 	}
 
-	var symbol: String {
+	var icon: AppIcon {
 		switch self {
-		case .bookmark(let value): value ? "bookmark" : "bookmark.slash"
-		case .previewHidden(let value): value ? "eye.slash" : "eye"
-		case .duplicate: "plus.square.on.square"
-		case .saveAsTemplate: "doc.on.doc"
-		case .moveToTopic: "tag"
-		case .archive(let value): value ? "archivebox" : "arrow.uturn.backward"
-		case .moveToTrash, .deletePermanently, .deleteTemplates: "trash"
-		case .restore: "arrow.uturn.backward"
-		case .saveContents: "square.and.arrow.down"
+		case .bookmark(let value): value ? .bookmark : .bookmarkOff
+		case .previewHidden(let value): value ? .eyeOff : .eye
+		case .duplicate: .copyPlus
+		case .saveAsTemplate: .copy
+		case .moveToTopic: .tag
+		case .archive(let value): value ? .archive : .undo2
+		case .moveToTrash, .deletePermanently, .deleteTemplates: .trash2
+		case .restore: .undo2
+		case .saveContents: .save
 		}
 	}
 
@@ -126,7 +126,7 @@ struct WorkspaceTopicMoveSheet: View {
 				)
 				List(selection: $destination) {
 					topicRow {
-						Image(systemName: "tag.slash").foregroundStyle(.secondary)
+						AppIconImage(icon: .tagX, size: 16).foregroundStyle(.secondary)
 							.frame(width: 16)
 						Text("No Topic")
 					}

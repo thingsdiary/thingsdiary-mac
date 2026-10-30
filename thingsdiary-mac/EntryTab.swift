@@ -7,21 +7,51 @@ struct AppIcon {
 	static let arrowUpDown = Self(resource: .iconArrowUpDown)
 	static let book = Self(resource: .iconBook)
 	static let bookmark = Self(resource: .iconBookmark)
+	static let bookmarkOff = Self(resource: .iconBookmarkOff)
 	static let check = Self(resource: .iconCheck)
 	static let chevronDown = Self(resource: .iconChevronDown)
 	static let chevronRight = Self(resource: .iconChevronRight)
 	static let close = Self(resource: .iconX)
 	static let circleX = Self(resource: .iconCircleX)
+	static let circleArrowDown = Self(resource: .iconCircleArrowDown)
+	static let copy = Self(resource: .iconCopy)
+	static let copyPlus = Self(resource: .iconCopyPlus)
+	static let ellipsis = Self(resource: .iconEllipsis)
+	static let eye = Self(resource: .iconEye)
+	static let eyeOff = Self(resource: .iconEyeOff)
 	static let inbox = Self(resource: .iconInbox)
 	static let layers = Self(resource: .iconLayers)
 	static let menu = Self(resource: .iconMenu)
 	static let messageSquareText = Self(resource: .iconMessageSquareText)
 	static let newEntry = Self(resource: .iconSquarePen)
+	static let notebookText = Self(resource: .iconNotebookText)
 	static let panelLeft = Self(resource: .iconPanelLeft)
 	static let plus = Self(resource: .iconPlus)
+	static let pin = Self(resource: .iconPin)
+	static let save = Self(resource: .iconSave)
+	static let search = Self(resource: .iconSearch)
 	static let settings = Self(resource: .iconSettings)
+	static let tag = Self(resource: .iconTag)
+	static let tagX = Self(resource: .iconTagX)
 	static let trash = Self(resource: .iconTrash)
+	static let trash2 = Self(resource: .iconTrash2)
 	static let trashEmpty = Self(resource: .iconTrashEmpty)
+	static let triangleAlert = Self(resource: .iconTriangleAlert)
+	static let undo2 = Self(resource: .iconUndo2)
+}
+
+struct AppIconLabel: View {
+	let title: String
+	let icon: AppIcon
+	var size: CGFloat = 16
+
+	var body: some View {
+		Label {
+			Text(title)
+		} icon: {
+			AppIconImage(icon: icon, size: size)
+		}
+	}
 }
 
 struct AppIconImage: View {
@@ -184,8 +214,7 @@ struct BrowserTab: View {
 		Button(action: activate) {
 			HStack(spacing: 6) {
 				if isPinned {
-					Image(systemName: "pin.fill")
-						.font(.system(size: 9, weight: .semibold))
+					AppIconImage(icon: .pin, size: 9)
 						.foregroundStyle(.secondary)
 				}
 

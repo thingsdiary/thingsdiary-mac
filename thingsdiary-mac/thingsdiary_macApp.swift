@@ -168,7 +168,7 @@ private struct EntryCommands: Commands {
 							diaryMenuActions.selectDiary(diary)
 						} label: {
 							if diary.id == diaryMenuActions.currentDiaryID {
-								Label(diary.title, systemImage: "checkmark")
+								AppIconLabel(title: diary.title, icon: .check)
 							} else {
 								Text(diary.title)
 							}
