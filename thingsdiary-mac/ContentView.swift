@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import ThingsDiaryClient
 
+let listRowMembershipDuration: TimeInterval = 0.6
+
 private struct MenuMaterialBackground: NSViewRepresentable {
 	func makeNSView(context: Context) -> NSVisualEffectView {
 		let view = NSVisualEffectView()
@@ -142,6 +144,127 @@ private struct AuthenticationSessionModifier: ViewModifier {
 			}
 			.focusedSceneValue(\.logoutAction, logoutAction)
 	}
+}
+
+func listRowMembershipHeight(fullHeight: CGFloat, progress: CGFloat) -> CGFloat {
+	fullHeight * max(0, min(progress, 1))
+}
+
+func listRowMembershipProgress(
+	isInserted: Bool,
+	isVisible: Bool,
+	isRemoving: Bool,
+	reduceMotion: Bool
+) -> CGFloat {
+	if reduceMotion { return 1 }
+	if isRemoving { return 0 }
+	if !isInserted { return 1 }
+	return isVisible ? 1 : 0
+}
+
+private struct ListRowMembershipLayout: Layout {
+	var progress: CGFloat
+
+	var animatableData: CGFloat {
+		get { progress }
+		set { progress = newValue }
+	}
+
+	func sizeThatFits(
+		proposal: ProposedViewSize,
+		subviews: Subviews,
+		cache: inout Void
+	) -> CGSize {
+		guard let subview = subviews.first else { return .zero }
+		let fullSize = subview.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+		return CGSize(
+			width: proposal.width ?? fullSize.width,
+			height: max(
+				listRowMembershipHeight(fullHeight: fullSize.height, progress: progress),
+				1
+			)
+		)
+	}
+
+	func placeSubviews(
+		in bounds: CGRect,
+		proposal: ProposedViewSize,
+		subviews: Subviews,
+		cache: inout Void
+	) {
+		guard let subview = subviews.first else { return }
+		subview.place(
+			at: bounds.origin,
+			anchor: .topLeading,
+			proposal: ProposedViewSize(width: bounds.width, height: nil)
+		)
+	}
+}
+
+struct ListRowMembershipMotion: ViewModifier {
+	let insertionVisibility: Bool?
+	let isRemoving: Bool
+	let reduceMotion: Bool
+	let showsSeparator: Bool
+	let revealInsertion: @MainActor () -> Void
+
+	init(
+		insertionVisibility: Bool? = nil,
+		isRemoving: Bool,
+		reduceMotion: Bool,
+		showsSeparator: Bool = false,
+		revealInsertion: @escaping @MainActor () -> Void = {}
+	) {
+		self.insertionVisibility = insertionVisibility
+		self.isRemoving = isRemoving
+		self.reduceMotion = reduceMotion
+		self.showsSeparator = showsSeparator
+		self.revealInsertion = revealInsertion
+	}
+
+	@ViewBuilder func body(content: Content) -> some View {
+		if insertionVisibility == nil, !isRemoving {
+			content
+		} else {
+			let progress = listRowMembershipProgress(
+				isInserted: insertionVisibility != nil,
+				isVisible: insertionVisibility ?? true,
+				isRemoving: isRemoving,
+				reduceMotion: reduceMotion
+			)
+			ListRowMembershipLayout(progress: progress) {
+				content
+			}
+			.offset(y: -8 * (1 - progress))
+			.overlay(alignment: .bottom) {
+				if showsSeparator {
+					Divider()
+						.allowsHitTesting(false)
+						.accessibilityHidden(true)
+				}
+			}
+			.opacity(Double(progress))
+			.clipped()
+			.animation(
+				reduceMotion ? nil : .easeInOut(duration: listRowMembershipDuration),
+				value: insertionVisibility
+			)
+			.task(id: insertionVisibility) {
+				guard insertionVisibility == false else { return }
+				// The row itself, not the create action, advances this ID. A yield here
+				// guarantees AppKit has committed its collapsed geometry first.
+				await Task.yield()
+				guard !Task.isCancelled else { return }
+				revealInsertion()
+			}
+		}
+	}
+}
+
+private enum ListMembershipItemID: Hashable {
+	case entry(String)
+	case template(String)
+	case topic(String)
 }
 
 struct ContentView: View {
@@ -584,7 +707,9 @@ private struct EntriesView: View {
 	private let minimumSidebarWidth: CGFloat = 180
 	private let maximumSidebarWidth: CGFloat = 300
 	private let sidebarTrailingControlInset: CGFloat = 4
+	private let listMembershipAnimation = Animation.easeInOut(duration: listRowMembershipDuration)
 
+	@Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 	@Bindable var model: ThingsDiaryAppModel
 	let diary: ThingsDiaryDiary
 	let entries: [ThingsDiaryEntry]
@@ -624,6 +749,7 @@ private struct EntriesView: View {
 	@State private var pendingEntryAction: PendingEntryAction?
 	@State private var pendingBrowserTabClose: PendingBrowserTabClose?
 	@State private var pendingBrowserTabCloseQueue: [WorkspaceTabID] = []
+	@State private var browserTabsClosingWithListAnimation: Set<WorkspaceTabID> = []
 	@State private var browserTabCloseSaveError: String?
 	@State private var tabSavingBeforeClose: WorkspaceTabID?
 	@State private var targetedDropDestination: EntryDropDestination?
@@ -638,12 +764,26 @@ private struct EntriesView: View {
 	@State private var browserTabReorderSession: TabReorderSession<WorkspaceTabID>?
 	@State private var trafficLightsTrailingInset: CGFloat = 76
 	@State private var sidebarToggleInSidebar = true
+	@State private var listInsertionVisibility: [ListMembershipItemID: Bool] = [:]
+	@State private var removingListItemIDs: Set<ListMembershipItemID> = []
+	@State private var presentationHiddenListItemIDs: Set<ListMembershipItemID> = []
+	@State private var entryListItems = WorkspaceListPresentation<ThingsDiaryEntry>()
+	@State private var templateListItems = WorkspaceListPresentation<ThingsDiaryTemplate>()
 	@Namespace private var workspaceControlsNamespace
 	@SceneStorage("entries.preferredSidebarWidth") private var preferredSidebarWidth = 220.0
 	@SceneStorage("entries.preferredListWidth") private var preferredEntryListWidth = 320.0
 
 	private var displayedEntries: [ThingsDiaryEntry] {
 		visibleEntries(listEntries, selection: activeSelection, query: query, sort: .newest)
+			.filter { !presentationHiddenListItemIDs.contains(.entry($0.id)) }
+	}
+
+	private var presentedEntries: [ThingsDiaryEntry] {
+		entryListItems.hasSnapshot ? entryListItems.items : displayedEntries
+	}
+
+	private var presentedTemplates: [ThingsDiaryTemplate] {
+		templateListItems.hasSnapshot ? templateListItems.items : filteredTemplates
 	}
 
 	private var listEntries: [ThingsDiaryEntry] {
@@ -652,7 +792,6 @@ private struct EntriesView: View {
 
 	private var activeSelection: DiaryNavigationSelection { selection ?? .entries }
 	private var selectionIsEmpty: Bool { count(for: activeSelection) == 0 }
-
 	private var selectedEntry: ThingsDiaryEntry? {
 		guard case .entry(let entryID) = tabs.activeTabID else { return nil }
 		return entries.first { $0.id == entryID }
@@ -878,6 +1017,16 @@ private struct EntriesView: View {
 
 	var body: some View {
 		selectionAwareWorkspace
+			.onAppear {
+				reconcileEntryListItems(with: displayedEntries, animated: false)
+				reconcileTemplateListItems(with: filteredTemplates, animated: false)
+			}
+			.onChange(of: displayedEntries) { _, updatedEntries in
+				reconcileEntryListItems(with: updatedEntries)
+			}
+			.onChange(of: filteredTemplates) { _, updatedTemplates in
+				reconcileTemplateListItems(with: updatedTemplates)
+			}
 			.onChange(of: selection) {
 				query = ""
 				searchIsFocused = false
@@ -1679,6 +1828,7 @@ private struct EntriesView: View {
 		let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 		return model.templates
 			.filter { trimmedQuery.isEmpty || $0.content.localizedCaseInsensitiveContains(trimmedQuery) }
+			.filter { !presentationHiddenListItemIDs.contains(.template($0.id)) }
 			.sorted {
 				$0.createdAt == $1.createdAt ? $0.id < $1.id : $0.createdAt > $1.createdAt
 			}
@@ -1686,7 +1836,11 @@ private struct EntriesView: View {
 
 	private var templateListPane: some View {
 		Group {
-			if model.templates.isEmpty { templateEmptyState } else { templateList }
+			if model.templates.isEmpty {
+				templateEmptyState.transition(.opacity)
+			} else {
+				templateList.transition(.opacity)
+			}
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.background(.background)
@@ -1726,15 +1880,24 @@ private struct EntriesView: View {
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 			} else {
 				List(selection: workspaceListSelection) {
-					ForEach(filteredTemplates) { template in
+					ForEach(presentedTemplates) { template in
 						templateRow(template)
+							.modifier(
+								ListRowMembershipMotion(
+									insertionVisibility: listInsertionVisibility[.template(template.id)],
+									isRemoving: removingListItemIDs.contains(.template(template.id)),
+									reduceMotion: accessibilityReduceMotion,
+									revealInsertion: { revealListInsertion(.template(template.id)) }
+								)
+							)
 							.overlay { listContextMenuArea(for: .template(template.id)) }
 							.tag(WorkspaceTabID.template(template.id))
 							.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-							.listRowSeparator(.visible)
+							.listRowSeparator(.hidden)
 					}
 				}
 				.listStyle(.inset)
+				.environment(\.defaultMinListRowHeight, 0)
 				.focused($listIsFocused)
 				// Row overlays provide AppKit menus; keep List’s native double-click action.
 				.contextMenu(forSelectionType: WorkspaceTabID.self) { _ in
@@ -1744,7 +1907,7 @@ private struct EntriesView: View {
 				}
 				.background(
 					WorkspaceListSelectionAppearance(
-						order: filteredTemplates.map(\.id), selection: listSelection.selectedIDs,
+						order: presentedTemplates.map(\.id), selection: listSelection.selectedIDs,
 						viewport: listViewport, isUpdating: bulkRunning)
 				)
 				.onExitCommand(perform: exitListSelection)
@@ -1874,17 +2037,17 @@ private struct EntriesView: View {
 	private func entryListPane() -> some View {
 		Group {
 			if activeSelection == .templates {
-				templateListPane
+				templateListPane.transition(.opacity)
 			} else if selectionIsEmpty {
-				emptyStateView
+				emptyStateView.transition(.opacity)
 			} else {
 				VStack(spacing: 0) {
 					entryListHeader
 
 					if displayedEntries.isEmpty {
-						emptyStateView
+						emptyStateView.transition(.opacity)
 					} else {
-						entryListScrollView
+						entryListScrollView.transition(.opacity)
 					}
 				}
 			}
@@ -2165,11 +2328,14 @@ private struct EntriesView: View {
 
 	private func runBulkRequest(_ request: WorkspaceBulkRequest) {
 		guard !bulkRunning else { return }
-		listViewport.beginUpdates(changingIDs: Set(request.ids))
 		bulkRunning = true
 		runningBulkRequest = request
 		bulkError = nil
 		Task { @MainActor in
+			let removalIDs = bulkListRemovalIDs(for: request)
+			await prepareListRemoval(removalIDs)
+			defer { finishListRemoval(removalIDs) }
+			listViewport.beginUpdates(changingIDs: Set(request.ids))
 			var saveResult = WorkspaceBulkResult()
 			if request.needsSave {
 				saveResult = await model.performBulkAction(
@@ -2217,6 +2383,29 @@ private struct EntriesView: View {
 				reconcileListSelection()
 			}
 		}
+	}
+
+	private func bulkListRemovalIDs(for request: WorkspaceBulkRequest) -> Set<ListMembershipItemID> {
+		if request.templates {
+			return request.action == .deleteTemplates
+				? Set(request.ids.map(ListMembershipItemID.template)) : []
+		}
+		let removesRows: Bool =
+			switch request.action {
+			case .bookmark(false): activeSelection == .bookmarks
+			case .archive(true): activeSelection != .archive
+			case .archive(false): activeSelection == .archive
+			case .moveToTrash: activeSelection != .trash
+			case .restore, .deletePermanently: activeSelection == .trash
+			case .moveToTopic(let topicID):
+				if case .topic(let selectedTopicID) = activeSelection {
+					selectedTopicID != topicID
+				} else {
+					false
+				}
+			default: false
+			}
+		return removesRows ? Set(request.ids.map(ListMembershipItemID.entry)) : []
 	}
 
 	private var diaryOverview: some View {
@@ -2338,7 +2527,11 @@ private struct EntriesView: View {
 					.animation(.easeOut(duration: 0.1), value: topicsHeaderHovered)
 
 					if topicsExpanded {
-						ForEach(topicsSortedByCreation(model.topics)) { topic in
+						ForEach(
+							topicsSortedByCreation(model.topics).filter {
+								!presentationHiddenListItemIDs.contains(.topic($0.id))
+							}
+						) { topic in
 							sidebarRow(
 								topic.title,
 								icon: .messageSquareText,
@@ -2382,6 +2575,14 @@ private struct EntriesView: View {
 								)
 								.accessibilityHidden(true)
 							}
+							.modifier(
+								ListRowMembershipMotion(
+									insertionVisibility: listInsertionVisibility[.topic(topic.id)],
+									isRemoving: removingListItemIDs.contains(.topic(topic.id)),
+									reduceMotion: accessibilityReduceMotion,
+									revealInsertion: { revealListInsertion(.topic(topic.id)) }
+								)
+							)
 						}
 					}
 
@@ -2615,10 +2816,9 @@ private struct EntriesView: View {
 	private func createTemplate() {
 		Task {
 			guard let template = await model.beginTemplateDraft() else { return }
+			markListInsertion(.template(template.id))
 			selection = .templates
-			if templateMatchesCurrentQuery(template) {
-				listViewport.pinTopForInsertion(of: template.id)
-			}
+			reconcileTemplateListItems(with: filteredTemplates)
 			openTemplate(template)
 			await Task.yield()
 			editorIsFocused = true
@@ -2629,6 +2829,9 @@ private struct EntriesView: View {
 		guard let template = templatePendingDeletion else { return }
 		templatePendingDeletion = nil
 		Task {
+			let removalIDs: Set<ListMembershipItemID> = [.template(template.id)]
+			await prepareListRemoval(removalIDs)
+			defer { finishListRemoval(removalIDs) }
 			if await model.deleteTemplate(template) {
 				templateDraftsByID.removeValue(forKey: template.id)
 				closeBrowserTabImmediately(.template(template.id))
@@ -2661,24 +2864,16 @@ private struct EntriesView: View {
 				bookmarked: bookmarked
 			)
 		else { return }
+		markListInsertion(.entry(draft.id))
 		if topicID == nil, !bookmarked {
 			selection = .entries
 		}
-		if appearsInList,
-			!visibleEntries([draft], selection: activeSelection, query: query, sort: .newest).isEmpty
-		{
-			listViewport.pinTopForInsertion(of: draft.id)
-		}
+		reconcileEntryListItems(with: displayedEntries)
 		openEntry(draft)
 		Task { @MainActor in
 			await Task.yield()
 			editorIsFocused = true
 		}
-	}
-
-	private func templateMatchesCurrentQuery(_ template: ThingsDiaryTemplate) -> Bool {
-		let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-		return trimmedQuery.isEmpty || template.content.localizedCaseInsensitiveContains(trimmedQuery)
 	}
 
 	private func toggleSidebar() {
@@ -2966,6 +3161,24 @@ private struct EntriesView: View {
 	}
 
 	private func closeBrowserTabImmediately(_ tabID: WorkspaceTabID) {
+		if case .entry(let entryID) = tabID,
+			model.entryDraftIDs.contains(entryID),
+			displayedEntries.contains(where: { $0.id == entryID }),
+			!browserTabsClosingWithListAnimation.contains(tabID),
+			!accessibilityReduceMotion
+		{
+			browserTabsClosingWithListAnimation.insert(tabID)
+			let removalIDs: Set<ListMembershipItemID> = [.entry(entryID)]
+			startListRemoval(removalIDs) {
+				model.discardEntryDraft(entryID)
+				discardDraft(for: tabID)
+				finishListRemoval(removalIDs)
+				browserTabsClosingWithListAnimation.remove(tabID)
+			}
+			tabs.close(tabID)
+			selectActiveBrowserDocument()
+			return
+		}
 		if case .entry(let entryID) = tabID, model.entryDraftIDs.contains(entryID) {
 			model.discardEntryDraft(entryID)
 		}
@@ -3130,7 +3343,7 @@ private struct EntriesView: View {
 
 	private var entryListScrollView: some View {
 		List(selection: workspaceListSelection) {
-			ForEach(displayedEntries) { entry in
+			ForEach(presentedEntries) { entry in
 				entryListRow(entry)
 					.padding(.horizontal, 4)
 					.frame(maxWidth: .infinity, alignment: .leading)
@@ -3156,11 +3369,20 @@ private struct EntriesView: View {
 					)
 					.overlay { listContextMenuArea(for: .entry(entry.id)) }
 					.tag(WorkspaceTabID.entry(entry.id))
+					.modifier(
+						ListRowMembershipMotion(
+							insertionVisibility: listInsertionVisibility[.entry(entry.id)],
+							isRemoving: removingListItemIDs.contains(.entry(entry.id)),
+							reduceMotion: accessibilityReduceMotion,
+							revealInsertion: { revealListInsertion(.entry(entry.id)) }
+						)
+					)
 					.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-					.listRowSeparator(.visible)
+					.listRowSeparator(.hidden)
 			}
 		}
 		.listStyle(.inset)
+		.environment(\.defaultMinListRowHeight, 0)
 		.focused($listIsFocused)
 		// Row overlays provide AppKit menus; keep List’s native double-click action.
 		.contextMenu(forSelectionType: WorkspaceTabID.self) { _ in
@@ -3170,7 +3392,7 @@ private struct EntriesView: View {
 		}
 		.background(
 			WorkspaceListSelectionAppearance(
-				order: displayedEntries.map(\.id), selection: listSelection.selectedIDs,
+				order: presentedEntries.map(\.id), selection: listSelection.selectedIDs,
 				viewport: listViewport, isUpdating: bulkRunning)
 		)
 		.onExitCommand(perform: exitListSelection)
@@ -3398,6 +3620,11 @@ private struct EntriesView: View {
 			topicID: topicID
 		)
 		Task {
+			let removalIDs: Set<ListMembershipItemID> =
+				entryLeavesCurrentList(entry, after: action, topicID: topicID)
+				? [.entry(entry.id)] : []
+			await prepareListRemoval(removalIDs)
+			defer { finishListRemoval(removalIDs) }
 			switch action {
 			case .bookmark:
 				if !entry.bookmarked {
@@ -3412,10 +3639,17 @@ private struct EntriesView: View {
 					await model.toggleArchive(entry)
 				}
 			case .duplicate:
+				let previousIDs = Set(entries.map(\.id))
 				await model.duplicateEntry(entry)
+				if case .entries(_, let updatedEntries) = model.screen,
+					let created = updatedEntries.first(where: { !previousIDs.contains($0.id) })
+				{
+					markListInsertion(.entry(created.id))
+				}
 			case .saveAsTemplate:
 				let content = draftsByEntryID[entry.id] ?? entry.content
 				if let template = await model.createTemplate(content: content) {
+					markListInsertion(.template(template.id))
 					selection = .templates
 					openTemplate(template)
 				}
@@ -3586,6 +3820,200 @@ private struct EntriesView: View {
 		showingTopicCreator = true
 	}
 
+	private func reconcileEntryListItems(
+		with source: [ThingsDiaryEntry],
+		animated: Bool = true
+	) {
+		let oldIDs = Set(entryListItems.items.map(\.id))
+		let membershipChanged = entryListItems.items.map(\.id) != source.map(\.id)
+		let insertedIDs = source.map(\.id).filter { !oldIDs.contains($0) }
+		if animated, entryListItems.hasSnapshot, !accessibilityReduceMotion {
+			var transaction = Transaction(animation: nil)
+			transaction.disablesAnimations = true
+			withTransaction(transaction) {
+				for id in insertedIDs where listInsertionVisibility[.entry(id)] == nil {
+					if listViewport.pinTopForInsertion(
+						of: id,
+						animationDuration: listRowMembershipDuration
+					) {
+						listInsertionVisibility[.entry(id)] = false
+					}
+				}
+			}
+		}
+		if animated, entryListItems.hasSnapshot, membershipChanged, !accessibilityReduceMotion {
+			withAnimation(listMembershipAnimation) {
+				_ = entryListItems.reconcile(with: source)
+			}
+		} else {
+			var transaction = Transaction(animation: nil)
+			transaction.disablesAnimations = true
+			withTransaction(transaction) {
+				_ = entryListItems.reconcile(with: source)
+			}
+		}
+		if !insertedIDs.isEmpty {
+			listViewport.finishInsertion(expectedOrder: source.map(\.id))
+		}
+	}
+
+	private func reconcileTemplateListItems(
+		with source: [ThingsDiaryTemplate],
+		animated: Bool = true
+	) {
+		let oldIDs = Set(templateListItems.items.map(\.id))
+		let membershipChanged = templateListItems.items.map(\.id) != source.map(\.id)
+		let insertedIDs = source.map(\.id).filter { !oldIDs.contains($0) }
+		if animated, templateListItems.hasSnapshot, !accessibilityReduceMotion {
+			var transaction = Transaction(animation: nil)
+			transaction.disablesAnimations = true
+			withTransaction(transaction) {
+				for id in insertedIDs where listInsertionVisibility[.template(id)] == nil {
+					if listViewport.pinTopForInsertion(
+						of: id,
+						animationDuration: listRowMembershipDuration
+					) {
+						listInsertionVisibility[.template(id)] = false
+					}
+				}
+			}
+		}
+		if animated, templateListItems.hasSnapshot, membershipChanged, !accessibilityReduceMotion {
+			withAnimation(listMembershipAnimation) {
+				_ = templateListItems.reconcile(with: source)
+			}
+		} else {
+			var transaction = Transaction(animation: nil)
+			transaction.disablesAnimations = true
+			withTransaction(transaction) {
+				_ = templateListItems.reconcile(with: source)
+			}
+		}
+		if !insertedIDs.isEmpty {
+			listViewport.finishInsertion(expectedOrder: source.map(\.id))
+		}
+	}
+
+	private func markListInsertion(_ id: ListMembershipItemID) {
+		guard !accessibilityReduceMotion else { return }
+		let shouldAnimate: Bool
+		switch id {
+		case .entry(let id), .template(let id):
+			shouldAnimate = listViewport.pinTopForInsertion(
+				of: id,
+				animationDuration: listRowMembershipDuration
+			)
+		case .topic:
+			shouldAnimate = true
+		}
+		guard shouldAnimate else { return }
+		var transaction = Transaction(animation: nil)
+		transaction.disablesAnimations = true
+		withTransaction(transaction) {
+			listInsertionVisibility[id] = false
+		}
+	}
+
+	private func revealListInsertion(_ id: ListMembershipItemID) {
+		guard listInsertionVisibility[id] == false else { return }
+		withAnimation(
+			listMembershipAnimation,
+			completionCriteria: .removed
+		) {
+			listInsertionVisibility[id] = true
+		} completion: {
+			guard listInsertionVisibility[id] == true else { return }
+			var transaction = Transaction(animation: nil)
+			transaction.disablesAnimations = true
+			withTransaction(transaction) {
+				_ = listInsertionVisibility.removeValue(forKey: id)
+			}
+		}
+	}
+
+	private func prepareListRemoval(_ ids: Set<ListMembershipItemID>) async {
+		await withCheckedContinuation { continuation in
+			startListRemoval(ids) {
+				continuation.resume()
+			}
+		}
+	}
+
+	private func startListRemoval(
+		_ ids: Set<ListMembershipItemID>,
+		completion: @escaping @MainActor () -> Void
+	) {
+		guard !ids.isEmpty, !accessibilityReduceMotion else {
+			completion()
+			return
+		}
+		withAnimation(
+			listMembershipAnimation,
+			completionCriteria: .removed
+		) {
+			removingListItemIDs.formUnion(ids)
+		} completion: {
+			var transaction = Transaction(animation: nil)
+			transaction.disablesAnimations = true
+			withTransaction(transaction) {
+				presentationHiddenListItemIDs.formUnion(ids)
+				removingListItemIDs.subtract(ids)
+			}
+			completion()
+		}
+	}
+
+	private func finishListRemoval(_ ids: Set<ListMembershipItemID>) {
+		guard !ids.isEmpty else { return }
+		let retainedIDs = Set(ids.filter(listMembershipItemExistsInSource))
+		var transaction = Transaction(animation: nil)
+		transaction.disablesAnimations = true
+		withTransaction(transaction) {
+			presentationHiddenListItemIDs.subtract(ids)
+			removingListItemIDs.subtract(ids)
+			for id in ids {
+				listInsertionVisibility.removeValue(forKey: id)
+			}
+		}
+		for id in retainedIDs {
+			markListInsertion(id)
+		}
+	}
+
+	private func listMembershipItemExistsInSource(_ id: ListMembershipItemID) -> Bool {
+		switch id {
+		case .entry(let entryID):
+			visibleEntries(listEntries, selection: activeSelection, query: query, sort: .newest)
+				.contains { $0.id == entryID }
+		case .template(let templateID): model.templates.contains { $0.id == templateID }
+		case .topic(let topicID): model.topics.contains { $0.id == topicID }
+		}
+	}
+
+	private func entryLeavesCurrentList(
+		_ entry: ThingsDiaryEntry,
+		after action: EntryAction,
+		topicID: String?
+	) -> Bool {
+		switch action {
+		case .bookmark, .duplicate, .saveAsTemplate:
+			return false
+		case .toggleBookmark:
+			return activeSelection == .bookmarks && entry.bookmarked
+		case .toggleArchive:
+			return entry.archived ? activeSelection == .archive : activeSelection != .archive
+		case .archive:
+			return !entry.archived && activeSelection != .archive
+		case .moveToTopic:
+			guard case .topic(let selectedTopicID) = activeSelection else { return false }
+			return selectedTopicID != topicID
+		case .moveToTrash:
+			return activeSelection != .trash
+		case .restore, .deletePermanently:
+			return activeSelection == .trash
+		}
+	}
+
 	private func beginEditingDiary() {
 		diaryTitle = diary.title
 		diaryDescription = diary.description
@@ -3675,6 +4103,9 @@ private struct EntriesView: View {
 		guard let topic = topicPendingDeletion else { return }
 		topicPendingDeletion = nil
 		Task {
+			let removalIDs: Set<ListMembershipItemID> = [.topic(topic.id)]
+			await prepareListRemoval(removalIDs)
+			defer { finishListRemoval(removalIDs) }
 			if await model.deleteTopic(topic, deleteEntries: deleteEntries),
 				activeSelection == .topic(topic.id)
 			{
@@ -3770,6 +4201,7 @@ private struct EntriesView: View {
 								if let createdTopic = model.topics.first(where: {
 									!existingTopicIDs.contains($0.id)
 								}) {
+									markListInsertion(.topic(createdTopic.id))
 									selection = .topic(createdTopic.id)
 								}
 							}

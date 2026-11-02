@@ -848,6 +848,7 @@ final class ThingsDiaryAppModel {
 
 		static func uiTestingWorkspace(
 			includesDeletedEntry: Bool = true,
+			includesBookmark: Bool = false,
 			includesTemplate: Bool = false,
 			includesMultipleTemplates: Bool = false,
 			includesMultipleDiaries: Bool = false,
@@ -884,6 +885,7 @@ final class ThingsDiaryAppModel {
 					content: content,
 					topicID: index == 19 || (includesHiddenPreviews && (6...8).contains(index))
 						? "fixture-topic-2" : nil,
+					bookmarked: includesBookmark && index == 2,
 					previewHidden: includesHiddenPreviews && (2...5).contains(index),
 					createdAt: timestamp,
 					updatedAt: timestamp,
@@ -1362,16 +1364,16 @@ final class ThingsDiaryAppModel {
 			}
 			return
 		}
-		screen = .loading
 		do {
 			let created = try await client.createEntry(
 				diaryID: diary.id,
 				params: params
 			)
-			screen = .entries(diary: diary, entries: entries + [created])
-		} catch {
-			screen = .error("Could not create the entry.")
-		}
+			guard case .entries(let currentDiary, let currentEntries) = screen,
+				currentDiary.id == diary.id
+			else { return }
+			screen = .entries(diary: currentDiary, entries: currentEntries + [created])
+		} catch {}
 	}
 
 	private func persistPromotedEntry(_ entry: ThingsDiaryEntry) async {
@@ -1761,7 +1763,6 @@ final class ThingsDiaryAppModel {
 			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
 		}
-		screen = .loading
 		do {
 			try await client.deleteEntry(
 				diaryID: entry.diaryID,
@@ -1772,13 +1773,14 @@ final class ThingsDiaryAppModel {
 				diaryID: entry.diaryID,
 				entryID: entry.id
 			)
+			guard case .entries(let currentDiary, let currentEntries) = screen,
+				currentDiary.id == diary.id
+			else { return }
 			screen = .entries(
-				diary: diary,
-				entries: entries.map { $0.id == deleted.id ? deleted : $0 }
+				diary: currentDiary,
+				entries: currentEntries.map { $0.id == deleted.id ? deleted : $0 }
 			)
-		} catch {
-			screen = .error("Could not move the entry to trash.")
-		}
+		} catch {}
 	}
 
 	func restoreEntry(_ entry: ThingsDiaryEntry) async {
@@ -1818,19 +1820,19 @@ final class ThingsDiaryAppModel {
 			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return
 		}
-		screen = .loading
 		do {
 			let restored = try await client.restoreEntry(
 				diaryID: entry.diaryID,
 				entryID: entry.id
 			)
+			guard case .entries(let currentDiary, let currentEntries) = screen,
+				currentDiary.id == diary.id
+			else { return }
 			screen = .entries(
-				diary: diary,
-				entries: entries.map { $0.id == restored.id ? restored : $0 }
+				diary: currentDiary,
+				entries: currentEntries.map { $0.id == restored.id ? restored : $0 }
 			)
-		} catch {
-			screen = .error("Could not restore the entry.")
-		}
+		} catch {}
 	}
 
 	func deleteEntryPermanently(_ entry: ThingsDiaryEntry) async {
@@ -2204,19 +2206,20 @@ final class ThingsDiaryAppModel {
 			await refreshEntriesFromStore(store, diaryID: diary.id)
 			return true
 		}
-		screen = .loading
 		do {
 			let updated = try await client.updateEntry(
 				entry,
 				params: params
 			)
-			let updatedEntries = entries.map { current in
+			guard case .entries(let currentDiary, let currentEntries) = screen,
+				currentDiary.id == diary.id
+			else { return false }
+			let updatedEntries = currentEntries.map { current in
 				current.id == updated.id ? updated : current
 			}
-			screen = .entries(diary: diary, entries: updatedEntries)
+			screen = .entries(diary: currentDiary, entries: updatedEntries)
 			return true
 		} catch {
-			screen = .entries(diary: diary, entries: entries)
 			return false
 		}
 	}

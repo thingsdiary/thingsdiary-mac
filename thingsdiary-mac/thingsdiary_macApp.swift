@@ -263,6 +263,9 @@ struct ThingsDiaryApp: App {
 						includesDeletedEntry: !ProcessInfo.processInfo.arguments.contains(
 							"--ui-testing-empty-trash"
 						),
+						includesBookmark: ProcessInfo.processInfo.arguments.contains(
+							"--ui-testing-bookmark"
+						),
 						includesTemplate: ProcessInfo.processInfo.arguments.contains(
 							"--ui-testing-template"
 						),

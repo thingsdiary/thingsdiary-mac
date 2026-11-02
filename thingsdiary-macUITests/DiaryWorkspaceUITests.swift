@@ -256,6 +256,37 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(tab.waitForNonExistence(timeout: 2))
 	}
 
+	func testCreatingEntryWhileScrolledDoesNotMoveOrAnimateTheList() {
+		let app = launchWorkspace()
+		let list = app.descendants(matching: .any)["entry-list.scroll"]
+		XCTAssertTrue(list.waitForExistence(timeout: 2))
+		list.scroll(byDeltaX: 0, deltaY: -320)
+
+		let visibleAnchor = app.buttons.matching(
+			NSPredicate(format: "identifier BEGINSWITH %@", "entry.fixture-entry")
+		).allElementsBoundByIndex.first {
+			$0.frame.maxY > list.frame.minY && $0.frame.minY < list.frame.maxY
+		}
+		guard let visibleAnchor else {
+			XCTFail("Expected a visible fixture entry after scrolling")
+			return
+		}
+		let anchorID = visibleAnchor.identifier
+		let originalY = visibleAnchor.frame.minY
+
+		let entryID = newEntryDraft(in: app.windows.firstMatch)
+		let stableAnchor = app.buttons[anchorID]
+		XCTAssertEqual(stableAnchor.frame.minY, originalY, accuracy: 1)
+
+		// Scrolling to the new row immediately must not reveal a deferred animation.
+		list.scroll(byDeltaX: 0, deltaY: 2_000)
+		let newEntry = app.descendants(matching: .any)["entry.\(entryID)"]
+		XCTAssertTrue(newEntry.waitForExistence(timeout: 2))
+		let settledY = newEntry.frame.minY
+		RunLoop.current.run(until: Date().addingTimeInterval(0.7))
+		XCTAssertEqual(newEntry.frame.minY, settledY, accuracy: 1)
+	}
+
 	func testSidebarChangesEntrySection() {
 		let app = launchWorkspace()
 
@@ -1509,6 +1540,117 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertFalse(app.buttons["Create"].exists)
 	}
 
+	func testEphemeralEntriesAnimateAcrossRepeatedCreateAndCloseWaves() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let untitledTabs = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.",
+				"entry-tab.close.",
+				"Untitled"
+			)
+		)
+
+		for burstSize in [1, 10, 15] {
+			for _ in 0..<burstSize {
+				workspace.buttons["entry.create"].click()
+			}
+			XCTAssertTrue(untitledTabs.element(boundBy: burstSize - 1).waitForExistence(timeout: 3))
+			XCTAssertEqual(untitledTabs.count, burstSize)
+			let draftIDs = (0..<untitledTabs.count).map {
+				String(untitledTabs.element(boundBy: $0).identifier.dropFirst("entry-tab.".count))
+			}
+			for draftID in draftIDs {
+				XCTAssertTrue(workspace.descendants(matching: .any)["entry.\(draftID)"].exists)
+			}
+
+			for draftID in draftIDs.reversed() {
+				let close = workspace.buttons["entry-tab.close.\(draftID)"]
+				XCTAssertTrue(close.exists)
+				close.click()
+			}
+			let noDraftTabs = NSPredicate { _, _ in untitledTabs.count == 0 }
+			XCTAssertEqual(
+				XCTWaiter.wait(
+					for: [XCTNSPredicateExpectation(predicate: noDraftTabs, object: nil)],
+					timeout: 5
+				),
+				.completed
+			)
+			for draftID in draftIDs {
+				XCTAssertFalse(workspace.descendants(matching: .any)["entry.\(draftID)"].exists)
+			}
+		}
+	}
+
+	func testSavingFifteenDraftsKeepsEveryEntryRowAndStableID() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		let untitledTabs = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@ AND label == %@",
+				"entry-tab.", "entry-tab.close.", "Untitled"
+			)
+		)
+
+		for _ in 0..<15 { workspace.buttons["entry.create"].click() }
+		XCTAssertTrue(untitledTabs.element(boundBy: 14).waitForExistence(timeout: 5))
+		let ids = (0..<15).map {
+			String(untitledTabs.element(boundBy: $0).identifier.dropFirst("entry-tab.".count))
+		}
+
+		for (index, id) in ids.enumerated() {
+			workspace.buttons["entry-tab.\(id)"].click()
+			let editor = workspace.textViews["entry.editor"]
+			XCTAssertTrue(editor.waitForExistence(timeout: 2))
+			typeText("Saved entry \(index + 1)", into: editor)
+			saveFromFileMenu(in: app)
+			if [0, 9, 14].contains(index) {
+				for savedID in ids.prefix(index + 1) {
+					XCTAssertTrue(workspace.descendants(matching: .any)["entry.\(savedID)"].exists)
+				}
+			}
+		}
+	}
+
+	func testTemplateBurstsOfOneTenAndFifteenNeverDropRows() {
+		let app = launchWorkspace()
+		let workspace = workspace(in: app)
+		workspace.buttons["sidebar.templates"].click()
+		let draftTabs = workspace.buttons.matching(
+			NSPredicate(
+				format: "identifier BEGINSWITH %@ AND NOT identifier BEGINSWITH %@ AND label == %@",
+				"template-tab.", "template-tab.close.", "Untitled Template"
+			)
+		)
+
+		for burstSize in [1, 10, 15] {
+			for _ in 0..<burstSize { workspace.buttons["template.create"].click() }
+			XCTAssertTrue(draftTabs.element(boundBy: burstSize - 1).waitForExistence(timeout: 5))
+			XCTAssertEqual(draftTabs.count, burstSize)
+			let ids = (0..<burstSize).map {
+				String(draftTabs.element(boundBy: $0).identifier.dropFirst("template-tab.".count))
+			}
+			for id in ids {
+				XCTAssertTrue(workspace.descendants(matching: .any)["template.\(id)"].exists)
+			}
+			for id in ids.reversed() {
+				let close = workspace.buttons["template-tab.close.\(id)"]
+				XCTAssertTrue(close.exists)
+				close.click()
+			}
+			let noDraftTabs = NSPredicate { _, _ in draftTabs.count == 0 }
+			XCTAssertEqual(
+				XCTWaiter.wait(
+					for: [XCTNSPredicateExpectation(predicate: noDraftTabs, object: nil)],
+					timeout: 5
+				),
+				.completed
+			)
+		}
+	}
+
 	func testClosingEphemeralEntryCreatedInBookmarksDiscardsIt() {
 		let app = launchWorkspace()
 		let workspace = workspace(in: app)
@@ -2365,4 +2507,5 @@ final class DiaryWorkspaceUITests: XCTestCase {
 		XCTAssertTrue(editor.waitForExistence(timeout: 2))
 		XCTAssertEqual(editor.value as? String, "")
 	}
+
 }
