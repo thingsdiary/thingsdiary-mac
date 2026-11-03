@@ -587,7 +587,7 @@
 			repositoryURL = "https://github.com/thingsdiary/client-swift.git";
 			requirement = {
 				kind = revision;
-				revision = eecb5ddd4282803405d8ba3459ec0adb516edc6a;
+				revision = 5ae215fe9930c48a665995861c2ef7759310e699;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
